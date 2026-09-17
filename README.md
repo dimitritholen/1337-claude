@@ -1,8 +1,8 @@
 # 1337
 
 A Claude Code plugin with three output styles (`1337:l33t`, `1337:unc`,
-`1337:tremendous`), always-on evaluate-before-you-build and name-your-assumptions
-rules, and an opt-in orchestrator mode that routes work to cheaper models.
+`1337:tremendous`), always-on evaluate-before-you-build, name-your-assumptions
+and proactive-teammate rules, and an opt-in orchestrator mode that routes work to cheaper models.
 
 ## Install
 
