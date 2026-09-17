@@ -76,3 +76,12 @@ Agents that set their own `model`, including the three above, are not affected.
 ```bash
 tests/orchestrator-guard.test.sh
 ```
+
+The session rules (evaluate, assumptions, proactive teammate) are checked by an
+eval suite in `evals/`, run with and without the plugin so each case shows
+whether the rule changes behaviour. It spends real tokens (about $1.20 for one
+run per case):
+
+```bash
+claude plugin eval . --runs 1
+```
