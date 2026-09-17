@@ -1,0 +1,13 @@
+{
+  "name": "1337-claude",
+  "owner": {
+    "name": "dimitritholen"
+  },
+  "plugins": [
+    {
+      "name": "1337",
+      "source": "./",
+      "description": "Output styles, evaluate-before-you-build rules, and an opt-in orchestrator mode that routes work to cheaper models."
+    }
+  ]
+}

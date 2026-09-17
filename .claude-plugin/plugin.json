@@ -1,0 +1,13 @@
+{
+  "name": "1337",
+  "version": "0.1.0",
+  "description": "Skills invoked as /1337:<skill>, a 1337 hacker output style, and an always-on rule to evaluate requests before building them.",
+  "userConfig": {
+    "orchestrator": {
+      "type": "boolean",
+      "title": "Orchestrator mode",
+      "description": "Keep the main session as a planner: lookups go to 1337:scout (Haiku), implementation to 1337:builder (model chosen per step), verification to 1337:checker (Haiku). Refuses main-session edits over 20 lines.",
+      "default": false
+    }
+  }
+}
