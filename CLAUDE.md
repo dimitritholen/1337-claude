@@ -15,7 +15,8 @@ work when the plugin is installed and used in any folder, not only this one.
   chosen with `/output-style`. Each file stands alone and repeats the "Say as little as
   needed", plain-text and quality sections, since styles cannot include each other.
 - `hooks/hooks.json` + `hooks/evaluate.md`: SessionStart hook that injects the
-  evaluate-before-you-build and name-your-assumptions rules into every session.
+  evaluate-before-you-build, name-your-assumptions and proactive-teammate rules
+  into every session.
 - Orchestrator mode, opt-in via the `orchestrator` option in `plugin.json`
   `userConfig` (or `CLAUDE_1337_ORCHESTRATOR=1`): `agents/` holds `scout`,
   `builder` and `checker`; `hooks/orchestrator-guard.sh` injects
