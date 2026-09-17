@@ -44,7 +44,9 @@ case "$tool" in
     lines=$(printf '%s' "$payload" | jq -r '[.tool_input.edits[]?.new_string] | join("\n")' | awk 'END { print NR }')
     ;;
   *)
-    lines=$((MAX_LINES + 1))
+    printf 'blocked (1337 orchestrator mode): %s on %s writes a whole file, which the main session may not do outside ~/.claude and temp directories. Dispatch it to 1337:builder with a self-contained brief.\n' \
+      "$tool" "$file" >&2
+    exit 2
     ;;
 esac
 
