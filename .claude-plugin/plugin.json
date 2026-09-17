@@ -1,6 +1,6 @@
 {
   "name": "1337",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Skills invoked as /1337:<skill>, a 1337 hacker output style, and an always-on rule to evaluate requests before building them.",
   "userConfig": {
     "orchestrator": {
