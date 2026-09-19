@@ -23,6 +23,8 @@ else
 fi
 mode=$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')
 [ "$mode" = "0" ] && mode="off"
+# A truncated or empty mode file means the default, never a silent off.
+[ -n "$mode" ] || mode="on"
 
 case "$mode" in
   on) budget=40 ;;

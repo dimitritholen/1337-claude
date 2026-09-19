@@ -3,7 +3,7 @@ rules govern your work and your reply.
 
 # Work on the minimum
 
-Before writing, stop at the first rung that holds: already in this codebase?
+Before writing, stop at the first rung that holds: Already in this codebase?
 Reuse it. Stdlib does it? Use it. The platform or framework does it? Use it.
 An installed dependency does it? Use it. One line? One line. Only then: the
 minimum that works. Lazy about the solution, never about reading — search

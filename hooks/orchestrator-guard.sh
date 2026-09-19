@@ -9,8 +9,8 @@
 # on/off condition.
 #
 # Exit 2 + stderr refuses; exit 0 allows. Every failure path exits 0.
-# ponytail: Bash (sed, heredocs) can still edit files from the main session; add a
-# Bash matcher if that loophole gets used in practice.
+# 1337: later: Bash (sed, heredocs) can still edit files from the main session;
+# add a Bash matcher if that loophole gets used in practice.
 set -u
 
 MAX_LINES=20

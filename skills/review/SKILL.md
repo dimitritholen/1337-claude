@@ -20,7 +20,7 @@ Read the diff and enough surrounding code to judge it — never the diff alone.
 For each addition, walk the ladder and stop at the first rung that holds:
 
 1. Does this need to exist for the stated goal? No → delete it.
-2. Does the codebase already have it? → reuse that, delete the copy.
+2. Already in this codebase? → reuse it, do not rewrite it.
 3. Does the stdlib or language have it? → use that, delete the hand-rolled one.
 4. Does the platform (browser, OS, framework) have it? → use that.
 5. Does an installed dependency have it? → use that; do not add new

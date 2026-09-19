@@ -144,6 +144,7 @@ tests/orchestrator-guard.test.sh
 tests/stop-review.test.sh
 tests/terse-governor.test.sh
 tests/subagent-rules.test.sh
+tests/rule-copies.test.sh
 ```
 
 The session rules (evaluate, assumptions, proactive teammate) are checked by an

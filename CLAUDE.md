@@ -30,6 +30,9 @@ work when the plugin is installed and used in any folder, not only this one.
   (`CLAUDE_1337_SUBAGENT_MATCHER` scopes by agent type,
   `CLAUDE_1337_SUBAGENT_RULES=0` disables). Test:
   `tests/subagent-rules.test.sh`.
+- `tests/rule-copies.test.sh`: drift check that shared rule sentences (the
+  brevity blocks, the build ladder, the never-cut rule) stay aligned across
+  the hook copies, skills and styles.
 - Orchestrator mode, opt-in via the `orchestrator` option in `plugin.json`
   `userConfig` (or `CLAUDE_1337_ORCHESTRATOR=1`): `agents/` holds `scout`,
   `builder` and `checker`; `hooks/orchestrator-guard.sh` injects

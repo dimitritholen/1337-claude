@@ -61,6 +61,11 @@ tr="$work/tr7"; t_user "fix the login bug" "$tr"; t_reply "$substantive" "$tr"
 check 2 "hard mode blocks 27-word reply" "$tr"
 check 0 "missing transcript: allowed" "$work/does-not-exist"
 
+# A truncated or empty mode file means the default, never a silent off.
+printf '' > "$mode_file"
+tr="$work/tr10"; t_user "fix the login bug" "$tr"; t_reply "$verbose" "$tr"
+check 2 "empty mode file: defaults to on" "$tr"
+
 # Env overrides the mode file.
 printf 'off\n' > "$mode_file"
 tr="$work/tr8"; t_user "fix the login bug" "$tr"; t_reply "$verbose" "$tr"

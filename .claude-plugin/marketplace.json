@@ -7,7 +7,7 @@
     {
       "name": "1337",
       "source": "./",
-      "description": "Output styles, evaluate-before-you-build rules, and an opt-in orchestrator mode that routes work to cheaper models."
+      "description": "Eight output-style voices, seven /1337: skills, always-on evaluate-before-you-build rules that reach every subagent, reply budgets enforced by a Stop hook, and an opt-in orchestrator mode that routes work to cheaper models."
     }
   ]
 }
