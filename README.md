@@ -4,8 +4,9 @@
 > workflows and prompts, hooks, output styles, token optimization and anything
 > else an agent might do differently.
 
-A Claude Code plugin with four output styles (`1337:l33t`, `1337:unc`,
-`1337:tremendous`, `1337:silent`) whose voices ride on every non-answer
+A Claude Code plugin with eight output styles (`1337:l33t`, `1337:unc`,
+`1337:tremendous`, `1337:silent`, `1337:hippy`, `1337:pimp`, `1337:surfer`,
+`1337:yoda`) whose voices ride on every non-answer
 sentence, always-on evaluate-before-you-build, name-your-assumptions
 and proactive-teammate rules, and an opt-in orchestrator mode that routes work to cheaper models.
 

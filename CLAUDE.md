@@ -11,7 +11,8 @@ work when the plugin is installed and used in any folder, not only this one.
   so the plugin installs as `1337@1337-claude`.
 - `skills/<name>/SKILL.md`: one folder per skill.
 - `output-styles/<name>.md`: a pack of voices (`1337:l33t`, `1337:unc`,
-  `1337:tremendous`, `1337:silent`),
+  `1337:tremendous`, `1337:silent`, `1337:hippy`, `1337:pimp`, `1337:surfer`,
+  `1337:yoda`),
   chosen with `/output-style`. Each file stands alone and repeats the "Say as little as
   needed", plain-text and quality sections, since styles cannot include each other.
 - `hooks/hooks.json` + `hooks/evaluate.md`: SessionStart hook that injects the

@@ -1,7 +1,7 @@
 {
   "name": "1337",
-  "version": "0.8.0",
-  "description": "Skills invoked as /1337:<skill>, a 1337 hacker output style pack with a silent voice, reply budgets enforced by a Stop hook, and an always-on rule to evaluate requests before building them.",
+  "version": "0.9.0",
+  "description": "Skills invoked as /1337:<skill>, an eight-voice output style pack with reply budgets enforced by a Stop hook, and an always-on rule to evaluate requests before building them.",
   "userConfig": {
     "orchestrator": {
       "type": "boolean",
