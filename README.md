@@ -24,6 +24,16 @@ Pick a voice with `/output-style`.
 - `/1337:review` — reviews the current diff (or a named branch/PR) for
   over-engineering and hands back a delete-list: what to cut and what existing
   code, stdlib or platform feature replaces it. Read-only.
+- `/1337:assumptions` — audits a plan, spec or diff for unchecked assumptions
+  that would flip the decision, each with what changes if it is wrong.
+  Read-only.
+- `/1337:scope` — shrinks a feature request to the smallest version that
+  still achieves its goal, before any code exists. Read-only.
+- `/1337:debt` — sweeps the repo for TODO markers, dead code, obsolete
+  workarounds and stale dependencies; hands back a delete-ledger with
+  evidence per line. Read-only.
+- `/1337:tier` — splits a task into builder-sized steps and assigns the
+  cheapest model tier per step (Haiku/Sonnet/Opus) for dispatch. Read-only.
 
 After a session's diff grows past 30 added lines, a Stop hook offers one
 `/1337:review` pass before the session ends — once per session, never runs it
