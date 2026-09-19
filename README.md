@@ -1,7 +1,8 @@
 # 1337
 
-A Claude Code plugin with three output styles (`1337:l33t`, `1337:unc`,
-`1337:tremendous`), always-on evaluate-before-you-build, name-your-assumptions
+A Claude Code plugin with four output styles (`1337:l33t`, `1337:unc`,
+`1337:tremendous`, `1337:silent`) whose voices ride on every non-answer
+sentence, always-on evaluate-before-you-build, name-your-assumptions
 and proactive-teammate rules, and an opt-in orchestrator mode that routes work to cheaper models.
 
 ## Install
