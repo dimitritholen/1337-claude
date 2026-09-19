@@ -35,6 +35,28 @@ check 0 "write under ~/.claude" \
   "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/projects/p/memory/m.md\",\"content\":\"x\"}}"
 check 0 "write in temp scratchpad" \
   '{"tool_name":"Write","tool_input":{"file_path":"/private/tmp/claude-501/x/scratchpad/f.txt","content":"x"}}'
+
+# Bash writes are refused in the main session, reads are not.
+check 2 "bash redirect to a file in main session" \
+  '{"tool_name":"Bash","tool_input":{"command":"printf \"a\\nb\\n\" > /repo/big.txt"}}'
+check 2 "bash heredoc in main session" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat <<EOF > /repo/f.txt\nhello\nEOF"}}'
+check 2 "bash append-redirect in main session" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo x >> /repo/f.txt"}}'
+check 2 "bash tee in main session" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo x | tee /repo/f.txt"}}'
+check 2 "bash sed -i in main session" \
+  '{"tool_name":"Bash","tool_input":{"command":"sed -i \"s/a/b/\" /repo/f.txt"}}'
+check 0 "bash redirect to /dev/null" \
+  '{"tool_name":"Bash","tool_input":{"command":"grep -r todo /repo 2>/dev/null"}}'
+check 0 "bash redirect into temp dir" \
+  '{"tool_name":"Bash","tool_input":{"command":"seq 1 40 > /tmp/claude-501/scratch/f.txt"}}'
+check 0 "bash read-only command" \
+  '{"tool_name":"Bash","tool_input":{"command":"ls -la /repo"}}'
+check 0 "bash from subagent" \
+  '{"agent_id":"abc","tool_name":"Bash","tool_input":{"command":"printf \"a\" > /repo/big.txt"}}'
+check 0 "bash piped grep, no redirect" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat /repo/f.txt | grep -c line"}}'
 "$HOOK" --rules | grep -q '^# Orchestrator mode' && echo "ok   mode on: rules printed" || { echo "FAIL mode on: rules missing"; fail=1; }
 
 unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR

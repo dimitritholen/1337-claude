@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# PreToolUse hook for Edit|Write|MultiEdit|NotebookEdit, active only in orchestrator
-# mode (plugin option `orchestrator`, or CLAUDE_1337_ORCHESTRATOR=1). Keeps the main
-# session an orchestrator: subagent calls (payload carries agent_id) always pass; the
-# main session may make edits of <= MAX_LINES new lines and write under ~/.claude or
-# a temp dir. Everything else is refused with a pointer to 1337:builder.
+# PreToolUse hook for Edit|Write|MultiEdit|NotebookEdit|Bash, active only in
+# orchestrator mode (plugin option `orchestrator`, or CLAUDE_1337_ORCHESTRATOR=1).
+# Keeps the main session an orchestrator: subagent calls (payload carries
+# agent_id) always pass; the main session may make edits of <= MAX_LINES new
+# lines and write under ~/.claude or a temp dir. Bash commands that write
+# files (redirects, heredocs, tee, sed -i) are refused the same way — the
+# default "create a file" path is a Bash redirect, not Write. Everything else
+# is refused with a pointer to 1337:builder.
 #
 # With --rules it prints hooks/orchestrator.md instead (SessionStart), under the same
 # on/off condition.
 #
 # Exit 2 + stderr refuses; exit 0 allows. Every failure path exits 0.
-# 1337: later: Bash (sed, heredocs) can still edit files from the main session;
-# add a Bash matcher if that loophole gets used in practice.
+# 1337: later: Bash cp/mv/rm/mkdir from the main session still write the tree;
+# add those to the write-patterns if that loophole gets used in practice.
 set -u
 
 MAX_LINES=20
@@ -37,6 +40,19 @@ case "$file" in
 esac
 
 case "$tool" in
+  Bash)
+    bash_cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
+    [ -n "$bash_cmd" ] || exit 0
+    case "$bash_cmd" in
+      *"/tmp/"*|*"/private/tmp/"*|*"/var/folders/"*|*".claude/"*) exit 0 ;;
+    esac
+    clean=$(printf '%s\n' "$bash_cmd" | sed -e 's#[0-9]*&\?>[[:space:]]*/dev/null##g' -e 's#[0-9]*>&1##g')
+    if printf '%s\n' "$clean" | grep -qE '<<|(^|[[:space:];&(])tee([[:space:]]|$)|sed[[:space:]]+(-[a-zA-Z]+ )*-i|(^|[[:space:];&(])[0-9]*>+&?[[:space:]]'; then
+      printf 'blocked (1337 orchestrator mode): Bash command writes files (%.80s). Dispatch it to 1337:builder with a self-contained brief; the main session may only write under ~/.claude and temp directories.\n' "$bash_cmd" >&2
+      exit 2
+    fi
+    exit 0
+    ;;
   Edit)
     lines=$(printf '%s' "$payload" | jq -r '.tool_input.new_string // ""' | awk 'END { print NR }')
     ;;

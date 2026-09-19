@@ -97,7 +97,9 @@ Off by default. When on, the main session only plans, dispatches and reviews:
 
 A failed check goes back to the builder once, one model tier up. A hook refuses
 main-session edits over 20 lines and new files outside `~/.claude` and temp
-directories, so larger changes go through `1337:builder`.
+directories — including Bash redirects, heredocs, `tee` and `sed -i`, which is
+how an agent will actually try to write a file — so larger changes go through
+`1337:builder`.
 
 ### Turn it on
 

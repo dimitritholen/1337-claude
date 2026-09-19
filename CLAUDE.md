@@ -36,7 +36,8 @@ work when the plugin is installed and used in any folder, not only this one.
 - Orchestrator mode, opt-in via the `orchestrator` option in `plugin.json`
   `userConfig` (or `CLAUDE_1337_ORCHESTRATOR=1`): `agents/` holds `scout`,
   `builder` and `checker`; `hooks/orchestrator-guard.sh` injects
-  `hooks/orchestrator.md` at SessionStart and refuses large main-session edits.
+  `hooks/orchestrator.md` at SessionStart and refuses large main-session
+  edits and Bash file writes (redirects, heredocs, `tee`, `sed -i`).
   Test: `tests/orchestrator-guard.test.sh`.
 
 Behaviour that users should get goes in the plugin, never in this file.
