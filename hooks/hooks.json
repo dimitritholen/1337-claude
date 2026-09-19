@@ -1,5 +1,5 @@
 {
-  "description": "Injects the 1337 rules at session start; in orchestrator mode also the routing rules and the main-session edit guard",
+  "description": "Injects the 1337 rules at session start; offers a /1337:review pass once when the session diff gets big; in orchestrator mode also the routing rules and the main-session edit guard",
   "hooks": {
     "SessionStart": [
       {
@@ -12,6 +12,17 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-guard.sh\" --rules",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/stop-review.sh\"",
             "timeout": 5
           }
         ]

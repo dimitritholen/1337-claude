@@ -17,6 +17,9 @@ work when the plugin is installed and used in any folder, not only this one.
 - `hooks/hooks.json` + `hooks/evaluate.md`: SessionStart hook that injects the
   evaluate-before-you-build, name-your-assumptions and proactive-teammate rules
   into every session. Behaviour checks: `evals/<case>/` (`claude plugin eval .`).
+- `hooks/stop-review.sh`: Stop hook that once per session offers a
+  `/1337:review` pass when the session diff adds 30+ lines
+  (`CLAUDE_1337_REVIEW_NUDGE=0` opts out). Test: `tests/stop-review.test.sh`.
 - Orchestrator mode, opt-in via the `orchestrator` option in `plugin.json`
   `userConfig` (or `CLAUDE_1337_ORCHESTRATOR=1`): `agents/` holds `scout`,
   `builder` and `checker`; `hooks/orchestrator-guard.sh` injects

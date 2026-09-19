@@ -19,6 +19,16 @@ claude --plugin-dir ~/projects/1337-claude
 
 Pick a voice with `/output-style`.
 
+## Skills
+
+- `/1337:review` — reviews the current diff (or a named branch/PR) for
+  over-engineering and hands back a delete-list: what to cut and what existing
+  code, stdlib or platform feature replaces it. Read-only.
+
+After a session's diff grows past 30 added lines, a Stop hook offers one
+`/1337:review` pass before the session ends — once per session, never runs it
+unasked. Opt out with `CLAUDE_1337_REVIEW_NUDGE=0`.
+
 ## Orchestrator mode
 
 Off by default. When on, the main session only plans, dispatches and reviews:
@@ -75,6 +85,7 @@ Agents that set their own `model`, including the three above, are not affected.
 
 ```bash
 tests/orchestrator-guard.test.sh
+tests/stop-review.test.sh
 ```
 
 The session rules (evaluate, assumptions, proactive teammate) are checked by an
