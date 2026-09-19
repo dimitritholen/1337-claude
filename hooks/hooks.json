@@ -1,5 +1,5 @@
 {
-  "description": "Injects the 1337 rules at session start; offers a /1337:review pass once when the session diff gets big; in orchestrator mode also the routing rules and the main-session edit guard",
+  "description": "Injects the 1337 rules at session start; enforces reply budgets after each turn; offers a /1337:review pass once when the session diff gets big; in orchestrator mode also the routing rules and the main-session edit guard",
   "hooks": {
     "SessionStart": [
       {
@@ -23,6 +23,11 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/stop-review.sh\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/terse-governor.sh\"",
             "timeout": 5
           }
         ]

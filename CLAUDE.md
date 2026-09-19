@@ -11,7 +11,7 @@ work when the plugin is installed and used in any folder, not only this one.
   so the plugin installs as `1337@1337-claude`.
 - `skills/<name>/SKILL.md`: one folder per skill.
 - `output-styles/<name>.md`: a pack of voices (`1337:l33t`, `1337:unc`,
-  `1337:tremendous`),
+  `1337:tremendous`, `1337:silent`),
   chosen with `/output-style`. Each file stands alone and repeats the "Say as little as
   needed", plain-text and quality sections, since styles cannot include each other.
 - `hooks/hooks.json` + `hooks/evaluate.md`: SessionStart hook that injects the
@@ -20,6 +20,10 @@ work when the plugin is installed and used in any folder, not only this one.
 - `hooks/stop-review.sh`: Stop hook that once per session offers a
   `/1337:review` pass when the session diff adds 30+ lines
   (`CLAUDE_1337_REVIEW_NUDGE=0` opts out). Test: `tests/stop-review.test.sh`.
+- `hooks/terse-governor.sh`: Stop hook that measures the last reply and blocks
+  over-budget ones (mode in `~/.claude/.1337-terse`, set by `/1337:terse`;
+  `CLAUDE_1337_TERSE=0|on|hard` overrides). Test:
+  `tests/terse-governor.test.sh`.
 - Orchestrator mode, opt-in via the `orchestrator` option in `plugin.json`
   `userConfig` (or `CLAUDE_1337_ORCHESTRATOR=1`): `agents/` holds `scout`,
   `builder` and `checker`; `hooks/orchestrator-guard.sh` injects

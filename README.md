@@ -39,6 +39,16 @@ After a session's diff grows past 30 added lines, a Stop hook offers one
 `/1337:review` pass before the session ends — once per session, never runs it
 unasked. Opt out with `CLAUDE_1337_REVIEW_NUDGE=0`.
 
+## Terse mode
+
+A Stop hook measures every reply: if it exceeds the word budget (code fences
+excluded) and the user did not ask why, how or for an explanation, the reply
+is blocked and resent as the answer only. On by default at 40 words;
+`/1337:terse hard` tightens it to one line, `/1337:terse off` disables.
+Levels persist in `~/.claude/.1337-terse`; `CLAUDE_1337_TERSE=0|on|hard`
+overrides per session. Pair it with the `1337:silent` output style
+(`/output-style`) for a no-persona, answers-only voice.
+
 ## Orchestrator mode
 
 Off by default. When on, the main session only plans, dispatches and reviews:
@@ -96,6 +106,7 @@ Agents that set their own `model`, including the three above, are not affected.
 ```bash
 tests/orchestrator-guard.test.sh
 tests/stop-review.test.sh
+tests/terse-governor.test.sh
 ```
 
 The session rules (evaluate, assumptions, proactive teammate) are checked by an
