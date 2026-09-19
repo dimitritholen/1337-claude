@@ -25,6 +25,11 @@ work when the plugin is installed and used in any folder, not only this one.
   over-budget ones (mode in `~/.claude/.1337-terse`, set by `/1337:terse`;
   `CLAUDE_1337_TERSE=0|on|hard` overrides). Test:
   `tests/terse-governor.test.sh`.
+- `hooks/subagent-rules.sh` + `hooks/subagent.md`: SubagentStart hook that
+  injects a compact rule digest into every spawned subagent
+  (`CLAUDE_1337_SUBAGENT_MATCHER` scopes by agent type,
+  `CLAUDE_1337_SUBAGENT_RULES=0` disables). Test:
+  `tests/subagent-rules.test.sh`.
 - Orchestrator mode, opt-in via the `orchestrator` option in `plugin.json`
   `userConfig` (or `CLAUDE_1337_ORCHESTRATOR=1`): `agents/` holds `scout`,
   `builder` and `checker`; `hooks/orchestrator-guard.sh` injects

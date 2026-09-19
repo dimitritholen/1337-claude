@@ -48,9 +48,14 @@ Plain text, in this order:
    saved, biggest first.
 2. **Shrink** — additions that should stay but are fat: fold, extract config,
    merge near-duplicates. Same one-line format.
-3. **Keep** — at most three lines: the parts that look heavy but must stay,
+3. **Later** — cuts that are real but risky right now: they change behavior
+   the user may depend on, or touch a public surface. One line each:
+   `path:line` — what to cut eventually — why not now. Offer (still one
+   line) to mark these in the code as `// 1337: later: <what>` so
+   `/1337:debt` can harvest them; write markers only if the user says yes.
+4. **Keep** — at most three lines: the parts that look heavy but must stay,
    with the reason each is load-bearing. Silence here means nothing qualified.
-4. **Verdict** — one line: "cut N of M added lines" or "clean — nothing to
+5. **Verdict** — one line: "cut N of M added lines" or "clean — nothing to
    cut".
 
 Rules: cite `path:line` for every claim; never guess at file contents you did

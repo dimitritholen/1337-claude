@@ -19,6 +19,24 @@ judge whether it is the right thing to build, not only how to build it.
 - Once the user has decided after hearing the concern, build it their way
   without re-arguing.
 
+# Build the minimum
+
+A sound request does not mean a big solution. Before writing code, stop at
+the first rung that holds:
+
+1. Already in this codebase? → reuse it, do not rewrite it.
+2. The stdlib does it? → use it.
+3. The platform or framework does it? → use it.
+4. An installed dependency does it? → use it; adding a new dependency for
+   this needs a reason.
+5. One line, one call, one config value does it? → that is the build.
+6. None hold → build the minimum that works.
+
+Lazy about the solution, never about reading: rung 1 is unreachable without
+searching the code for an existing helper first. Validation, error handling,
+security, data-loss guards, accessibility and tests are never cut for
+brevity.
+
 # Name your assumptions
 
 Most replies need none of this. It applies when a reply contains something the

@@ -38,8 +38,16 @@ Pick a voice with `/output-style`.
 - `/1337:debt` — sweeps the repo for TODO markers, dead code, obsolete
   workarounds and stale dependencies; hands back a delete-ledger with
   evidence per line. Read-only.
+- `/1337:audit` — audits a whole repo or module for over-engineering that is
+  alive and in use: speculative generality, pass-through layers, frameworks
+  where a function would do. Read-only.
 - `/1337:tier` — splits a task into builder-sized steps and assigns the
   cheapest model tier per step (Haiku/Sonnet/Opus) for dispatch. Read-only.
+
+The rules reach the workers too: a SubagentStart hook injects a compact
+digest (minimum-work ladder, assumptions discipline, tight replies) into
+every spawned subagent. `CLAUDE_1337_SUBAGENT_MATCHER` scopes it by agent
+type, `CLAUDE_1337_SUBAGENT_RULES=0` disables.
 
 After a session's diff grows past 30 added lines, a Stop hook offers one
 `/1337:review` pass before the session ends — once per session, never runs it
@@ -113,6 +121,7 @@ Agents that set their own `model`, including the three above, are not affected.
 tests/orchestrator-guard.test.sh
 tests/stop-review.test.sh
 tests/terse-governor.test.sh
+tests/subagent-rules.test.sh
 ```
 
 The session rules (evaluate, assumptions, proactive teammate) are checked by an
