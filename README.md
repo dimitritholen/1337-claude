@@ -1,5 +1,9 @@
 # 1337
 
+> My personal experimentation repo for Claude Code. This is where I test new
+> workflows and prompts, hooks, output styles, token optimization and anything
+> else an agent might do differently.
+
 A Claude Code plugin with four output styles (`1337:l33t`, `1337:unc`,
 `1337:tremendous`, `1337:silent`) whose voices ride on every non-answer
 sentence, always-on evaluate-before-you-build, name-your-assumptions
