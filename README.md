@@ -65,6 +65,10 @@ claude --plugin-dir ~/projects/1337-claude
   where a function would do. Read-only.
 - `/1337:tier` — splits a task into builder-sized steps and assigns the
   cheapest model tier per step (Haiku/Sonnet/Opus) for dispatch. Read-only.
+- `/1337:plan` — turns a request into the smallest plan that still reaches
+  the goal: ordered, builder-sized steps with a done check each, recorded as
+  tasqx tasks when the tasqx MCP tools are present, else as
+  `plans/<slug>.md`. Writes the plan only, never code.
 
 The rules reach the workers too: a SubagentStart hook injects a compact
 digest (minimum-work ladder, assumptions discipline, tight replies) into

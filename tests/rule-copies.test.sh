@@ -29,14 +29,14 @@ for style in l33t unc tremendous hippy pimp surfer yoda; do
 done
 
 # The build ladder and its reading rule: hooks and the skills that judge code.
-for f in hooks/evaluate.md hooks/subagent.md skills/review/SKILL.md; do
+for f in hooks/evaluate.md hooks/subagent.md skills/review/SKILL.md skills/plan/SKILL.md; do
   need "$f" "Already in this codebase?" "ladder rung 1"
   need "$f" "Lazy about the solution, never about reading" "reading rule"
 done
 
 # The never-cut rule, identical wording in the two hook copies. The anchor
 # must fit on one wrapped line in both files.
-for f in hooks/evaluate.md hooks/subagent.md; do
+for f in hooks/evaluate.md hooks/subagent.md skills/plan/SKILL.md; do
   need "$f" \
     "data-loss guards, accessibility and tests are never cut" \
     "never-cut rule"
