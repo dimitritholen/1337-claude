@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="1337" width="360">
+</p>
+
 # 1337
 
 > My personal experimentation repo for Claude Code. This is where I test new
