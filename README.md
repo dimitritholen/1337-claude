@@ -2,8 +2,6 @@
   <img src="assets/logo.svg" alt="1337" width="360">
 </p>
 
-# 1337
-
 > My personal experimentation repo for Claude Code. This is where I test new
 > workflows and prompts, hooks, output styles, token optimization and anything
 > else an agent might do differently.
