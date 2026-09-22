@@ -48,15 +48,17 @@ check 2 "bash tee in main session" \
 check 2 "bash sed -i in main session" \
   '{"tool_name":"Bash","tool_input":{"command":"sed -i \"s/a/b/\" /repo/f.txt"}}'
 check 0 "bash redirect to /dev/null" \
-  '{"tool_name":"Bash","tool_input":{"command":"grep -r todo /repo 2>/dev/null"}}'
+  '{"tool_name":"Bash","tool_input":{"command":"echo todo 2>/dev/null"}}'
 check 0 "bash redirect into temp dir" \
   '{"tool_name":"Bash","tool_input":{"command":"seq 1 40 > /tmp/claude-501/scratch/f.txt"}}'
 check 0 "bash read-only command" \
   '{"tool_name":"Bash","tool_input":{"command":"ls -la /repo"}}'
 check 0 "bash from subagent" \
   '{"agent_id":"abc","tool_name":"Bash","tool_input":{"command":"printf \"a\" > /repo/big.txt"}}'
-check 0 "bash piped grep, no redirect" \
+check 2 "bash piped grep, no redirect, cat still dumps the file" \
   '{"tool_name":"Bash","tool_input":{"command":"cat /repo/f.txt | grep -c line"}}'
+check 0 "bash piped grep, filter only, no file operand" \
+  '{"tool_name":"Bash","tool_input":{"command":"ps aux | grep foo"}}'
 check 0 "bash heredoc to stdin, no file redirect" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 /repo/route.py <<'EOF'\n{\\\"a\\\":1}\nEOF\"}}"
 check 2 "bash redirect without a space" \
@@ -211,5 +213,87 @@ no_session_edit='{"tool_name":"Edit","tool_input":{"file_path":"/repo/nosession.
 check 0 "edit cap: no session_id, repeat 1/3" "$no_session_edit"
 check 0 "edit cap: no session_id, repeat 2/3" "$no_session_edit"
 check 0 "edit cap: no session_id, repeat 3/3" "$no_session_edit"
+
+# Read-dumping Bash commands: refused with a pointer to ripwire / 1337:scout,
+# in the same words as the read-cap hook.
+check 2 "bash cat dumps a source file" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat src/foo.rs"}}'
+check 0 "bash cat under /tmp stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat /tmp/x.json"}}'
+check 0 "bash grep filters a pipe, no file operand" \
+  '{"tool_name":"Bash","tool_input":{"command":"ps aux | grep foo"}}'
+check 2 "bash grep -r over a directory" \
+  '{"tool_name":"Bash","tool_input":{"command":"grep -r pattern src/"}}'
+check 0 "bash git diff stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git diff"}}'
+check 0 "bash git diff with revision and path stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git diff HEAD~1 -- src/lib.rs"}}'
+check 0 "bash git diff --stat stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git diff --stat"}}'
+check 0 "bash git show HEAD (no colon operand) stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git show HEAD"}}'
+check 0 "bash git show --stat HEAD stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git show --stat HEAD"}}'
+check 2 "bash git show rev:path dumps a file's contents" \
+  '{"tool_name":"Bash","tool_input":{"command":"git show HEAD:src/lib.rs"}}'
+check 2 "bash git show sha:path dumps a file's contents" \
+  '{"tool_name":"Bash","tool_input":{"command":"git show abc123:Cargo.toml"}}'
+check 2 "bash git show :path (index form) dumps a file's contents" \
+  '{"tool_name":"Bash","tool_input":{"command":"git show :src/lib.rs"}}'
+check 2 "bash git cat-file -p dumps a file's contents" \
+  '{"tool_name":"Bash","tool_input":{"command":"git cat-file -p HEAD:src/lib.rs"}}'
+check 2 "bash git grep searches tracked file contents" \
+  '{"tool_name":"Bash","tool_input":{"command":"git grep -n TODO"}}'
+check 0 "bash git log stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git log"}}'
+check 0 "bash git blame stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git blame src/lib.rs"}}'
+check 0 "bash ripwire stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"ripwire . --for=\"x\""}}'
+py_read=$(printf "python3 - <<'EOF'\nopen('secret.txt')\nEOF")
+py_readjson=$(jq -Rs . <<<"$py_read")
+check 2 "python3 heredoc containing open( is a read" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_readjson}}"
+check 0 "bash read-dump command from a subagent still passes" \
+  '{"agent_id":"abc","tool_name":"Bash","tool_input":{"command":"cat /repo/f.txt"}}'
+
+# The mode of an inline open() is its own argument, after a comma: a filename
+# starting with w, a or x is still a read.
+bash_json() { jq -Rs . <<<"$1"; }
+py_read_arg=$(bash_json 'python3 -c '"'"'print(open("app.py").read())'"'"'')
+py_write_arg=$(bash_json 'python3 -c '"'"'open("out.w","w").write(x)'"'"'')
+py_pathlib=$(bash_json 'python3 -c '"'"'print(Path("app.py").read_text())'"'"'')
+py_mode_kw=$(bash_json 'python3 -c '"'"'open("notes.txt", mode="a").write(x)'"'"'')
+check 2 "python3 -c open() on a file whose name starts with a" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_read_arg}}"
+check 0 "python3 -c open() in write mode, filename starting with o" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_write_arg}}"
+check 2 "python3 -c pathlib read_text()" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_pathlib}}"
+check 0 "python3 -c open(mode=\"a\") keyword mode" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_mode_kw}}"
+
+# The temp carve-out covers the write target, not the whole command: a source
+# under the repository is still a read-dump, whatever the redirect says.
+check 2 "bash cat of a source file redirected into temp" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat src/lib.rs > /tmp/out.txt"}}'
+check 2 "bash cp of a source file into temp" \
+  '{"tool_name":"Bash","tool_input":{"command":"cp src/lib.rs /tmp/"}}'
+check 0 "bash echo into temp stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo hi > /tmp/out.txt"}}'
+
+# Tree scanners dump the working tree with no path operand at all.
+check 2 "bash rg with no path operand" \
+  '{"tool_name":"Bash","tool_input":{"command":"rg TODO"}}'
+check 2 "bash grep -rn with no path operand" \
+  '{"tool_name":"Bash","tool_input":{"command":"grep -rn TODO"}}'
+check 0 "bash bare grep on stdin" \
+  '{"tool_name":"Bash","tool_input":{"command":"grep TODO"}}'
+check 0 "bash grep as a pipeline filter" \
+  '{"tool_name":"Bash","tool_input":{"command":"ps aux | grep claude"}}'
+check 0 "bash grep filtering git output" \
+  '{"tool_name":"Bash","tool_input":{"command":"git log | grep fix"}}'
+check 0 "bash ripwire piped into head" \
+  '{"tool_name":"Bash","tool_input":{"command":"ripwire . --for=x | head"}}'
 
 exit $fail

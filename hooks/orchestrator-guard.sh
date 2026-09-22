@@ -12,6 +12,29 @@
 # commit message body mentioning `sed -i` or `> file.py` is not mistaken for
 # one. Everything else is refused with a pointer to 1337:builder.
 #
+# Bash commands that DUMP a file's contents into context (cat, head, tail,
+# sed -n/awk/grep/jq over a path, find, cp/mv out of the tree, an inline
+# interpreter that opens a file) are refused too, for the same reason the
+# read-cap hook watches Read|Grep|Glob: the main session must not pour whole
+# files into its own expensive context. A tree scanner needs no path operand
+# to dump one: rg/ag/ack at the head of a pipeline, and grep -r, read the
+# working tree by default and are refused with or without a path. ripwire,
+# git inspection commands, ls, tasqx, and the test/build runners stay
+# allowlisted; a pipeline stage that only filters another command's stdout
+# (no file operand of its own, e.g. `ps aux | grep x`, `git log | grep fix`)
+# is not a reader either, and neither is a bare `grep pattern` on stdin.
+# Operands under a temp dir or ~/.claude are the session's own scratch, not
+# repository payload, and do not count — the same carve-out read-cap.sh
+# makes. The refusal names the two ways forward in the same words as
+# hooks/read-cap.sh; tests/rule-copies.test.sh keeps the copies aligned.
+#
+# That scratch carve-out is about where output LANDS, not about the command
+# mentioning a scratch path somewhere: `cat src/lib.rs > /tmp/out.txt` reads
+# repository payload whatever its target, and copying payload into temp to
+# read it back from there is a two-step bypass of the whole rule. So the
+# write exemption tests the redirect/tee/sed -i target only, and the
+# read-dump check runs on the source operands either way.
+#
 # With --rules it prints hooks/orchestrator.md instead (SessionStart), under the same
 # on/off condition.
 #
@@ -19,8 +42,9 @@
 # eval` cases may only set EVAL_* variables.
 #
 # Exit 2 + stderr refuses; exit 0 allows. Every failure path exits 0.
-# 1337: later: Bash cp/mv/rm/mkdir from the main session still write the tree;
-# add those to the write-patterns if that loophole gets used in practice.
+# 1337: later: Bash rm/mkdir from the main session still write the tree; add
+# those to the write-patterns if that loophole gets used in practice. cp/mv
+# are caught by the read-dump check, on their source operand.
 set -u
 
 MAX_LINES=20
@@ -126,11 +150,167 @@ case "$tool" in
       printf 'blocked (1337 orchestrator mode): Bash command writes a code file (%.80s). Scripts are builder work even under temp directories; dispatch it to 1337:builder with a self-contained brief.\n' "$bash_cmd" >&2
       exit 2
     fi
-    case "$bash_cmd" in
-      *"/tmp/"*|*"/private/tmp/"*|*"/var/folders/"*|*".claude/"*) exit 0 ;;
-    esac
-    if printf '%s\n' "$clean" | grep -qE '(^|[[:space:];&(])tee([[:space:]]|$)|sed[[:space:]]+(-[a-zA-Z]+ )*-i|(^|[[:space:];&(])[0-9]*>+[[:space:]]*[^&>[:space:]]'; then
+    # The scratch carve-out applies to the WRITE TARGET, not to the command
+    # string: strip the writes that land under a temp dir or ~/.claude, then
+    # the write patterns below see only real targets, and a command that
+    # reads repository payload into a scratch file still reaches the
+    # read-dump check. `S=/tmp/scratch; ... > $S/f.txt` names its target
+    # through a variable, so resolve a literal assignment to a scratch path
+    # first; an unresolvable target is treated as a real one.
+    wclean="$clean"
+    for v in $(printf '%s\n' "$clean" | grep -oE '[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*' \
+      | grep -E '=["'"'"']?(\$\{?TMPDIR\}?|(/private)?/tmp|/var/folders)' | sed -E 's/=.*//'); do
+      wclean=$(printf '%s\n' "$wclean" | sed -E "s#\\\$\{?$v\}?#/tmp/scratch#g")
+    done
+    scratch_target="[\"']?[^[:space:];&|<>\"']*((/private)?/tmp/|/var/folders/|\\.claude/)[^[:space:];&|<>\"']*[\"']?"
+    wclean=$(printf '%s\n' "$wclean" | sed -E \
+      -e "s#[0-9]*>+[[:space:]]*$scratch_target##g" \
+      -e "s#(^|[[:space:];&(])tee([[:space:]]+-[A-Za-z]+)*[[:space:]]+$scratch_target#\\1#g" \
+      -e "s#(^|[[:space:];&(])sed[[:space:]]+([^;&|]*[[:space:]])?-[A-Za-z]*i[^;&|]*[[:space:]]$scratch_target#\\1#g")
+    if printf '%s\n' "$wclean" | grep -qE '(^|[[:space:];&(])tee([[:space:]]|$)|sed[[:space:]]+(-[a-zA-Z]+ )*-i|(^|[[:space:];&(])[0-9]*>+[[:space:]]*[^&>[:space:]]'; then
       printf 'blocked (1337 orchestrator mode): Bash command writes files (%.80s). Dispatch it to 1337:builder with a self-contained brief; the main session may only write under ~/.claude and temp directories.\n' "$bash_cmd" >&2
+      exit 2
+    fi
+    # Read-dumping commands: a whole file poured into context via cat, head,
+    # tail, less, more, nl, od, xxd, strings, find, cp/mv, a path-scoped
+    # jq/awk/sed/grep, a tree scanner (rg/ag/ack, grep -r) that needs no path
+    # at all, or an inline interpreter that opens a file. ripwire, git
+    # inspection, ls, tasqx and the test/build runners are always allowed; a
+    # pipeline stage with no file operand of its own (a bare filter on
+    # another command's stdout) is not a reader.
+    first_word=$(printf '%s\n' "$bash_cmd" | sed -E 's/^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]* )*//' | awk '{print $1}')
+    case "$first_word" in
+      git)
+        # git is allowlisted wholesale below, but four subcommand forms dump
+        # a whole file's contents rather than a diff/map: `git show
+        # <rev>:<path>`, `git cat-file` in any form, and `git grep` (which
+        # searches tracked file contents). Everything else under git,
+        # including every `git diff` and `git show HEAD`/`git show --stat
+        # HEAD` (no colon operand), stays allowed.
+        git_stripped=$(printf '%s\n' "$bash_cmd" | sed -E 's/^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]* )*//')
+        git_sub=$(printf '%s\n' "$git_stripped" | awk '{print $2}')
+        git_reader=""
+        case "$git_sub" in
+          show)
+            if printf '%s\n' "$git_stripped" | awk '{for (i=3;i<=NF;i++) { if ($i !~ /^-/ && $i ~ /:/) { print "x"; exit } } }' | grep -q x; then
+              git_reader='git show <rev>:<path>'
+            fi
+            ;;
+          cat-file) git_reader='git cat-file' ;;
+          grep) git_reader='git grep' ;;
+        esac
+        if [ -n "$git_reader" ]; then
+          if command -v ripwire >/dev/null 2>&1; then
+            route='For code: `ripwire <dir> --for="<what you are after>" --legend=compact`, then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR` as follow-ups.
+For anything else (config, lockfile, transcript, prose), or when the file contents themselves are wanted: dispatch 1337:scout with the question; it reads in its own context.'
+          else
+            route='Dispatch 1337:scout with the question; it reads in its own context.'
+          fi
+          printf 'blocked (1337 orchestrator mode): Bash command prints a file'"'"'s contents (not a diff) via %s (%.80s).\n%s\n' \
+            "$git_reader" "$bash_cmd" "$route" >&2
+          exit 2
+        fi
+        exit 0
+        ;;
+      ripwire|ls|tasqx|cargo|npm|pnpm|pytest|make|command) exit 0 ;;
+      bash)
+        printf '%s\n' "$bash_cmd" | grep -qE '^bash[[:space:]]+tests/.*\.test\.sh' && exit 0
+        ;;
+    esac
+    reader=$(printf '%s\n' "$clean" | awk '
+      function base(s,   n, a) { n = split(s, a, "/"); return a[n] }
+      # A scratch operand is output the session produced itself, not
+      # repository payload: temp dirs and ~/.claude, as read-cap.sh exempts.
+      function is_scratch(t) {
+        gsub(/["'"'"']/, "", t)
+        return (t ~ /^\$\{?TMPDIR\}?(\/|$)/ || t ~ /^(\/private)?\/tmp(\/|$)/ \
+          || t ~ /^\/var\/folders(\/|$)/ || t ~ /\.claude\//)
+      }
+      BEGIN { SEP = sprintf("%c", 1) }
+      {
+        # Split on the separators but keep which one it was: a segment fed
+        # by `|` filters another command'"'"'s stdout, a segment after `;`,
+        # `&&` or `||` starts its own command with its own operands.
+        line = $0
+        gsub(/\|\|/, " " SEP "SEQ" SEP " ", line)
+        gsub(/&&/, " " SEP "SEQ" SEP " ", line)
+        gsub(/;/, " " SEP "SEQ" SEP " ", line)
+        gsub(/\|/, " " SEP "PIPE" SEP " ", line)
+        nseg = split(line, segs, SEP)
+        for (s = 1; s <= nseg; s += 2) {
+          seg = segs[s]
+          piped = (s > 1 && segs[s - 1] == "PIPE")
+          gsub(/^[ \t]+|[ \t]+$/, "", seg)
+          if (seg == "") continue
+          m = split(seg, w, /[ \t]+/)
+          i = 1
+          while (i <= m && w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) i++
+          if (i > m) continue
+          cmd = base(w[i])
+          nonflag = 0
+          recursive = 0
+          for (j = i + 1; j <= m; j++) {
+            tok = w[j]
+            if (tok == "" || tok == "-") continue
+            if (substr(tok, 1, 1) == "-") {
+              if (tok ~ /^-[A-Za-z]*[rR]/ || tok ~ /^--recursive/) recursive = 1
+              continue
+            }
+            # A redirect or heredoc opener (<, <<, <<-, >, >>) ends the
+            # argument list; what follows is a target/marker, not a file
+            # being read as a command argument (`cat <<EOF` reads stdin).
+            if (substr(tok, 1, 1) == "<" || substr(tok, 1, 1) == ">") break
+            if (is_scratch(tok)) continue
+            nonflag++
+          }
+          if (cmd == "cat" || cmd == "head" || cmd == "tail" || cmd == "less" || cmd == "more" || cmd == "nl" || cmd == "od" || cmd == "xxd" || cmd == "strings" || cmd == "find" || cmd == "cp" || cmd == "mv") {
+            if (nonflag >= 1) { print cmd; exit }
+          } else if (cmd == "rg" || cmd == "ag" || cmd == "ack") {
+            # These default to the working tree, so at the head of a
+            # pipeline they dump the whole repo with no path operand at all.
+            if (!piped || nonflag >= 2) { print cmd; exit }
+          } else if (cmd == "grep" || cmd == "egrep" || cmd == "fgrep") {
+            # -r/-R walks the tree from the working directory; without it, a
+            # bare `grep pattern` only filters stdin.
+            if (recursive || nonflag >= 2) { print cmd; exit }
+          } else if (cmd == "jq" || cmd == "awk" || cmd == "sed") {
+            if (nonflag >= 2) { print cmd; exit }
+          }
+        }
+      }
+    ')
+    if [ -z "$reader" ]; then
+      # A write-mode open is the MODE ARGUMENT, not any quoted string in the
+      # call: `open(p, "w")`, `open(p,'wb')`, `open(p, mode="a")`, and the
+      # first argument of `Path(p).open("w")`. Matching a quoted string
+      # anywhere would read `open("web.txt")` as a write. Strip the
+      # write-mode calls, then any `open(` still standing is a read, as are
+      # pathlib's .read_text()/.read_bytes() and a single-argument open().
+      mode_arg="[\"'][rwaxbt+]*[wax][rwaxbt+]*[\"']"
+      py=$(printf '%s\n' "$clean" | sed -E \
+        -e "s#open\([^)]*,[[:space:]]*(mode[[:space:]]*=[[:space:]]*)?$mode_arg##g" \
+        -e "s#open\([[:space:]]*(mode[[:space:]]*=[[:space:]]*)?$mode_arg##g")
+      if printf '%s\n' "$clean" | grep -qE '(^|[[:space:];&(]|\|\|)[[:space:]]*python[23]?\b' \
+        && printf '%s\n' "$py" | grep -qE 'open\(|\.read_text\(|\.read_bytes\('; then
+        reader=python
+      elif printf '%s\n' "$clean" | grep -qE '(^|[[:space:];&(]|\|\|)[[:space:]]*perl\b.*-ne\b'; then
+        reader=perl
+      elif printf '%s\n' "$clean" | grep -qE '(^|[[:space:];&(]|\|\|)[[:space:]]*ruby\b.*-e\b' \
+        && printf '%s\n' "$clean" | grep -q 'File\.read'; then
+        reader=ruby
+      fi
+    fi
+    if [ -n "$reader" ]; then
+      # The same two ways forward, in the same words, as hooks/read-cap.sh:
+      # ripwire maps code, 1337:scout reads anything else in its own context.
+      if command -v ripwire >/dev/null 2>&1; then
+        route='For code: `ripwire <dir> --for="<what you are after>" --legend=compact`, then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR` as follow-ups.
+For anything else (config, lockfile, transcript, prose), or when the file contents themselves are wanted: dispatch 1337:scout with the question; it reads in its own context.'
+      else
+        route='Dispatch 1337:scout with the question; it reads in its own context.'
+      fi
+      printf 'blocked (1337 orchestrator mode): Bash command reads a file'"'"'s contents via %s (%.80s).\n%s\n' \
+        "$reader" "$bash_cmd" "$route" >&2
       exit 2
     fi
     exit 0
