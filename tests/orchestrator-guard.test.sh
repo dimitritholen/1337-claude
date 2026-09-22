@@ -403,4 +403,56 @@ check 0 "bash grep filtering git log output stays allowed" \
 check 2 "bash cat into a counting grep, refused for the cat" \
   '{"tool_name":"Bash","tool_input":{"command":"cat f | grep -c line"}}'
 
+# Quoted text is data, not commands. The walk above splits on `;`, `|`, `&&`
+# and `||`, so before masking a commit message or an echo that merely NAMED a
+# refused command parsed as one: `git commit -m "... cd src && cat lib.rs ..."`
+# was refused for a `cat` that runs nothing.
+qcommit=$(bash_json 'cd /repo && git add hooks/orchestrator-guard.sh && git commit -q -m "x" -m "pins cd src && cat lib.rs among the bypasses"')
+check 0 "bash commit message naming a refused command" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$qcommit}}"
+check 0 "bash echo naming cat inside quotes" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo \"run cat file to check\""}}'
+check 0 "bash echo with a semicolon and a reader inside quotes" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo \"step one; head -5 notes\""}}'
+check 0 "bash grep pattern containing a semicolon" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep 'foo;bar' /tmp/x.txt\"}}"
+check 0 "bash commit message containing a pipe and a tree scanner" \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"pipe: ps aux | grep -r TODO\""}}'
+# Masking one span disarms that span only: everything outside quotes still
+# parses as it did, on the same line.
+check 2 "bash quoted string followed by a real reader" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo \"hi\" && cat src/lib.rs"}}'
+check 2 "bash reader with a quoted path operand" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat \"src/lib.rs\""}}'
+# The span keeps its path characters, so a quoted scratch operand is still
+# recognised as the session's own output.
+check 0 "bash reader with a quoted temp-dir operand" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat \"/tmp/my file.json\""}}'
+# An unterminated quote is parsed as commands, not masked away: refusing more
+# than the shell would is the safe direction, failing open is not.
+check 2 "bash unterminated quote after a reader" \
+  '{"tool_name":"Bash","tool_input":{"command":"cd src && cat lib.rs \"oops"}}'
+# A backslash-escaped quote does not end the span: the whole message is data.
+esc_q=$(bash_json 'cd . && git commit -m "he said \"cat file; head -3 x\" once"')
+check 0 "bash escaped quote inside a quoted message" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$esc_q}}"
+# A single quote inside double quotes is data; a double quote inside single
+# quotes likewise, and neither may swallow the rest of the command.
+mixed_q=$(bash_json 'cd . && echo "it'"'"'s cat lib.rs; head -5 f"')
+check 0 "bash apostrophe inside a double-quoted message" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$mixed_q}}"
+mixed_r=$(bash_json 'grep '"'"'a"b'"'"' src/lib.rs && cat src/lib.rs')
+check 2 "bash double quote inside a single-quoted pattern, reader after it" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$mixed_r}}"
+# Command substitution IS executed, so it is never masked: a separator inside
+# `$( )` still starts a segment of its own.
+sub_read=$(bash_json 'echo "$(true; cat src/lib.rs)"')
+check 2 "bash reader inside a command substitution in quotes" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$sub_read}}"
+# Masking must not blind the inline-interpreter rule, which reads heredoc
+# bodies: quotes and separators in the body change nothing about the open().
+py_body=$(bash_json "$(printf 'python3 - <<%s\nprint(\"x; cat y\")\nopen(%ssecret.txt%s)\nEOF' "'EOF'" "'" "'")")
+check 2 "python3 heredoc body with quotes and separators is still read" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_body}}"
+
 exit $fail

@@ -23,6 +23,12 @@
 # allowlisted; a pipeline stage that only filters another command's stdout
 # (no file operand of its own, e.g. `ps aux | grep x`, `git log | grep fix`)
 # is not a reader either, and neither is a bare `grep pattern` on stdin.
+# The check walks every segment of the command, so the separators have to be
+# real ones: text inside single or double quotes is data, and its contents are
+# masked before the split, or a commit message or an echo that merely NAMES a
+# refused command parses as one. `$( )` and backticks are executed even inside
+# double quotes, so they stay live; an unterminated quote is parsed as commands
+# rather than masked away.
 # Operands under a temp dir or ~/.claude are the session's own scratch, not
 # repository payload, and do not count — the same carve-out read-cap.sh
 # makes. The refusal names the two ways forward in the same words as
@@ -293,12 +299,61 @@ case "$tool" in
         return (t ~ /^\$\{?TMPDIR\}?(\/|$)/ || t ~ /^(\/private)?\/tmp(\/|$)/ \
           || t ~ /^\/var\/folders(\/|$)/ || t ~ /\.claude\//)
       }
-      BEGIN { SEP = sprintf("%c", 1) }
+      # Quoted text is data, not a command: the `cat` in
+      # `git commit -m "... cd src && cat lib.rs ..."` runs nothing, yet the
+      # split below turns it into a segment of its own. So blunt the
+      # characters the split and the token walk key on -- whitespace, `;`,
+      # `|`, `&`, `<`, `>` -- inside every quoted span. The rest of the span
+      # survives (a quoted "/tmp/f" is still scratch to is_scratch), and
+      # everything outside quotes parses exactly as it did before.
+      function mask_char(c) {
+        return (c ~ /[ \t;|&<>]/) ? "x" : c
+      }
+      # One left-to-right pass with a context stack: Q single-quoted,
+      # D double-quoted, S command substitution, B backticks. Masking is on
+      # only while the innermost context is Q or D, so `$( )` and backticks
+      # inside a double-quoted string -- whose contents ARE executed -- stay
+      # live. An unterminated quote (a lone apostrophe, or a span continued
+      # on another line) leaves the whole line unmasked: parsing it as
+      # commands refuses more than it should, which is the failure worth
+      # having here.
+      function mask_quotes(s,   out, i, n, c, d, sp, top) {
+        out = ""; n = length(s); sp = 0; i = 1
+        while (i <= n) {
+          c = substr(s, i, 1)
+          d = substr(s, i + 1, 1)
+          top = (sp > 0) ? st[sp] : "N"
+          if (top == "Q") {                      # no escapes inside '"'"'...'"'"'
+            if (c == SQ) { sp--; out = out c } else out = out mask_char(c)
+            i++
+            continue
+          }
+          if (top == "D") {
+            if (c == "\\") { out = out c mask_char(d); i += 2; continue }
+            if (c == DQ) { sp--; out = out c; i++; continue }
+            if (c == "$" && d == "(") { st[++sp] = "S"; out = out "$("; i += 2; continue }
+            if (c == "`") { st[++sp] = "B"; out = out c; i++; continue }
+            out = out mask_char(c); i++
+            continue
+          }
+          # Unquoted, or inside a substitution: this text is executed.
+          if (c == "\\") { out = out substr(s, i, 2); i += 2; continue }
+          if (c == SQ) { st[++sp] = "Q"; out = out c; i++; continue }
+          if (c == DQ) { st[++sp] = "D"; out = out c; i++; continue }
+          if (c == "$" && d == "(") { st[++sp] = "S"; out = out "$("; i += 2; continue }
+          if (c == ")" && top == "S") { sp--; out = out c; i++; continue }
+          if (c == "`") { if (top == "B") sp--; else st[++sp] = "B"; out = out c; i++; continue }
+          out = out c; i++
+        }
+        for (i = 1; i <= sp; i++) if (st[i] == "Q" || st[i] == "D") return s
+        return out
+      }
+      BEGIN { SEP = sprintf("%c", 1); SQ = sprintf("%c", 39); DQ = sprintf("%c", 34) }
       {
         # Split on the separators but keep which one it was: a segment fed
         # by `|` filters another command'"'"'s stdout, a segment after `;`,
         # `&&` or `||` starts its own command with its own operands.
-        line = $0
+        line = mask_quotes($0)
         gsub(/\|\|/, " " SEP "SEQ" SEP " ", line)
         gsub(/&&/, " " SEP "SEQ" SEP " ", line)
         gsub(/;/, " " SEP "SEQ" SEP " ", line)
