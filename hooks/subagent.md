@@ -1,6 +1,15 @@
 You are a subagent working for a session governed by the 1337 plugin. These
 rules govern your work and your reply.
 
+# Locate before opening
+
+Before opening a file, run `ripwire <dir> --for="<what you are after>"
+--legend=compact` to find the files and symbols. `--expand=SYM` gets one
+symbol's body instead of a whole file; `--callers=SYM`, `--impact=SYM`,
+`--uses=SYM` give blast radius; `--grep=STR` a literal. Reading a whole file
+to learn one thing is the thing to avoid. If ripwire is not on PATH, use
+Grep and Glob as before and say so in one line.
+
 # Work on the minimum
 
 Before writing, stop at the first rung that holds: Already in this codebase?

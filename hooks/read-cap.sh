@@ -6,7 +6,11 @@
 # reads nothing by default. A positive integer allows that many per turn; 0
 # refuses every call of that kind; the value `off` (any case) drops the cap
 # for that kind entirely, i.e. disables this hook for it. Subagent calls
-# (payload carries agent_id) always pass.
+# (payload carries agent_id) always pass the cap. Their first Grep or Glob
+# is a one-time nudge instead: refused once with a message pointing at
+# ripwire (keyed per agent_id, skipped if ripwire is not on PATH), then
+# every later call from that agent passes untouched. Subagent Reads are
+# never nudged.
 #
 # A Read/Grep/Glob whose target path falls under the session scratchpad or a
 # temp dir ($TMPDIR, /tmp, /private/tmp, /var/folders) or under $HOME/.claude
@@ -43,7 +47,55 @@ command -v jq >/dev/null 2>&1 || exit 0
 payload="$(cat)"
 
 agent_id=$(printf '%s' "$payload" | jq -r '.agent_id // empty' 2>/dev/null) || exit 0
-[ -n "$agent_id" ] && exit 0
+if [ -n "$agent_id" ]; then
+  # Subagent calls carry agent_id and always pass the cap, but a subagent's
+  # first Grep/Glob is a nudge point: it may not have heard about ripwire
+  # (only some agent types get it in their prompt). Refuse that one call,
+  # once per agent_id, naming ripwire; every later call this run goes
+  # through untouched. Read is never nudged, and there is no nudge at all
+  # when ripwire is not on PATH to route to.
+  sub_tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null) || exit 0
+  case "$sub_tool" in
+    Grep|Glob) ;;
+    *) exit 0 ;;
+  esac
+  command -v ripwire >/dev/null 2>&1 || exit 0
+
+  nudge_state="${TMPDIR:-/tmp}/claude-1337-read-cap-nudge-$agent_id"
+  nudge_lock="$nudge_state.lock"
+
+  held=0
+  spin=0
+  while [ "$spin" -lt 50 ]; do
+    if mkdir "$nudge_lock" 2>/dev/null; then
+      held=1
+      trap 'rm -rf "$nudge_lock" 2>/dev/null' EXIT
+      printf '%s\n' "${EPOCHSECONDS:-$(date +%s)}" > "$nudge_lock/ts" 2>/dev/null
+      break
+    fi
+    spin=$((spin + 1))
+    stamp=$(cat "$nudge_lock/ts" 2>/dev/null)
+    case "$stamp" in
+      ''|*[!0-9]*) [ "$spin" -ge 25 ] && rm -rf "$nudge_lock" 2>/dev/null ;;
+      *) [ "$(( ${EPOCHSECONDS:-$(date +%s)} - stamp ))" -ge 5 ] && rm -rf "$nudge_lock" 2>/dev/null ;;
+    esac
+    sleep 0.02
+  done
+
+  already_nudged=0
+  [ -e "$nudge_state" ] && already_nudged=1
+  : > "$nudge_state" 2>/dev/null || true
+
+  if [ "$held" = 1 ]; then
+    rm -rf "$nudge_lock" 2>/dev/null
+    trap - EXIT
+  fi
+
+  [ "$already_nudged" = 0 ] || exit 0
+
+  printf 'nudge (1337): first Grep/Glob this run — try ripwire first: `ripwire <dir> --for="<what you are after>" --legend=compact` (then --expand=SYM, --callers=SYM, --impact=SYM, --uses=SYM, --grep=STR). Retry with Grep/Glob if ripwire does not cover it; later calls this run are not nudged.\n' >&2
+  exit 2
+fi
 
 tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null) || exit 0
 

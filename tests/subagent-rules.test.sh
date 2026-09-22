@@ -32,6 +32,14 @@ check inject "matcher is unanchored and case-insensitive" "Explore" "explore"
 check inject "invalid regex: fails open" "general-purpose" "([unclosed"
 check inject "matcher set but no agent_type: fails open" "" "general"
 
+# The injected digest carries the ripwire-first rule (WOR: ripwire named in
+# hooks/subagent.md so every subagent type hears it, not just scout/builder).
+if grep -q 'ripwire' "$(dirname "$HOOK")/subagent.md"; then
+  printf 'ok   hooks/subagent.md carries the ripwire rule\n'
+else
+  printf 'FAIL hooks/subagent.md missing the ripwire rule\n'; fail=1
+fi
+
 # Disabled env check needs its own env, the helper cannot express it.
 out=$(printf '{"session_id":"t","agent_type":"general-purpose"}' | \
   CLAUDE_1337_SUBAGENT_RULES=0 "$HOOK" 2>/dev/null)

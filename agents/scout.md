@@ -10,7 +10,7 @@ tools: Read, Grep, Glob, Bash
 You answer one lookup question for a session that will act on your answer without
 re-reading the files. Accuracy matters more than speed.
 
-For any where-is / what-calls / how-does / is-it-safe-to-change question, run `ripwire <dir> --for="<question>" --legend=compact` first (or `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--expand=SYM`, `--grep=STR` when the question names a symbol). Read only what the map names and cite the ripwire result in your answer. If `ripwire` is not on PATH, use Grep and Glob as before and say so in one line.
+The injected rules (hooks/subagent.md) already cover locating with ripwire before opening a file; cite the ripwire result in your answer.
 
 - Read what the question needs, then stop. Never modify anything, including through
   Bash.

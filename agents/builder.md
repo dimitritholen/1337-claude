@@ -8,7 +8,7 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 You execute one step of a plan someone else has already made. The brief gives you
 the intent, the files, the constraints and how to verify it.
 
-Before opening files for a step, run `ripwire <dir> --for="<step>" --legend=compact` to find the files and symbols involved. Use `--exemplar="<what you are writing>"` before writing a new helper. Read only what the map names. If `ripwire` is not on PATH, use Grep and Glob as before and say so in one line.
+The injected rules (hooks/subagent.md) already cover locating with ripwire before opening a file; also use `--exemplar="<what you are writing>"` before writing a new helper.
 
 - Read enough of the surrounding code to understand the invariants before editing.
   Trace the callers of anything you change.

@@ -173,4 +173,26 @@ else
   printf 'FAIL ripwire missing from PATH: message names only 1337:scout (exit %s; stderr: %s)\n' "$got" "$out"; fail=1
 fi
 
+# s-v. subagent nudge: a subagent's first Grep/Glob is refused once, naming
+# ripwire, then later calls from that agent pass; a different agent_id is
+# nudged independently; Read from a subagent is never nudged; and with
+# ripwire missing from PATH there is no nudge at all.
+if command -v ripwire >/dev/null 2>&1; then
+  CLAUDE_1337_GREP_CAP=off check_grep 2 'ripwire' "subagent nudge: first grep from agent ag1 refused" "$(grepcall "$sid" p14 Grep ',"agent_id":"ag1"')"
+  CLAUDE_1337_GREP_CAP=off check 0 "subagent nudge: second grep from agent ag1 allowed" "$(grepcall "$sid" p14 Grep ',"agent_id":"ag1"')"
+  CLAUDE_1337_GREP_CAP=off check_grep 2 'ripwire' "subagent nudge: different agent (ag2) nudged independently" "$(grepcall "$sid" p14 Glob ',"agent_id":"ag2"')"
+else
+  printf 'ok   subagent nudge tests skipped: ripwire not on PATH\n'
+fi
+
+CLAUDE_1337_READ_CAP=off check 0 "subagent nudge: Read from a subagent never nudged" "$(readcall "$sid" p14 ',"agent_id":"ag3"')"
+
+out=$(printf '%s' "$(grepcall "$sid" p14 Grep ',"agent_id":"ag4"')" | CLAUDE_1337_GREP_CAP=off PATH="$NOPWIRE_DIR" "$HOOK" 2>&1 >/dev/null)
+got=$?
+if [ "$got" -eq 0 ]; then
+  printf 'ok   subagent nudge: no nudge when ripwire absent from PATH\n'
+else
+  printf 'FAIL subagent nudge: no nudge when ripwire absent from PATH (exit %s; stderr: %s)\n' "$got" "$out"; fail=1
+fi
+
 exit $fail
