@@ -121,6 +121,46 @@ check 2 "two heredocs, second one over the limit" \
 CLAUDE_1337_INLINE_LINES=40 check 0 "inline check with a raised limit" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py30json}}"
 
+# Heredoc bodies fed to a non-interpreter consumer are data, not commands:
+# write patterns mentioned inside them must not trip the guard.
+commit_sed=$(printf "git commit -q -F - <<'EOF'\nsed -i into code files\nEOF")
+commit_sedjson=$(jq -Rs . <<<"$commit_sed")
+commit_catpy=$(printf "git commit -q -F - <<'EOF'\nrefuse cat > out.py\nEOF")
+commit_catpyjson=$(jq -Rs . <<<"$commit_catpy")
+commit_tee=$(printf "git commit -q -F - <<'EOF'\nuse tee here\nEOF")
+commit_teejson=$(jq -Rs . <<<"$commit_tee")
+commit_nested=$(printf 'git commit -m "$(cat <<'"'"'EOF'"'"'\nmentions > a.py\nEOF\n)"')
+commit_nestedjson=$(jq -Rs . <<<"$commit_nested")
+cat_stdin_only=$(printf "cat <<'EOF'\necho hi > a.py\nEOF")
+cat_stdin_onlyjson=$(jq -Rs . <<<"$cat_stdin_only")
+cat_redirect=$(printf "cat <<'EOF' > out.py\nhello\nEOF")
+cat_redirectjson=$(jq -Rs . <<<"$cat_redirect")
+tee_opener=$(printf "tee out.py <<'EOF'\nhello\nEOF")
+tee_openerjson=$(jq -Rs . <<<"$tee_opener")
+bash_interp_body=$(printf "bash <<'EOF'\necho hi > a.py\nEOF")
+bash_interp_bodyjson=$(jq -Rs . <<<"$bash_interp_body")
+py_write_body=$(printf "python3 - <<'EOF'\nline1\nopen(\"a.py\",\"w\")\nline3\nEOF")
+py_write_bodyjson=$(jq -Rs . <<<"$py_write_body")
+
+check 0 "heredoc body mentions sed -i, non-interpreter consumer" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$commit_sedjson}}"
+check 0 "heredoc body mentions cat > out.py, non-interpreter consumer" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$commit_catpyjson}}"
+check 0 "heredoc body mentions tee, non-interpreter consumer" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$commit_teejson}}"
+check 0 "nested heredoc body mentions a redirect, git commit -m \$(cat <<EOF)" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$commit_nestedjson}}"
+check 0 "cat heredoc to stdin only, body mentions a redirect" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$cat_stdin_onlyjson}}"
+check 2 "cat heredoc with a real redirect on the opener line" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$cat_redirectjson}}"
+check 2 "tee heredoc with a real target on the opener line" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$tee_openerjson}}"
+check 2 "bash heredoc body is scanned, interpreter consumer" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$bash_interp_bodyjson}}"
+check 0 "python3 heredoc body writes via open(), pinned to current behaviour" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_write_bodyjson}}"
+
 "$HOOK" --rules | grep -q '^# Orchestrator mode' && echo "ok   mode on: rules printed" || { echo "FAIL mode on: rules missing"; fail=1; }
 
 unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR
