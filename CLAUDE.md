@@ -10,6 +10,10 @@ work when the plugin is installed and used in any folder, not only this one.
 - `.claude-plugin/marketplace.json`: makes this repo the `1337-claude` marketplace,
   so the plugin installs as `1337@1337-claude`.
 - `skills/<name>/SKILL.md`: one folder per skill.
+- `skills/tier/route.py`: `uv run` script (inline dependency on
+  `typesafe-sdk`) that asks Jev, TypeSafe's decision model, for the model
+  tier per plan step over the TypeSafe API. Needs `TYPESAFE_API_KEY`; reads
+  nothing else. Test: `tests/tier-route.test.sh` (stand-in API, no key).
 - `output-styles/<name>.md`: a pack of voices (`1337:l33t`, `1337:unc`,
   `1337:tremendous`, `1337:silent`, `1337:hippy`, `1337:pimp`, `1337:surfer`,
   `1337:yoda`),

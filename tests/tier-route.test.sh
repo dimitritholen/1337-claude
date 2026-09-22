@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# Tests for skills/tier/route.py: runs it against a local stand-in for the
+# TypeSafe API and asserts the routed tiers, the escalation rule and the exit
+# codes. The stand-in picks its answer from the step title, so every case is
+# visible in the input. Needs uv (the script resolves its own dependency).
+set -u
+
+ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)"
+SCRIPT="$ROOT/skills/tier/route.py"
+fail=0
+work="$(mktemp -d)"
+trap 'rm -rf "$work"; [ -n "${server_pid:-}" ] && kill "$server_pid" 2>/dev/null' EXIT
+
+command -v uv >/dev/null 2>&1 || { printf 'skip uv not installed\n'; exit 0; }
+
+# The stand-in API: answers each step_N choice from the words in its title,
+# records the last request body for assertions, and fails on demand.
+python3 - "$work" <<'EOF' &
+import json, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+work = sys.argv[1]
+
+def answer(title):
+    t = title.lower()
+    if "boom" in t:
+        return None
+    if "unsure" in t:
+        return "haiku", 0.3
+    if "concurrency" in t:
+        return "opus", 0.95
+    if "endpoint" in t:
+        return "sonnet", 0.8
+    if "doubtful opus" in t:
+        return "opus", 0.2
+    return "haiku", 0.9
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        open(f"{work}/last-request.json", "w").write(json.dumps(body))
+        answers = {}
+        for key in body["questions"]:
+            picked = answer(body["state"]["steps"][key]["title"])
+            if picked is None:
+                self.send_response(500)
+                self.end_headers()
+                return
+            tier, confidence = picked
+            probs = {t: 0.0 for t in ("haiku", "sonnet", "opus")}
+            probs[tier] = confidence
+            answers[key] = {"type": "choice", "choice": tier,
+                            "confidence": confidence, "probabilities": probs}
+        out = json.dumps({"model": "jev-stand-in", "answers": answers,
+                          "usage": {"input_tokens": 1, "output_tokens": 1}}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+open(f"{work}/port", "w").write(str(server.server_port))
+server.serve_forever()
+EOF
+server_pid=$!
+for _ in $(seq 50); do [ -s "$work/port" ] && break; sleep 0.1; done
+[ -s "$work/port" ] || { printf 'FAIL stand-in server did not start\n'; exit 1; }
+export TYPESAFE_BASE_URL="http://127.0.0.1:$(cat "$work/port")"
+export TYPESAFE_API_KEY="test-key"
+unset CLAUDE_1337_TIER_FLOOR
+
+run() { # input-json -> stdout in $out, exit code in $code
+  out=$(printf '%s' "$1" | "$SCRIPT" 2>"$work/stderr"); code=$?
+}
+
+check_code() { # description got want
+  if [ "$2" -eq "$3" ]; then printf 'ok   %s\n' "$1"; else printf 'FAIL %s (exit %s, want %s): %s\n' "$1" "$2" "$3" "$(cat "$work/stderr")"; fail=1; fi
+}
+
+check_eq() { # description got want
+  if [ "$2" = "$3" ]; then printf 'ok   %s\n' "$1"; else printf 'FAIL %s (got %s, want %s)\n' "$1" "$2" "$3"; fail=1; fi
+}
+
+three='{"task":"Add a --json flag to the todo CLI","steps":[
+  {"id":1,"title":"Rename the list helper","brief":"todo.py: cmd_list -> print_list"},
+  {"id":2,"title":"Add the endpoint for JSON output","brief":"todo.py: new branch in cmd_list"},
+  {"id":3,"title":"Handle concurrency on the DB file","brief":"todo.py: lock around save()"}]}'
+
+run "$three"
+check_code "three steps: routed" "$code" 0
+check_eq "tiers follow the answers" "$(printf '%s' "$out" | jq -c '[.steps[].tier]')" '["haiku","sonnet","opus"]'
+check_eq "ids come back in order" "$(printf '%s' "$out" | jq -c '[.steps[].id]')" '[1,2,3]'
+check_eq "nothing escalated" "$(printf '%s' "$out" | jq -c '[.steps[].escalated]')" '[false,false,false]'
+check_eq "model reported" "$(printf '%s' "$out" | jq -r .model)" "jev-stand-in"
+check_eq "one question per step" "$(jq '.questions | length' "$work/last-request.json")" "3"
+check_eq "task in state" "$(jq -r '.state.task' "$work/last-request.json")" "Add a --json flag to the todo CLI"
+check_eq "brief in state" "$(jq -r '.state.steps.step_2.brief' "$work/last-request.json")" "todo.py: lock around save()"
+check_eq "question names its step" "$(jq -r '.questions.step_1.instructions' "$work/last-request.json" | grep -c 'steps.step_1')" "1"
+check_eq "three tiers offered" "$(jq -c '.questions.step_0.criteria | keys' "$work/last-request.json")" '["haiku","opus","sonnet"]'
+
+unsure='{"task":"t","steps":[{"id":"a","title":"Unsure rename"},{"id":"b","title":"Doubtful opus step"}]}'
+run "$unsure"
+check_code "low confidence: routed" "$code" 0
+check_eq "haiku under the floor escalates to sonnet" "$(printf '%s' "$out" | jq -r '.steps[0].tier')" "sonnet"
+check_eq "escalation is flagged" "$(printf '%s' "$out" | jq -r '.steps[0].escalated')" "true"
+check_eq "opus under the floor stays opus" "$(printf '%s' "$out" | jq -r '.steps[1].tier')" "opus"
+check_eq "opus is not flagged" "$(printf '%s' "$out" | jq -r '.steps[1].escalated')" "false"
+check_eq "confidence passed through" "$(printf '%s' "$out" | jq -r '.steps[0].confidence')" "0.3"
+
+CLAUDE_1337_TIER_FLOOR=0.2 run "$unsure"
+check_eq "lower floor: no escalation" "$(printf '%s' "$out" | jq -c '[.steps[].tier, .floor]')" '["haiku","opus",0.2]'
+
+run '{"task":"t","steps":[{"title":"Boom"}]}'
+check_code "API 500: exit 4" "$code" 4
+check_eq "failure explained on stderr" "$(grep -c 'Jev call failed' "$work/stderr")" "1"
+
+run 'not json'
+check_code "bad input: exit 2" "$code" 2
+run '{"task":"t","steps":[]}'
+check_code "no steps: exit 2" "$code" 2
+run '{"task":"","steps":[{"title":"x"}]}'
+check_code "empty task: exit 2" "$code" 2
+run '{"task":"t","steps":[{"brief":"no title"}]}'
+check_code "step without title: exit 2" "$code" 2
+
+TYPESAFE_API_KEY= run "$three"
+check_code "no key: exit 3" "$code" 3
+check_eq "no key explained on stderr" "$(grep -c 'TYPESAFE_API_KEY' "$work/stderr")" "1"
+
+# The file-argument form reads the same input.
+printf '%s' "$three" > "$work/in.json"
+out=$("$SCRIPT" "$work/in.json" 2>/dev/null); code=$?
+check_code "file argument: routed" "$code" 0
+
+exit $fail

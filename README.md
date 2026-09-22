@@ -66,7 +66,11 @@ claude --plugin-dir ~/projects/1337-claude
   alive and in use: speculative generality, pass-through layers, frameworks
   where a function would do. Read-only.
 - `/1337:tier` — splits a task into builder-sized steps and assigns the
-  cheapest model tier per step (Haiku/Sonnet/Opus) for dispatch. Read-only.
+  cheapest model tier per step (Haiku/Sonnet/Opus) for dispatch. With
+  `TYPESAFE_API_KEY` set, the tier per step comes from Jev, TypeSafe's
+  decision model, through `skills/tier/route.py` (a `uv run` script that
+  calls the TypeSafe API directly); a step Jev is unsure about moves one
+  tier up. Without the key it sizes by hand. Read-only.
 - `/1337:plan` — turns a request into the smallest plan that still reaches
   the goal: ordered, builder-sized steps with a done check each, recorded as
   tasqx tasks when the tasqx MCP tools are present, else as
@@ -153,6 +157,7 @@ tests/stop-review.test.sh
 tests/terse-governor.test.sh
 tests/subagent-rules.test.sh
 tests/rule-copies.test.sh
+tests/tier-route.test.sh
 ```
 
 The session rules (evaluate, assumptions, proactive teammate) are checked by an

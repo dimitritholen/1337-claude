@@ -29,6 +29,30 @@ reports PASS/FAIL. Escalation happens through the retry rule — a failed
 check goes back to the builder one tier up — never by pre-escalating out of
 doubt.
 
+# Route with Jev
+
+When `TYPESAFE_API_KEY` is set, the tier per step comes from Jev, TypeSafe's
+decision model, not from your own read. Split the task into steps first,
+then run the router once with every step:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <<'EOF'
+{"task": "<the task in one or two lines>",
+ "steps": [{"id": 1, "title": "<step>", "brief": "<files, the change>"}]}
+EOF
+```
+
+It prints one JSON object: per step the `tier`, Jev's `confidence` and
+`probabilities`, and `escalated: true` where confidence fell under the floor
+(0.5, or `CLAUDE_1337_TIER_FLOOR`) and the step moved one tier up. Use those
+tiers in the plan and cite the confidence in the Escalation line. Send only
+titles and briefs, never file contents: the router needs the shape of the
+work, not the code.
+
+A non-zero exit means no routing happened: 3 is a missing key, 4 a failed
+call, and stderr says which. Size the steps by hand with the Tiers above and
+say in one line that Jev was not used and why. Never retry in a loop.
+
 # Output
 
 Plain text, in this order:
@@ -37,8 +61,9 @@ Plain text, in this order:
    (files it touches, done condition). Ordered so each step leaves the tree
    building. Five or fewer steps; a task that needs more splits into
    subtasks first.
-2. **Escalation** — one line naming any step you sized above Haiku and the
-   concrete reason (the hard part), or "none — all mechanical".
+2. **Escalation** — one line naming any step sized above Haiku and the
+   concrete reason (the hard part, or Jev's confidence when the router
+   escalated it), or "none — all mechanical".
 3. **Verify** — one line: what checker runs at the end, or "none applies"
    for a docs-only change.
 
