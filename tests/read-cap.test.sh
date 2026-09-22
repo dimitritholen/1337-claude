@@ -31,8 +31,22 @@ check_grep() { # expected-exit want-in-stderr description payload
   fi
 }
 
+check_notgrep() { # expected-exit not-in-stderr description payload
+  local out
+  out=$(printf '%s' "$4" | "$HOOK" 2>&1 >/dev/null)
+  got=$?
+  if [ "$got" -eq "$1" ] && ! printf '%s' "$out" | grep -q "$2"; then
+    printf 'ok   %s\n' "$3"
+  else
+    printf 'FAIL %s (exit %s, want %s; stderr: %s)\n' "$3" "$got" "$1" "$out"; fail=1
+  fi
+}
+
 readcall() { # session prompt_id extra
   printf '{"session_id":"%s","prompt_id":"%s","tool_name":"Read","tool_input":{"file_path":"/repo/a.py"}%s}' "$1" "$2" "${3:-}"
+}
+readcall_path() { # session prompt_id file_path extra
+  printf '{"session_id":"%s","prompt_id":"%s","tool_name":"Read","tool_input":{"file_path":"%s"}%s}' "$1" "$2" "$3" "${4:-}"
 }
 grepcall() { # session prompt_id tool extra
   printf '{"session_id":"%s","prompt_id":"%s","tool_name":"%s","tool_input":{"pattern":"x"}%s}' "$1" "$2" "$3" "${4:-}"
@@ -44,28 +58,34 @@ check 0 "mode off: read allowed" "$(readcall "$sid" p1)"
 
 export CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=true
 
-# b/c. first and second Read in prompt p1.
-check 0 "mode on: first read in p1" "$(readcall "$sid" p1)"
-check_grep 2 'Read #2' "mode on: second read in p1 refused" "$(readcall "$sid" p1)"
+# b. default cap (unset -> 0): the main session reads nothing by default,
+# so the very first Read of a turn is already refused.
+unset CLAUDE_1337_READ_CAP CLAUDE_1337_GREP_CAP
+check_grep 2 'Read #1' "default cap 0: first read in p0 refused" "$(readcall "$sid" p0)"
 
-# d. Read in prompt p2: new turn.
-check 0 "new prompt p2: read allowed" "$(readcall "$sid" p2)"
+# c/d. CLAUDE_1337_READ_CAP=1: first read in p1 passes, second refused.
+CLAUDE_1337_READ_CAP=1 check 0 "READ_CAP=1: first read in p1" "$(readcall "$sid" p1)"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "READ_CAP=1: second read in p1 refused" "$(readcall "$sid" p1)"
 
-# e. Grep, Glob in p2 pass; third (Grep) refused.
-check 0 "p2: first grep allowed" "$(grepcall "$sid" p2 Grep)"
-check 0 "p2: first glob allowed (second grep-kind call)" "$(grepcall "$sid" p2 Glob)"
-check_grep 2 'Grep/Glob #3' "p2: third grep-kind call refused" "$(grepcall "$sid" p2 Grep)"
+# e. Grep, Glob in p2 pass under GREP_CAP=2; third (Grep) refused.
+CLAUDE_1337_GREP_CAP=2 check 0 "GREP_CAP=2: p2: first grep allowed" "$(grepcall "$sid" p2 Grep)"
+CLAUDE_1337_GREP_CAP=2 check 0 "GREP_CAP=2: p2: first glob allowed (second grep-kind call)" "$(grepcall "$sid" p2 Glob)"
+CLAUDE_1337_GREP_CAP=2 check_grep 2 'Grep/Glob #3' "GREP_CAP=2: p2: third grep-kind call refused" "$(grepcall "$sid" p2 Grep)"
 
 # f. Read in p2 with agent_id after cap reached: always allowed.
 check 0 "p2: subagent read bypasses cap" "$(readcall "$sid" p2 ',"agent_id":"abc"')"
 
-# g. CLAUDE_1337_READ_CAP=0 disables entirely: third read in p1 passes.
-CLAUDE_1337_READ_CAP=0 check 0 "READ_CAP=0: third read in p1 allowed" "$(readcall "$sid" p1)"
+# g. CLAUDE_1337_READ_CAP=0 (the default) refuses every read, it does not disable.
+CLAUDE_1337_READ_CAP=0 check_grep 2 'Read #1' "READ_CAP=0: first read in p7 refused" "$(readcall "$sid" p7)"
 
-# g-grep. CLAUDE_1337_GREP_CAP=0 disables Grep/Glob cap: three grep-kind calls in fresh prompt p4 all pass.
-CLAUDE_1337_GREP_CAP=0 check 0 "GREP_CAP=0: first grep in p4 allowed" "$(grepcall "$sid" p4 Grep)"
-CLAUDE_1337_GREP_CAP=0 check 0 "GREP_CAP=0: second grep in p4 allowed" "$(grepcall "$sid" p4 Grep)"
-CLAUDE_1337_GREP_CAP=0 check 0 "GREP_CAP=0: third grep in p4 allowed" "$(grepcall "$sid" p4 Grep)"
+# g2. CLAUDE_1337_READ_CAP=off disables the cap entirely: three reads in p1 all pass.
+CLAUDE_1337_READ_CAP=off check 0 "READ_CAP=off: read in p1 allowed" "$(readcall "$sid" p1)"
+CLAUDE_1337_READ_CAP=OFF check 0 "READ_CAP=OFF (case-insensitive): read in p1 allowed" "$(readcall "$sid" p1)"
+
+# g-grep. CLAUDE_1337_GREP_CAP=off disables Grep/Glob cap: three grep-kind calls in fresh prompt p4 all pass.
+CLAUDE_1337_GREP_CAP=off check 0 "GREP_CAP=off: first grep in p4 allowed" "$(grepcall "$sid" p4 Grep)"
+CLAUDE_1337_GREP_CAP=off check 0 "GREP_CAP=off: second grep in p4 allowed" "$(grepcall "$sid" p4 Grep)"
+CLAUDE_1337_GREP_CAP=off check 0 "GREP_CAP=off: third grep in p4 allowed" "$(grepcall "$sid" p4 Grep)"
 
 # h. CLAUDE_1337_READ_CAP=3: reads 2 and 3 in fresh prompt p3 pass, fourth refused.
 CLAUDE_1337_READ_CAP=3 check 0 "READ_CAP=3: read 1 in p3" "$(readcall "$sid" p3)"
@@ -78,8 +98,8 @@ transcript="$STATEDIR/transcript-$sid.jsonl"
 printf '{"type":"user","message":{"content":"hello there"}}\n' > "$transcript"
 sid_t="$sid-transcript"
 read_noprompt=$(printf '{"session_id":"%s","tool_name":"Read","tool_input":{"file_path":"/repo/a.py"},"transcript_path":"%s"}' "$sid_t" "$transcript")
-check 0 "no prompt_id: first read via transcript fallback" "$read_noprompt"
-check_grep 2 'Read #2' "no prompt_id: second read via transcript fallback refused" "$read_noprompt"
+CLAUDE_1337_READ_CAP=1 check 0 "no prompt_id: first read via transcript fallback" "$read_noprompt"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "no prompt_id: second read via transcript fallback refused" "$read_noprompt"
 
 # j. six parallel Reads in a fresh prompt with cap 1: exactly one allowed.
 exits="$STATEDIR/exits-p5"
@@ -104,7 +124,7 @@ sid_lock="$sid-stalelock"
 stale_lock="$STATEDIR/claude-1337-read-cap-$sid_lock.lock"
 mkdir "$stale_lock"
 touch -d '-10 seconds' "$stale_lock"
-check 0 "stale lock: first read in fresh prompt allowed" "$(readcall "$sid_lock" p1)"
+CLAUDE_1337_READ_CAP=1 check 0 "stale lock: first read in fresh prompt allowed" "$(readcall "$sid_lock" p1)"
 
 # l. Edit tool_name passes through untouched.
 edit_payload=$(printf '{"session_id":"%s","prompt_id":"p1","tool_name":"Edit","tool_input":{"file_path":"/repo/a.py"}}' "$sid")
@@ -114,8 +134,43 @@ check 0 "Edit tool_name not counted" "$edit_payload"
 unset CLAUDE_1337_READ_CAP CLAUDE_1337_GREP_CAP
 unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR
 export EVAL_CLAUDE_1337_ORCHESTRATOR=1
-check 0 "eval switch: first read in p6" "$(readcall "$sid" p6)"
-check_grep 2 'Read #2' "eval switch: second read in p6 refused" "$(readcall "$sid" p6)"
+CLAUDE_1337_READ_CAP=1 check 0 "eval switch: first read in p6" "$(readcall "$sid" p6)"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "eval switch: second read in p6 refused" "$(readcall "$sid" p6)"
 unset EVAL_CLAUDE_1337_ORCHESTRATOR
+
+export CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=true
+
+# n. a path under the scratchpad/temp dir is exempt even at cap 0: three
+# reads of it in the same turn all pass, uncounted.
+CLAUDE_1337_READ_CAP=0 check 0 "scratch path: read 1 in p8 allowed" "$(readcall_path "$sid" p8 "$STATEDIR/scratch.txt")"
+CLAUDE_1337_READ_CAP=0 check 0 "scratch path: read 2 in p8 allowed" "$(readcall_path "$sid" p8 "$STATEDIR/scratch.txt")"
+CLAUDE_1337_READ_CAP=0 check 0 "scratch path: read 3 in p8 allowed" "$(readcall_path "$sid" p8 "$STATEDIR/scratch.txt")"
+
+# o. a path under $HOME/.claude is exempt at cap 0.
+CLAUDE_1337_READ_CAP=0 check 0 "\$HOME/.claude path exempt" "$(readcall_path "$sid" p9 "$HOME/.claude/notes.md")"
+
+# p. same turn, a repo path at cap 0 is refused (not exempt).
+CLAUDE_1337_READ_CAP=0 check_grep 2 'Read #1' "repo path at cap 0 refused" "$(readcall_path "$sid" p10 /repo/a.py)"
+
+# q. the refusal names 1337:scout, and ripwire when it is on PATH.
+CLAUDE_1337_GREP_CAP=0 check_grep 2 '1337:scout' "cap 0: message names 1337:scout" "$(grepcall "$sid" p11 Grep)"
+if command -v ripwire >/dev/null 2>&1; then
+  CLAUDE_1337_GREP_CAP=0 check_grep 2 'ripwire' "cap 0: message names ripwire when it is on PATH" "$(grepcall "$sid" p12 Grep)"
+fi
+
+# r. with ripwire missing from PATH, the message drops the ripwire half and
+# names only the 1337:scout dispatch.
+NOPWIRE_DIR="$STATEDIR/nopath"
+mkdir -p "$NOPWIRE_DIR"
+for bin in $(command -v jq env cat grep awk printf mkdir rm touch date sleep tr cksum bash sh true false); do
+  ln -sf "$(command -v "$(basename "$bin")")" "$NOPWIRE_DIR/$(basename "$bin")" 2>/dev/null
+done
+out=$(printf '%s' "$(grepcall "$sid" p13 Grep)" | CLAUDE_1337_GREP_CAP=0 PATH="$NOPWIRE_DIR" "$HOOK" 2>&1 >/dev/null)
+got=$?
+if [ "$got" -eq 2 ] && printf '%s' "$out" | grep -q '1337:scout' && ! printf '%s' "$out" | grep -q 'ripwire'; then
+  printf 'ok   ripwire missing from PATH: message names only 1337:scout\n'
+else
+  printf 'FAIL ripwire missing from PATH: message names only 1337:scout (exit %s; stderr: %s)\n' "$got" "$out"; fail=1
+fi
 
 exit $fail
