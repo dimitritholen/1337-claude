@@ -1,5 +1,5 @@
 {
-  "description": "Injects the 1337 rules at session start; enforces reply budgets after each turn; offers a /1337:review pass once when the session diff gets big; in orchestrator mode also the routing rules, the main-session edit guard and the per-turn Read/Grep/Glob cap; in tiered mode also the per-step model routing rules; routes prompts that ask for an image, SVG, video or speech file to an OpenRouter model chosen through Jev; in orchestrator or tiered mode nudges once when the main session codes without dispatching 1337:builder",
+  "description": "Injects the 1337 rules at session start; enforces reply budgets after each turn; offers a /1337:review pass once when the session diff gets big; in orchestrator mode also the routing rules, the main-session edit guard and the per-turn Read/Grep/Glob cap; in tiered mode also the per-step model routing rules and a guard on 1337:builder dispatches that enforces the routed tier; routes prompts that ask for an image, SVG, video or speech file to an OpenRouter model chosen through Jev; in orchestrator or tiered mode nudges once when the main session codes without dispatching 1337:builder",
   "hooks": {
     "SessionStart": [
       {
@@ -71,6 +71,16 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/read-cap.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/route-guard.sh\"",
             "timeout": 5
           }
         ]
