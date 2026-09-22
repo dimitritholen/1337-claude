@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# PreToolUse hook for Read|Grep|Glob, active only in orchestrator mode (plugin
-# option `orchestrator`, or CLAUDE_1337_ORCHESTRATOR=1). Caps how many of each
-# the main session may run per user turn: CLAUDE_1337_READ_CAP Reads,
-# CLAUDE_1337_GREP_CAP Grep/Glob calls, both default 0 — the main session
-# reads nothing by default. A positive integer allows that many per turn; 0
-# refuses every call of that kind; the value `off` (any case) drops the cap
-# for that kind entirely, i.e. disables this hook for it. Subagent calls
-# (payload carries agent_id) always pass the cap. Their first Grep or Glob
-# is a one-time nudge instead: refused once with a message pointing at
-# ripwire (keyed per agent_id, skipped if ripwire is not on PATH), then
-# every later call from that agent passes untouched. Subagent Reads are
-# never nudged.
+# PreToolUse hook for Read|Grep|Glob|Bash|WebFetch|mcp__codebase-memory-mcp__
+# (get_code_snippet|search_code|search_graph) — see hooks.json's read-cap
+# matcher, #662; keep both lists in sync — active only in orchestrator mode
+# (plugin option `orchestrator`, or CLAUDE_1337_ORCHESTRATOR=1). Caps how
+# many of each the main session may run per user turn: CLAUDE_1337_READ_CAP
+# Reads (also WebFetch, the three mcp tools, and a Bash call whose command
+# reads a file — see bash_is_read below), CLAUDE_1337_GREP_CAP Grep/Glob
+# calls, both default 0 — the main session reads nothing by default. A
+# positive integer allows that many per turn; 0 refuses every call of that
+# kind; the value `off` (any case) drops the cap for that kind entirely,
+# i.e. disables this hook for it. Subagent calls (payload carries agent_id)
+# always pass the cap. Their first Grep or Glob is a one-time nudge instead:
+# refused once with a message pointing at ripwire (keyed per agent_id,
+# skipped if ripwire is not on PATH), then every later call from that agent
+# passes untouched. Subagent Reads, Bash, WebFetch and mcp calls are never
+# nudged or counted.
 #
 # A Read/Grep/Glob whose target path falls under the session scratchpad or a
 # temp dir ($TMPDIR, /tmp, /private/tmp, /var/folders) or under $HOME/.claude
@@ -43,6 +47,62 @@ set -u
 [ "${CLAUDE_PLUGIN_OPTION_ORCHESTRATOR:-false}" = "true" ] || [ "${CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] || [ "${EVAL_CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] || exit 0
 
 command -v jq >/dev/null 2>&1 || exit 0
+
+# A Bash call counts as a read only when it has a segment (split on |, ;,
+# &&, ||; not a full shell parse) whose first word is a plain file-reader
+# (cat, head, tail, less, more, nl, od, xxd, strings, rg, ag, ack — these
+# always count), `sed -n`, `grep`/`egrep`/`fgrep`/`awk`/`jq` WITH a path
+# operand (a second non-flag argument, so a pure stdin filter like
+# `ps aux | grep x` or `git log | grep fix` does not count), or `git
+# cat-file`/`git grep`/`git show <rev>:<path>` (a `git show` operand
+# containing a colon; plain `git show HEAD` or `--stat` is metadata, same
+# as `git diff`, and does not count). Any other Bash command passes
+# uncounted.
+bash_is_read() {
+  local cmd="$1" seg first second nonflag arg
+  while IFS= read -r seg; do
+    seg="$(printf '%s' "$seg" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+    [ -n "$seg" ] || continue
+    set -- $seg
+    first="${1:-}"
+    second="${2:-}"
+    case "$first" in
+      cat|head|tail|less|more|nl|od|xxd|strings|rg|ag|ack) return 0 ;;
+      sed) [ "$second" = "-n" ] && return 0 ;;
+      grep|egrep|fgrep|awk|jq)
+        shift
+        nonflag=0
+        for arg in "$@"; do
+          case "$arg" in
+            -*) ;;
+            *) nonflag=$((nonflag + 1)) ;;
+          esac
+        done
+        [ "$nonflag" -ge 2 ] && return 0
+        ;;
+      git)
+        case "$second" in
+          cat-file|grep) return 0 ;;
+          show)
+            # `git show <rev>` / `--stat` etc is metadata, same as `git
+            # diff`: allowed. Only the rev:path form dumps a file's
+            # contents, so it counts — an operand after `show` containing a
+            # colon.
+            shift 2
+            for arg in "$@"; do
+              case "$arg" in
+                *:*) return 0 ;;
+              esac
+            done
+            ;;
+        esac
+        ;;
+    esac
+  done <<EOF
+$(printf '%s' "$cmd" | sed -E 's/(\|\||&&|[|;])/\n/g')
+EOF
+  return 1
+}
 
 # Helper function to acquire a directory-based lock with stale detection.
 # Takes the lock directory path as argument. Sets the global variable 'held' to
@@ -117,6 +177,12 @@ tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null) || exit
 case "$tool" in
   Read) kind=read; cap="${CLAUDE_1337_READ_CAP:-0}" ;;
   Grep|Glob) kind=grep; cap="${CLAUDE_1337_GREP_CAP:-0}" ;;
+  WebFetch|mcp__codebase-memory-mcp__get_code_snippet|mcp__codebase-memory-mcp__search_code|mcp__codebase-memory-mcp__search_graph)
+    kind=read; cap="${CLAUDE_1337_READ_CAP:-0}" ;;
+  Bash)
+    bash_command=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
+    bash_is_read "$bash_command" || exit 0
+    kind=read; cap="${CLAUDE_1337_READ_CAP:-0}" ;;
   *) exit 0 ;;
 esac
 
@@ -138,14 +204,29 @@ turn_key=$(printf '%s' "$payload" | jq -r '.prompt_id // empty' 2>/dev/null) || 
 if [ -z "$turn_key" ]; then
   transcript=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null) || exit 0
   if [ -n "$transcript" ] && [ -f "$transcript" ]; then
+    # One jq call: pick the last non-sidechain user entry and hand back its
+    # uuid and its text, separated by \u0001. uuid wins when present; the
+    # text is the last-resort cksum fallback for transcripts without one.
     last_user=$(jq -rs '
-      map(select(.type == "user") | .message.content
-        | if type == "string" then .
-          else ([.[]? | select(.type == "text") | .text] | join("\n"))
-          end)
-      | map(select(length > 0))
-      | last // empty' "$transcript" 2>/dev/null)
-    [ -n "$last_user" ] && turn_key=$(printf '%s' "$last_user" | cksum | awk '{print $1}')
+      map(select(.type == "user" and (.isSidechain != true)))
+      | last
+      | if . == null then empty
+        else [(.uuid // ""),
+              ((.message.content // "")
+               | if type == "string" then .
+                 else ([.[]? | select(.type == "text") | .text] | join("\n"))
+                 end)]
+             | join("\u0001")
+        end' "$transcript" 2>/dev/null)
+    if [ -n "$last_user" ]; then
+      uuid_part="${last_user%%$'\x01'*}"
+      text_part="${last_user#*$'\x01'}"
+      if [ -n "$uuid_part" ]; then
+        turn_key="$uuid_part"
+      elif [ -n "$text_part" ]; then
+        turn_key=$(printf '%s' "$text_part" | cksum | awk '{print $1}')
+      fi
+    fi
   fi
 fi
 [ -n "$turn_key" ] || exit 0
@@ -154,6 +235,14 @@ state="${TMPDIR:-/tmp}/claude-1337-read-cap-$session_id"
 lock="$state.lock"
 
 acquire_lock "$lock"
+
+# The state file's first line is the turn key alone. A key that differs
+# from the one on file means a new turn: truncate to just that key line
+# before appending this call's entry, so counts never leak across turns.
+current_key=$(head -n 1 "$state" 2>/dev/null)
+if [ "$current_key" != "$turn_key" ]; then
+  printf '%s\n' "$turn_key" > "$state" 2>/dev/null || exit 0
+fi
 
 printf '%s %s\n' "$turn_key" "$kind" >> "$state" 2>/dev/null || exit 0
 

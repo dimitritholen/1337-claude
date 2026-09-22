@@ -20,7 +20,11 @@ check() { # expected-exit description payload
   out=$(printf '%s' "$3" | "$HOOK" 2>&1 >/dev/null)
   got=$?
   if [ "$got" -eq "$1" ]; then printf 'ok   %s\n' "$2"; ok_count=$((ok_count + 1)); else printf 'FAIL %s (exit %s, want %s)\n' "$2" "$got" "$1"; fail=1; fail_count=$((fail_count + 1)); fi
-  printf '%s' "$out"
+  # Trailing newline so any stderr this call produced (e.g. a check() used
+  # on a refusal, which does carry a message) never glues onto the next
+  # helper's "ok "/"FAIL " line — that would hide it from tests/run-all.sh's
+  # line-prefix counting.
+  [ -n "$out" ] && printf '%s\n' "$out"
 }
 
 check_grep() { # expected-exit want-in-stderr description payload
@@ -45,34 +49,6 @@ check_notgrep() { # expected-exit not-in-stderr description payload
   fi
 }
 
-# Todo variants of check()/check_grep(): same signature, same assertion, but
-# never fail the run — they pin behaviour that #660 will build. Once #660
-# lands, rename todo_check to check (and todo_check_grep to check_grep) at
-# the call site and the case is live.
-todo_check() { # expected-exit description payload
-  local got out
-  out=$(printf '%s' "$3" | "$HOOK" 2>&1 >/dev/null)
-  got=$?
-  todo_count=$((todo_count + 1))
-  if [ "$got" -eq "$1" ]; then
-    printf 'todo %s (passes now)\n' "$2"
-  else
-    printf 'todo %s (want %s got %s)\n' "$2" "$1" "$got"
-  fi
-}
-
-todo_check_grep() { # expected-exit want-in-stderr description payload
-  local out got
-  out=$(printf '%s' "$4" | "$HOOK" 2>&1 >/dev/null)
-  got=$?
-  todo_count=$((todo_count + 1))
-  if [ "$got" -eq "$1" ] && printf '%s' "$out" | grep -q "$2"; then
-    printf 'todo %s (passes now)\n' "$3"
-  else
-    printf 'todo %s (want %s got %s)\n' "$3" "$1" "$got"
-  fi
-}
-
 readcall() { # session prompt_id extra
   printf '{"session_id":"%s","prompt_id":"%s","tool_name":"Read","tool_input":{"file_path":"/repo/a.py"}%s}' "$1" "$2" "${3:-}"
 }
@@ -82,8 +58,8 @@ readcall_path() { # session prompt_id file_path extra
 grepcall() { # session prompt_id tool extra
   printf '{"session_id":"%s","prompt_id":"%s","tool_name":"%s","tool_input":{"pattern":"x"}%s}' "$1" "$2" "$3" "${4:-}"
 }
-bashcall() { # session prompt_id command
-  printf '{"session_id":"%s","prompt_id":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" "$2" "$3"
+bashcall() { # session prompt_id command extra
+  printf '{"session_id":"%s","prompt_id":"%s","tool_name":"Bash","tool_input":{"command":"%s"}%s}' "$1" "$2" "$3" "${4:-}"
 }
 mcpcall() { # session prompt_id
   printf '{"session_id":"%s","prompt_id":"%s","tool_name":"mcp__codebase-memory-mcp__get_code_snippet","tool_input":{}}' "$1" "$2"
@@ -238,55 +214,65 @@ else
   printf 'FAIL subagent nudge: no nudge when ripwire absent from PATH (exit %s; stderr: %s)\n' "$got" "$out"; fail=1; fail_count=$((fail_count + 1))
 fi
 
-# --- gap cases (tasqx #657/#660): today's hook does not implement these yet;
-# todo_check/todo_check_grep pin the wanted behaviour without failing the
-# run. Each becomes a real (failing-if-wrong) check by renaming its
-# todo_check(_grep) call to check(_grep) once #660 lands.
+# --- gap cases (tasqx #657/#660), now live checks.
 
 # 25. READ_CAP=0 must not disable the Grep cap: with GREP_CAP=2 a third
 # Grep/Glob in one turn is still refused.
 printf '%s' "$(grepcall "$sid" p25 Grep)" | CLAUDE_1337_READ_CAP=0 CLAUDE_1337_GREP_CAP=2 "$HOOK" >/dev/null 2>&1
 printf '%s' "$(grepcall "$sid" p25 Glob)" | CLAUDE_1337_READ_CAP=0 CLAUDE_1337_GREP_CAP=2 "$HOOK" >/dev/null 2>&1
-CLAUDE_1337_READ_CAP=0 CLAUDE_1337_GREP_CAP=2 todo_check_grep 2 'Grep/Glob #3' "gap 25: READ_CAP=0 does not disable the Grep cap, third grep-kind call refused" "$(grepcall "$sid" p25 Grep)"
+CLAUDE_1337_READ_CAP=0 CLAUDE_1337_GREP_CAP=2 check_grep 2 'Grep/Glob #3' "gap 25: READ_CAP=0 does not disable the Grep cap, third grep-kind call refused" "$(grepcall "$sid" p25 Grep)"
 
 # 26. a Bash call whose command reads a file (cat/rg/git show) counts as a
 # read against READ_CAP: with READ_CAP=1 the second such call is refused.
 printf '%s' "$(bashcall "$sid" p26 'cat src/lib.rs')" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
-CLAUDE_1337_READ_CAP=1 todo_check 2 "gap 26: second Bash read (rg TODO src) refused under READ_CAP=1" "$(bashcall "$sid" p26 'rg TODO src')"
+CLAUDE_1337_READ_CAP=1 check 2 "gap 26: second Bash read (rg TODO src) refused under READ_CAP=1" "$(bashcall "$sid" p26 'rg TODO src')"
 printf '%s' "$(bashcall "$sid" p26 'git show HEAD:src/lib.rs')" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
 
 # 27. an mcp__codebase-memory-mcp__get_code_snippet call counts as a read
 # against READ_CAP.
 printf '%s' "$(mcpcall "$sid" p27)" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
-CLAUDE_1337_READ_CAP=1 todo_check 2 "gap 27: second mcp__codebase-memory-mcp__get_code_snippet call refused under READ_CAP=1" "$(mcpcall "$sid" p27)"
+CLAUDE_1337_READ_CAP=1 check 2 "gap 27: second mcp__codebase-memory-mcp__get_code_snippet call refused under READ_CAP=1" "$(mcpcall "$sid" p27)"
 
 # 28. two consecutive user turns with identical transcript text get distinct
-# turn keys: a read in the second turn is not charged to the first.
+# turn keys: a read in the second turn is not charged to the first. Every
+# user entry carries a distinct uuid, so the key comes from uuid.
 sid28="$sid-gap28"
 transcript28="$STATEDIR/transcript-gap28.jsonl"
-printf '{"type":"user","message":{"content":"hello there"}}\n' > "$transcript28"
+printf '{"uuid":"gap28-u1","isSidechain":false,"type":"user","message":{"role":"user","content":"hello there"}}\n' > "$transcript28"
 printf '%s' "$(readcall_transcript "$sid28" "$transcript28")" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
-printf '{"type":"assistant","message":{"content":"ok"}}\n' >> "$transcript28"
-printf '{"type":"user","message":{"content":"hello there"}}\n' >> "$transcript28"
-CLAUDE_1337_READ_CAP=1 todo_check 0 "gap 28: identical text in a second turn gets its own turn key, first read of it not charged to the first turn" "$(readcall_transcript "$sid28" "$transcript28")"
+printf '{"uuid":"gap28-a1","type":"assistant","message":{"role":"assistant","content":"ok"}}\n' >> "$transcript28"
+printf '{"uuid":"gap28-u2","isSidechain":false,"type":"user","message":{"role":"user","content":"hello there"}}\n' >> "$transcript28"
+CLAUDE_1337_READ_CAP=1 check 0 "gap 28: identical text in a second turn gets its own turn key, first read of it not charged to the first turn" "$(readcall_transcript "$sid28" "$transcript28")"
+
+# 28-fallback. Same identical-text scenario but with NO uuid fields anywhere
+# in the transcript: this documents the cksum fallback's known limitation
+# (it collides on identical text), not the wanted behaviour — the second
+# turn's read is still charged to the first.
+sid28f="$sid-gap28-fallback"
+transcript28f="$STATEDIR/transcript-gap28-fallback.jsonl"
+printf '{"type":"user","message":{"content":"hello there"}}\n' > "$transcript28f"
+printf '%s' "$(readcall_transcript "$sid28f" "$transcript28f")" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
+printf '{"type":"assistant","message":{"content":"ok"}}\n' >> "$transcript28f"
+printf '{"type":"user","message":{"content":"hello there"}}\n' >> "$transcript28f"
+CLAUDE_1337_READ_CAP=1 check 2 "gap 28 (cksum fallback, documents current limitation): identical text with no uuid collides across turns" "$(readcall_transcript "$sid28f" "$transcript28f")"
 
 # 29. a sidechain user entry (isSidechain:true) as the transcript's last
 # entry is ignored when deriving the turn key: a read within the same real
 # turn, made after a sidechain entry lands at the end of the transcript,
-# is still charged to that turn.
+# is still charged to that turn. Every user entry carries a uuid.
 sid29="$sid-gap29"
 transcript29="$STATEDIR/transcript-gap29.jsonl"
-printf '{"type":"user","message":{"content":"real turn text"}}\n' > "$transcript29"
+printf '{"uuid":"gap29-u1","isSidechain":false,"type":"user","message":{"role":"user","content":"real turn text"}}\n' > "$transcript29"
 printf '%s' "$(readcall_transcript "$sid29" "$transcript29")" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
-printf '{"type":"user","isSidechain":true,"message":{"content":"side note text"}}\n' >> "$transcript29"
-CLAUDE_1337_READ_CAP=1 todo_check 2 "gap 29: a trailing sidechain entry does not change the turn key, second read of the same turn refused" "$(readcall_transcript "$sid29" "$transcript29")"
+printf '{"uuid":"gap29-u2","isSidechain":true,"type":"user","message":{"role":"user","content":"side note text"}}\n' >> "$transcript29"
+CLAUDE_1337_READ_CAP=1 check 2 "gap 29: a trailing sidechain entry does not change the turn key, second read of the same turn refused" "$(readcall_transcript "$sid29" "$transcript29")"
 
 # 30. stale state from a previous session_id does not count against a new
 # session_id.
 sidA30="$sid-gap30A"
 sidB30="$sid-gap30B"
 printf '%s' "$(readcall "$sidA30" p30)" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
-CLAUDE_1337_READ_CAP=1 todo_check 0 "gap 30: stale state from a previous session_id does not count against a new session_id" "$(readcall "$sidB30" p30)"
+CLAUDE_1337_READ_CAP=1 check 0 "gap 30: stale state from a previous session_id does not count against a new session_id" "$(readcall "$sidB30" p30)"
 
 # 31. a lock dir with an empty ts file counts as live: the hook waits it out
 # (treats it as stale only after its own spin threshold) rather than
@@ -295,15 +281,75 @@ sidL31="$sid-gap31"
 lockdir31="$STATEDIR/claude-1337-read-cap-$sidL31.lock"
 mkdir -p "$lockdir31"
 : > "$lockdir31/ts"
-CLAUDE_1337_READ_CAP=1 todo_check 0 "gap 31: a lock dir with an empty ts file counts as live, the call waits it out and still succeeds" "$(readcall "$sidL31" p31)"
+CLAUDE_1337_READ_CAP=1 check 0 "gap 31: a lock dir with an empty ts file counts as live, the call waits it out and still succeeds" "$(readcall "$sidL31" p31)"
 
 # 32/33. Read, then a small Edit, then Read: with READ_CAP=1 the Edit itself
 # is allowed (33) and does not reset the count, so the second Read is still
 # refused (32).
 sid3233="$sid-gap3233"
 printf '%s' "$(readcall "$sid3233" p32)" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
-CLAUDE_1337_READ_CAP=1 todo_check 0 "gap 33: an Edit between two Reads is itself allowed" "$(editcall "$sid3233" p32)"
-CLAUDE_1337_READ_CAP=1 todo_check 2 "gap 32: the second Read after an intervening Edit is still refused under READ_CAP=1" "$(readcall "$sid3233" p32)"
+CLAUDE_1337_READ_CAP=1 check 0 "gap 33: an Edit between two Reads is itself allowed" "$(editcall "$sid3233" p32)"
+CLAUDE_1337_READ_CAP=1 check 2 "gap 32: the second Read after an intervening Edit is still refused under READ_CAP=1" "$(readcall "$sid3233" p32)"
+
+# --- new cases (#662): WebFetch, mcp search_graph, Bash pipe-filter
+# exclusion, subagent Bash bypass, state-file truncation on turn change,
+# and Bash reads following the read kind under GREP_CAP=off.
+
+webfetchcall() { # session prompt_id extra
+  printf '{"session_id":"%s","prompt_id":"%s","tool_name":"WebFetch","tool_input":{"url":"https://example.com"}%s}' "$1" "$2" "${3:-}"
+}
+mcpcall_named() { # session prompt_id tool
+  printf '{"session_id":"%s","prompt_id":"%s","tool_name":"%s","tool_input":{}}' "$1" "$2" "$3"
+}
+
+# WebFetch counts against READ_CAP: second WebFetch in a turn is refused.
+CLAUDE_1337_READ_CAP=1 check 0 "WebFetch: first fetch in p34 allowed" "$(webfetchcall "$sid" p34)"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "WebFetch: second fetch in p34 refused" "$(webfetchcall "$sid" p34)"
+
+# A pure stdin-filter Bash pipeline never counts, no matter how many run.
+CLAUDE_1337_READ_CAP=1 check 0 "Bash pipe-filter: ps aux | grep x (1st) allowed" "$(bashcall "$sid" p35 'ps aux | grep x')"
+CLAUDE_1337_READ_CAP=1 check 0 "Bash pipe-filter: git log | grep fix (2nd) allowed" "$(bashcall "$sid" p35 'git log | grep fix')"
+CLAUDE_1337_READ_CAP=1 check 0 "Bash pipe-filter: ps aux | grep x (3rd) allowed" "$(bashcall "$sid" p35 'ps aux | grep x')"
+
+# A subagent Bash call (agent_id set) passes untouched, cat included.
+CLAUDE_1337_READ_CAP=0 check 0 "subagent Bash: cat src/lib.rs from agent_id bypasses the cap" "$(bashcall "$sid" p36 'cat src/lib.rs' ',"agent_id":"sub1"')"
+
+# `git show <rev>` (and `--stat` etc, no colon operand) is metadata, same as
+# `git diff`, and never counts: three in one turn all pass.
+CLAUDE_1337_READ_CAP=1 check 0 "git show HEAD --stat (1st) allowed" "$(bashcall "$sid" p36b 'git show HEAD --stat')"
+CLAUDE_1337_READ_CAP=1 check 0 "git show HEAD --stat (2nd) allowed" "$(bashcall "$sid" p36b 'git show HEAD --stat')"
+CLAUDE_1337_READ_CAP=1 check 0 "git show HEAD --stat (3rd) allowed" "$(bashcall "$sid" p36b 'git show HEAD --stat')"
+
+# `git show <rev>:<path>` dumps a file's contents and counts: it fills the
+# cap, so the next read this turn is refused.
+CLAUDE_1337_READ_CAP=1 check 0 "git show HEAD:src/lib.rs allowed (1st read this turn)" "$(bashcall "$sid" p36c 'git show HEAD:src/lib.rs')"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "git show HEAD:src/lib.rs fills the cap, next read refused" "$(readcall "$sid" p36c)"
+
+# mcp__codebase-memory-mcp__search_graph counts as a read.
+CLAUDE_1337_READ_CAP=1 check 0 "mcp search_graph: first call in p37 allowed" "$(mcpcall_named "$sid" p37 mcp__codebase-memory-mcp__search_graph)"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "mcp search_graph: second call in p37 refused" "$(mcpcall_named "$sid" p37 mcp__codebase-memory-mcp__search_graph)"
+
+# After a turn change, the state file holds only the new turn: exactly the
+# new key line plus the new turn's entries.
+sid_trunc="$sid-trunc"
+state_trunc="$STATEDIR/claude-1337-read-cap-$sid_trunc"
+CLAUDE_1337_READ_CAP=2 check 0 "state truncation: read 1 in p38 (old turn)" "$(readcall "$sid_trunc" p38)"
+CLAUDE_1337_READ_CAP=2 check 0 "state truncation: read 2 in p38 (old turn)" "$(readcall "$sid_trunc" p38)"
+CLAUDE_1337_READ_CAP=2 check 0 "state truncation: read 1 in p39 (new turn)" "$(readcall "$sid_trunc" p39)"
+# File now holds the header line "p39" plus the one entry line "p39 read":
+# 2 lines total, no trace of the old turn's "p38" entries.
+trunc_lines=$(wc -l < "$state_trunc" | tr -d ' ')
+trunc_p38=$(grep -c -F 'p38 ' "$state_trunc")
+trunc_p39=$(grep -c -F 'p39 ' "$state_trunc")
+if [ "$trunc_lines" -eq 2 ] && [ "$trunc_p38" -eq 0 ] && [ "$trunc_p39" -eq 1 ]; then
+  printf 'ok   state truncation: file holds only the new turn key\n'; ok_count=$((ok_count + 1))
+else
+  printf 'FAIL state truncation: file holds only the new turn key (lines=%s p38=%s p39=%s; content: %s)\n' "$trunc_lines" "$trunc_p38" "$trunc_p39" "$(tr '\n' '|' < "$state_trunc")"; fail=1; fail_count=$((fail_count + 1))
+fi
+
+# READ_CAP=0 with GREP_CAP=off: a Bash cat is refused (Bash reads follow the
+# read kind, not the grep kind).
+CLAUDE_1337_READ_CAP=0 CLAUDE_1337_GREP_CAP=off check_grep 2 'Read #1' "READ_CAP=0, GREP_CAP=off: Bash cat refused" "$(bashcall "$sid" p40 'cat src/lib.rs')"
 
 printf 'summary: %d ok, %d FAIL, %d todo\n' "$ok_count" "$fail_count" "$todo_count"
 exit $fail
