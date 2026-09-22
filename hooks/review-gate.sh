@@ -121,6 +121,16 @@ scan=$(tail -n "+$((builder_ln + 1))" "$transcript" 2>/dev/null | jq -R 'fromjso
     if (c|type) == "array" then ([c[]? | select(.type == "text") | .text] | join("\n"))
     elif (c|type) == "string" then c
     else "" end;
+  # A diff read: `git diff` at a command boundary, with zero or more git
+  # global options in between (`-C <path>`, `-c <k=v>`, `--no-pager`,
+  # `-p`/`--paginate`, `--git-dir`/`--work-tree` with `=` or a space,
+  # `--no-optional-locks`). An option value is bare or quoted; \x27 is a
+  # single quote, which this single-quoted program cannot hold literally.
+  def optarg: "(?:\\x27[^\\x27]*\\x27|\"[^\"]*\"|[^\\s;&|\\x27\"]+)";
+  def diff_re:
+    "(^|[;&|\\s])git(?:\\s+(?:-[Cc]\\s+" + optarg
+    + "|--no-pager|-p|--paginate|--(?:git-dir|work-tree)(?:=|\\s+)" + optarg
+    + "|--no-optional-locks))*\\s+diff(\\s|$)";
   # The checker verdict token: the first non-empty line, trimmed, must be
   # exactly FAIL for the retry exemption to fire (agents/checker.md).
   def verdict_line(t):
@@ -144,7 +154,7 @@ scan=$(tail -n "+$((builder_ln + 1))" "$transcript" 2>/dev/null | jq -R 'fromjso
     else empty end
   ] as $events
   | ($events | any(.kind == "use" and .name == "Bash"
-      and (.command | test("(^|[;&|\\s])git\\s+diff(\\s|$)")))) as $diffed
+      and (.command | test(diff_re)))) as $diffed
   | ($events | any(.kind == "use" and .name == "Skill" and .skill == "1337:review")) as $skillreview
   | ($events | any(.kind == "usertext"
       and (.text | contains("<command-name>/1337:review</command-name>")))) as $slashreview

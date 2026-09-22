@@ -56,6 +56,9 @@ builder_result_line() { # tool-use id
   jq -c -n --arg id "$1" \
     '{type:"user",message:{role:"user",content:[{type:"tool_result",tool_use_id:$id,content:"builder report: done"}]}}'
 }
+bash_line() { # command
+  jq -c -n --arg cmd "$1" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Bash",input:{command:$cmd}}]}}'
+}
 git_diff_line() {
   jq -c -n '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Bash",input:{command:"git diff HEAD -- foo.py"}}]}}'
 }
@@ -290,5 +293,77 @@ t_tool "$(builder_line b2)" "$tr18"
 t_tool "$(builder_refused_result_line b2)" "$tr18"
 check_grep 2 'unreviewed' "dispatch gate: refused dispatch, no prior evidence: still refused" \
   "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr18")"
+
+# --- case 19: git diff with global options: git -C /repo diff --stat ---
+tr19="$TMPDIR/tr19.jsonl"
+t_tool "$(builder_line b1)" "$tr19"
+t_tool "$(builder_result_line b1)" "$tr19"
+t_tool "$(bash_line 'git -C /repo diff --stat')" "$tr19"
+t_tool "$(skill_review_line)" "$tr19"
+check 0 "diff_re: git -C /repo diff --stat: allowed" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr19")"
+
+# --- case 20: git diff with path containing spaces ---
+tr20="$TMPDIR/tr20.jsonl"
+t_tool "$(builder_line b1)" "$tr20"
+t_tool "$(builder_result_line b1)" "$tr20"
+t_tool "$(bash_line 'git -C "/a b" diff')" "$tr20"
+t_tool "$(skill_review_line)" "$tr20"
+check 0 'diff_re: git -C "/a b" diff: allowed' \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr20")"
+
+# --- case 21: git diff with --no-pager ---
+tr21="$TMPDIR/tr21.jsonl"
+t_tool "$(builder_line b1)" "$tr21"
+t_tool "$(builder_result_line b1)" "$tr21"
+t_tool "$(bash_line 'git --no-pager diff HEAD')" "$tr21"
+t_tool "$(skill_review_line)" "$tr21"
+check 0 "diff_re: git --no-pager diff HEAD: allowed" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr21")"
+
+# --- case 22: git diff with -c option ---
+tr22="$TMPDIR/tr22.jsonl"
+t_tool "$(builder_line b1)" "$tr22"
+t_tool "$(builder_result_line b1)" "$tr22"
+t_tool "$(bash_line 'git -c core.pager=cat diff')" "$tr22"
+t_tool "$(skill_review_line)" "$tr22"
+check 0 "diff_re: git -c core.pager=cat diff: allowed" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr22")"
+
+# --- case 23: cd followed by git -C . diff ---
+tr23="$TMPDIR/tr23.jsonl"
+t_tool "$(builder_line b1)" "$tr23"
+t_tool "$(builder_result_line b1)" "$tr23"
+t_tool "$(bash_line 'cd /repo && git -C . diff')" "$tr23"
+t_tool "$(skill_review_line)" "$tr23"
+check 0 "diff_re: cd /repo && git -C . diff: allowed" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr23")"
+
+# --- case 24: git log is not git diff -> refused ---
+tr24="$TMPDIR/tr24.jsonl"
+t_tool "$(builder_line b1)" "$tr24"
+t_tool "$(builder_result_line b1)" "$tr24"
+t_tool "$(bash_line 'git log -p')" "$tr24"
+t_tool "$(skill_review_line)" "$tr24"
+check_grep 2 '`git diff` has not run since' "diff_re: git log -p: not a diff, refused" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr24")"
+
+# --- case 25: git -C /repo log is not git diff -> refused ---
+tr25="$TMPDIR/tr25.jsonl"
+t_tool "$(builder_line b1)" "$tr25"
+t_tool "$(builder_result_line b1)" "$tr25"
+t_tool "$(bash_line 'git -C /repo log')" "$tr25"
+t_tool "$(skill_review_line)" "$tr25"
+check_grep 2 '`git diff` has not run since' "diff_re: git -C /repo log: not a diff, refused" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr25")"
+
+# --- case 26: git difftool is not git diff -> refused ---
+tr26="$TMPDIR/tr26.jsonl"
+t_tool "$(builder_line b1)" "$tr26"
+t_tool "$(builder_result_line b1)" "$tr26"
+t_tool "$(bash_line 'git difftool')" "$tr26"
+t_tool "$(skill_review_line)" "$tr26"
+check_grep 2 '`git diff` has not run since' "diff_re: git difftool: not a diff, refused" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr26")"
 
 exit $fail
