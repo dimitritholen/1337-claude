@@ -45,6 +45,67 @@ case "$tool" in
     bash_cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
     [ -n "$bash_cmd" ] || exit 0
     clean=$(printf '%s\n' "$bash_cmd" | sed -e 's#[0-9]*&\?>[[:space:]]*/dev/null##g' -e 's#[0-9]*>&1##g')
+    # Inline scripts piped into an interpreter through a heredoc are builder
+    # work past a line limit (CLAUDE_1337_INLINE_LINES, default 20, 0
+    # disables). Walk the command line by line: a line carrying `<<`/`<<-`
+    # (optionally quoted marker) opens a heredoc body that runs to the line
+    # matching the marker (leading tabs stripped for `<<-`). The consumer is
+    # counted only when the text before `<<` ends on one of the listed
+    # interpreter tokens with nothing after it but flags or a bare `-`
+    # (stdin); a real filename argument (`python3 script.py <<EOF`) is left
+    # alone as a grey area. `git commit -F - <<EOF` and `cat <<EOF` never
+    # match an interpreter token, so they pass regardless of body length.
+    inline_limit="${CLAUDE_1337_INLINE_LINES:-20}"
+    if [ "$inline_limit" != "0" ]; then
+      inline_hit=$(printf '%s\n' "$bash_cmd" | awk -v limit="$inline_limit" '
+        function is_interp(t) {
+          return (t=="python"||t=="python3"||t=="python2"||t=="node"||t=="bash"||t=="sh"||t=="zsh"||t=="dash"||t=="ruby"||t=="perl"||t=="php"||t=="deno"||t=="bun"||t=="osascript")
+        }
+        BEGIN { in_body=0 }
+        {
+          line=$0
+          if (!in_body) {
+            if (match(line, /<<-?[ \t]*"?'"'"'?[A-Za-z_][A-Za-z0-9_]*"?'"'"'?/)) {
+              seg = substr(line, RSTART, RLENGTH)
+              dash = (seg ~ /^<<-/) ? 1 : 0
+              marker = seg
+              sub(/^<<-?[ \t]*/, "", marker)
+              gsub(/["'"'"']/, "", marker)
+              prefix = substr(line, 1, RSTART - 1)
+              n = split(prefix, toks, /[ \t]+/)
+              interp = ""
+              interp_idx = 0
+              for (i = 1; i <= n; i++) { if (toks[i] != "" && is_interp(toks[i])) { interp = toks[i]; interp_idx = i } }
+              if (interp != "") {
+                has_file = 0
+                for (i = interp_idx + 1; i <= n; i++) { if (toks[i] != "" && toks[i] != "-" && substr(toks[i], 1, 1) != "-") has_file = 1 }
+                if (has_file) interp = ""
+              }
+              cur_marker = marker; cur_dash = dash; cur_interp = interp
+              body_count = 0
+              in_body = 1
+              next
+            }
+          } else {
+            test_line = line
+            if (cur_dash) sub(/^\t+/, "", test_line)
+            if (test_line == cur_marker) {
+              in_body = 0
+              if (!found && cur_interp != "" && body_count > limit) { print body_count, cur_interp; found = 1 }
+              next
+            }
+            body_count++
+          }
+        }
+      ')
+      if [ -n "$inline_hit" ]; then
+        body_lines=${inline_hit%% *}
+        interp=${inline_hit#* }
+        printf 'blocked (1337 orchestrator mode): inline %s-line script piped into %s; scripts over %s lines are builder work. Dispatch it to 1337:builder with a self-contained brief.\n' \
+          "$body_lines" "$interp" "$inline_limit" >&2
+        exit 2
+      fi
+    fi
     # Code files are builder work regardless of directory: refuse them even
     # under the temp-dir exemption below. Data files under temp stay allowed.
     code_ext='py|sh|bash|js|mjs|cjs|ts|rb|go|rs|php|pl|lua|html|htm|css'

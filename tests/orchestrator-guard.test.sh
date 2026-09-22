@@ -91,6 +91,36 @@ check 2 "bash sed -i on a quoted script path" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"sed -i 's/a/b/' \\\"/tmp/fix.sh\\\"\"}}"
 check 0 "bash heredoc writes a quoted data path under /tmp" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cat > \\\"/tmp/data.json\\\" <<'EOF'\n{}\nEOF\"}}"
+
+# Inline scripts piped into an interpreter through a heredoc.
+body30=$(printf 'line\n%.0s' $(seq 1 30))
+body5=$(printf 'line\n%.0s' $(seq 1 5))
+py30=$(printf "python3 - <<'EOF'\n%s\nEOF" "$body30")
+py30json=$(jq -Rs . <<<"$py30")
+py5=$(printf "python3 - <<'EOF'\n%s\nEOF" "$body5")
+py5json=$(jq -Rs . <<<"$py5")
+commit30=$(printf "git commit -q -F - <<'EOF'\n%s\nEOF" "$body30")
+commit30json=$(jq -Rs . <<<"$commit30")
+node30=$(printf "node - <<EOF\n%s\nEOF" "$body30")
+node30json=$(jq -Rs . <<<"$node30")
+two_heredoc=$(printf "cat <<A\n%s\nA\nbash <<B\n%s\nB" "$body5" "$body30")
+two_heredocjson=$(jq -Rs . <<<"$two_heredoc")
+
+check 2 "inline 30-line python3 heredoc" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py30json}}"
+check 0 "inline 5-line python3 heredoc" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py5json}}"
+check 0 "git commit -F - heredoc, not an interpreter" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$commit30json}}"
+check 2 "inline 30-line node heredoc" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$node30json}}"
+CLAUDE_1337_INLINE_LINES=0 check 0 "inline check disabled via CLAUDE_1337_INLINE_LINES=0" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py30json}}"
+check 2 "two heredocs, second one over the limit" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$two_heredocjson}}"
+CLAUDE_1337_INLINE_LINES=40 check 0 "inline check with a raised limit" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py30json}}"
+
 "$HOOK" --rules | grep -q '^# Orchestrator mode' && echo "ok   mode on: rules printed" || { echo "FAIL mode on: rules missing"; fail=1; }
 
 unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR

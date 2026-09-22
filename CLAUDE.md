@@ -79,7 +79,9 @@ work when the plugin is installed and used in any folder, not only this one.
   `builder` and `checker`; `hooks/orchestrator-guard.sh` injects
   `hooks/orchestrator.md` at SessionStart and refuses large main-session
   edits and Bash file writes (redirects, `tee`, `sed -i`; a bare heredoc
-  passes), with code files refused even under temp dirs.
+  passes), with code files refused even under temp dirs, and inline heredoc
+  scripts piped into an interpreter refused past `CLAUDE_1337_INLINE_LINES`
+  lines (default 20).
   Test: `tests/orchestrator-guard.test.sh`.
 - Tiered mode, opt-in via the `tiered` option in `plugin.json` `userConfig`
   (or `CLAUDE_1337_TIERED=1`): `hooks/tiered-rules.sh` prints
