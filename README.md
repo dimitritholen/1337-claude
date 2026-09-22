@@ -47,6 +47,43 @@ Or load it straight from a checkout:
 claude --plugin-dir ~/projects/1337-claude
 ```
 
+## Visual work through OpenRouter
+
+```mermaid
+%%{init: {"theme":"base", "themeVariables": {"primaryColor":"#1a1a2e", "primaryBorderColor":"#FF1493", "primaryTextColor":"#00D9FF", "fontSize":"13px"}}}%%
+flowchart TD
+    A["You type: make a retro logo<br/>for my coffee shop"] --> B{"Does it mention a logo,<br/>image, video or voice?"}
+    B -->|No| C["Claude answers as usual"]
+    B -->|"Yes, a logo"| D{"OpenRouter key<br/>saved?"}
+    D -->|No| E["Claude offers to set one up"]
+    D -->|Yes| F["Jev works out the kind of file:<br/>a vector logo, SVG"]
+    F -->|"Not a visual after all"| C
+    F --> H["Look up the 6 cheapest<br/>SVG models and their prices"]
+    H --> I["Jev picks the best fit,<br/>say Model X at $0.04"]
+    I --> J["Claude asks you to choose,<br/>Jev's pick on top"]
+    J -->|"You pick Model X"| M["generate.py makes the file"]
+    J -->|"Stay with Claude"| L["Claude draws it itself"]
+    M --> N["Saved as assets/make-a-retro-logo-<br/>for-my-coffee-shop.svg, cost $0.04"]
+
+    linkStyle default stroke:#FF1493,stroke-width:2px
+
+    classDef io fill:#1a1a2e,stroke:#00D9FF,stroke-width:2px,color:#00D9FF
+    classDef decision fill:#1a1a2e,stroke:#FF6600,stroke-width:2px,color:#FFD700
+    classDef jev fill:#1a1a2e,stroke:#FF1493,stroke-width:2px,color:#FFB6D9
+    classDef generate fill:#1a1a2e,stroke:#FF8800,stroke-width:2px,color:#FFD700
+    classDef terminal fill:#1a1a2e,stroke:#00D9FF,stroke-width:2px,color:#00D9FF
+
+    class A,N io
+    class B,D decision
+    class F,H,I,J jev
+    class M,L generate
+    class E,C terminal
+```
+
+Ask for a logo, SVG, video or voice-over and a hook intercepts before Claude starts drawing ASCII. It calls [Jev](https://typesafe.ai) to detect the modality, pulls OpenRouter's six cheapest models of that kind, asks you to pick one with prices visible, and runs `generate.py` to write the file (never overwrites). Stay with Claude is always an option.
+
+Details: [Visual generation](docs/visual-generation.md).
+
 ## More
 
 - [The voices](docs/output-styles.md)
