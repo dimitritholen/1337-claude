@@ -1,3 +1,2 @@
-.claude/settings.local.json
-.DS_Store
-evals/results/
+__pycache__/
+*.pyc
