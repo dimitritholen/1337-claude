@@ -137,11 +137,22 @@ Off by default. When on, the main session only plans, dispatches and reviews:
 | `1337:builder` | Chosen per step (Haiku, Sonnet or Opus) | Implements one step |
 | `1337:checker` | Haiku | Runs tests, build and lint; reports `PASS` or `FAIL` |
 
-A failed check goes back to the builder once, one model tier up. A hook refuses
-main-session edits over 20 lines and new files outside `~/.claude` and temp
-directories — including Bash redirects, `tee` and `sed -i`, which is
-how an agent will actually try to write a file — so larger changes go through
-`1337:builder`.
+A failed check goes back to the builder once, one model tier up. The main
+session consumes maps, never payloads: ripwire output, subagent reports, git
+metadata and test results, never a repository file's contents, through any
+tool or route. Read and Grep/Glob are capped at 0 per turn by default
+(`CLAUDE_1337_READ_CAP`, `CLAUDE_1337_GREP_CAP`; `off` disables a cap, `0`
+refuses it), and Bash that dumps file contents (`cat`, `head`, `sed -n`, a
+pathless `rg`/`grep -r`, `cp`/`mv` out of the tree, an inline interpreter
+opening a file, `git show <rev>:<path>`, `git cat-file`, `git grep`) is
+refused too — every `git diff` form stays allowed. Code discovery goes
+through `ripwire <dir> --for="..."` (then `--expand=SYM`, `--callers=`/
+`--impact=`/`--uses=SYM`, `--grep=STR`); anything else, or the file contents
+themselves, goes to `1337:scout`. A second hook refuses main-session edits
+over 20 lines and new files outside `~/.claude` and temp directories —
+including Bash redirects, `tee` and `sed -i` — past 3 small edits per
+session (`CLAUDE_1337_EDIT_CAP`; ripwire's own symbol edit draws on the same
+budget), so larger or further changes go through `1337:builder`.
 
 ### Turn it on
 
@@ -202,6 +213,8 @@ one session. Start a new session after changing it.
 
 ```bash
 tests/orchestrator-guard.test.sh
+tests/read-cap.test.sh
+tests/dispatch-nudge.test.sh
 tests/tiered-rules.test.sh
 tests/stop-review.test.sh
 tests/terse-governor.test.sh

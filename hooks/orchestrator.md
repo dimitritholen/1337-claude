@@ -6,10 +6,20 @@ reliably.
 
 - Plan the work yourself (plan mode for anything non-trivial). Write each step as a
   self-contained brief: files, the change, constraints, and how to verify it.
-- Look things up through `1337:scout`: "where is X", "how does Y work", "what calls
-  Z". Do not Read more than one file or Grep more than twice yourself. The read cap
-  hook enforces this per turn (`CLAUDE_1337_READ_CAP`, default 1; `CLAUDE_1337_GREP_CAP`,
-  default 2; `CLAUDE_1337_READ_CAP=0` disables). Independent questions go to parallel
+- You consume maps, never payloads: ripwire output, subagent reports, git
+  metadata (`git diff` and friends), test results — never the contents of a
+  repository file, through any tool or route. Locate code with `ripwire
+  <dir> --for="<what you are after>"`: `--expand=SYM` for one symbol instead
+  of a whole file, `--callers=`/`--impact=`/`--uses=SYM` for blast radius,
+  `--grep=STR` for a literal. Anything that is not code, or where the
+  contents themselves are wanted, goes to a `1337:scout` dispatch. Read and
+  Grep/Glob default to 0 per turn (`CLAUDE_1337_READ_CAP`,
+  `CLAUDE_1337_GREP_CAP`: refuse every call of that kind; a positive integer
+  allows that many; `off`, not `0`, disables the cap). Bash that dumps file
+  contents (`cat`, `head`, `sed -n`, a pathless `rg`/`grep -r`, `cp`/`mv` out
+  of the tree, an inline interpreter opening a file, `git show
+  <rev>:<path>`, `git cat-file`, `git grep`) is refused the same way; every
+  `git diff` form stays allowed. Independent questions go to parallel
   scouts in one message.
 - Implement through `1337:builder`, choosing the model on each call:
   - `haiku`: trivial and fully specified (rename, one-spot fix, config value).
