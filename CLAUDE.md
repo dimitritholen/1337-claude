@@ -10,6 +10,15 @@ work when the plugin is installed and used in any folder, not only this one.
 - `.claude-plugin/marketplace.json`: makes this repo the `1337-claude` marketplace,
   so the plugin installs as `1337@1337-claude`.
 - `skills/<name>/SKILL.md`: one folder per skill.
+- `lib/keys.py` + `lib/jev.py`: stdlib-only helper every script that talks
+  to Jev imports (`sys.path.insert(0, <plugin root>)`, then `from lib import
+  keys, jev`). `keys.get(NAME)` reads the environment, then
+  `~/.config/1337/credentials` (0600, `NAME=value` lines; path override
+  `CLAUDE_1337_CREDENTIALS`); `keys.set` writes it. `jev.decide(state,
+  questions, timeout=...)` posts to TypeSafe direct when `TYPESAFE_API_KEY`
+  exists, else to OpenRouter's decisions endpoint with `OPENROUTER_API_KEY`;
+  one retry on 408/429/5xx after at most a second. Test: `tests/lib.test.sh`
+  (stand-in server, no key).
 - `skills/tier/route.py`: `uv run` script (inline dependency on
   `typesafe-sdk`) that asks Jev, TypeSafe's decision model, for the model
   tier per plan step over the TypeSafe API. Needs `TYPESAFE_API_KEY`; reads
