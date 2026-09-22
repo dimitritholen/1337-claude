@@ -72,6 +72,10 @@ work when the plugin is installed and used in any folder, not only this one.
 - `hooks/stop-review.sh`: Stop hook that once per session offers a
   `/1337:review` pass when the session diff adds 30+ lines
   (`CLAUDE_1337_REVIEW_NUDGE=0` opts out). Test: `tests/stop-review.test.sh`.
+- `hooks/dispatch-nudge.sh`: Stop hook, active in orchestrator or tiered mode,
+  that once per session nudges to dispatch when the main session codes three
+  times without dispatching 1337:builder (`CLAUDE_1337_DISPATCH_NUDGE=0` opts
+  out). Test: `tests/dispatch-nudge.test.sh`.
 - `hooks/terse-governor.sh`: Stop hook that measures the last reply and blocks
   over-budget ones (mode in `~/.claude/.1337-terse`, set by `/1337:terse`;
   `CLAUDE_1337_TERSE=0|on|hard` overrides). Test:

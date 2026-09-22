@@ -33,3 +33,6 @@ reliably.
 - Independent steps go out in parallel in one message.
 - When the same standing instructions (roughly 300+ tokens) recur in three or more
   briefs, suggest turning them into a project agent in `.claude/agents/`.
+- The dispatch nudge fires when three code steps run in the main session without
+  a builder dispatch: dispatch the next step through 1337:builder rather than
+  working around the nudge.

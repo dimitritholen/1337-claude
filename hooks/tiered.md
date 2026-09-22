@@ -25,3 +25,6 @@ model, not from your own read of the step.
   hand and try the router again on the next one. Never retry in a loop.
 - Name the tier and Jev's confidence in the line that dispatches each step,
   so the user can see why a step went to Opus.
+- The dispatch nudge fires in tiered mode when code steps run without a builder
+  dispatch, and means the router was never consulted; dispatch the next step
+  through it.
