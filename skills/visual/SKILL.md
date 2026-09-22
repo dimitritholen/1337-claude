@@ -26,12 +26,13 @@ that choice.
    python3 "${CLAUDE_PLUGIN_ROOT}/skills/visual/generate.py" \
      --model <chosen id> --modality raster_image|vector_svg|video|speech \
      --prompt "<the user's prompt, verbatim>" [--out <path>] \
-     [--aspect 16:9] [--duration 8] [--voice alloy]
+     [--endpoint auto|chat|images] [--aspect 16:9] [--duration 8] [--voice alloy]
    ```
 
    It prints one JSON line with `path`, `media_type`, `bytes` and `cost`.
    Report the path and the cost in one line. On "Stay with Claude" carry on
-   as usual and do not mention the models again.
+   as usual and do not mention the models again. `--endpoint auto` (default)
+   posts to chat/completions and retries against /api/v1/images on a 404.
 
 Without the hook block (a direct `/1337:visual <request>`), do the same by
 hand: run `skills/visual/catalogue.py <modality> 6` for the list, ask the
@@ -64,6 +65,15 @@ environment wins over it.
 When a prompt looks visual and no key is stored, the hook injects a short
 note instead of a list. Ask once with `AskUserQuestion` whether to store a
 key now or carry on without; on "without", do not ask again this session.
+
+# Errors
+
+Exit 6 from generate.py (model unusable: HTTP 403 upstream, e.g. an 18+
+attestation the account lacks) prints the upstream message to the user in one
+line, drops that model from the ranked choice, and asks once more with the
+remaining models; if none remain, say so and stop. This is the one exception
+to "do not ask twice for the same prompt", because the first answer turned
+out impossible, not declined.
 
 # Prices
 

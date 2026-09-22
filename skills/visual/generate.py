@@ -17,8 +17,9 @@ The file goes to --out, else assets/<slug of the prompt>.<ext> under the
 current directory, never overwriting (a -2, -3 suffix instead). Stdout
 is one JSON line: path, model, modality, media_type, cost (USD from the
 API's usage, or null when it reports none). Exit: 0 written, 2 usage, 3
-no key, 4 API failure, 5 the video job failed. OPENROUTER_BASE_URL
-redirects the API; CLAUDE_1337_POLL_SECONDS sets the poll interval (5).
+no key, 4 API failure, 5 the video job failed, 6 the model is unusable
+for this account (upstream said why). OPENROUTER_BASE_URL redirects the
+API; CLAUDE_1337_POLL_SECONDS sets the poll interval (5).
 Stdlib only.
 """
 
@@ -59,6 +60,15 @@ class JobFailed(Exception):
     pass
 
 
+class ModelUnusable(Exception):
+    """Upstream refused with 403: the account cannot use this model."""
+
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
 def base_url():
     return (os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai").rstrip("/")
 
@@ -82,6 +92,8 @@ def request(method, url, key, body=None, accept="application/json"):
             message = json.loads(detail).get("error", {}).get("message") or detail
         except (ValueError, AttributeError):
             message = detail
+        if e.code == 403:
+            raise ModelUnusable(e.code, str(message)) from e
         raise ApiError(f"{method} {url.replace(base_url(), '')} answered {e.code}: "
                        f"{str(message)[:300]}", status=e.code) from e
     except (urllib.error.URLError, OSError) as e:
@@ -109,7 +121,20 @@ def cost_of(usage):
 
 # --- the three producers: each returns (bytes, media_type, ext, cost) ---------
 
-def make_image(model, prompt, aspect, key):
+def make_image(model, prompt, aspect, key, endpoint):
+    if endpoint == "images":
+        return make_image_via_images(model, prompt, aspect, key)
+    try:
+        return make_image_via_chat(model, prompt, aspect, key)
+    except ApiError as e:
+        # auto falls back once: some models only exist behind /api/v1/images
+        # and chat/completions says so in a 404.
+        if endpoint == "auto" and e.status == 404 and "/api/v1/images" in str(e):
+            return make_image_via_images(model, prompt, aspect, key)
+        raise
+
+
+def make_image_via_chat(model, prompt, aspect, key):
     body = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -138,6 +163,20 @@ def make_image(model, prompt, aspect, key):
     else:
         raise ApiError(f"{model} returned an image url I cannot read")
     ext, media_type = media_ext(media_type, "png")
+    return raw, media_type, ext, cost_of(answer.get("usage"))
+
+
+def make_image_via_images(model, prompt, aspect, key):
+    body = {"model": model, "prompt": prompt}
+    if aspect:
+        body["image_config"] = {"aspect_ratio": aspect}
+    answer = request_json("POST", "/api/v1/images", key, body)
+    data = ((answer.get("data") or [{}])[0])
+    b64 = data.get("b64_json")
+    if not b64:
+        raise ApiError(f"{model} returned no image")
+    raw = base64.b64decode(b64)
+    ext, media_type = media_ext(data.get("media_type"), "png")
     return raw, media_type, ext, cost_of(answer.get("usage"))
 
 
@@ -240,6 +279,8 @@ def main(argv):
     parser.add_argument("--aspect", help="aspect ratio such as 16:9 (image and video)")
     parser.add_argument("--duration", type=int, help="seconds (video)")
     parser.add_argument("--voice", help="voice id (speech)")
+    parser.add_argument("--endpoint", choices=("auto", "chat", "images"), default="auto",
+                        help="image endpoint to use (raster and vector only, default auto)")
     args = parser.parse_args(argv[1:])
     if not args.prompt.strip():
         parser.error("--prompt must not be empty")
@@ -252,7 +293,7 @@ def main(argv):
 
     try:
         if args.modality in ("raster_image", "vector_svg"):
-            raw, media_type, ext, cost = make_image(args.model, args.prompt, args.aspect, key)
+            raw, media_type, ext, cost = make_image(args.model, args.prompt, args.aspect, key, args.endpoint)
         elif args.modality == "video":
             raw, media_type, ext, cost = make_video(args.model, args.prompt, args.aspect, args.duration, key)
         else:
@@ -260,6 +301,9 @@ def main(argv):
     except JobFailed as e:
         print(f"generate: {e}", file=sys.stderr)
         return 5
+    except ModelUnusable as e:
+        print(f"generate: {e.message}", file=sys.stderr)
+        return 6
     except ApiError as e:
         print(f"generate: {e}", file=sys.stderr)
         return 4

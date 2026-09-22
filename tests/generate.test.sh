@@ -71,7 +71,13 @@ class Handler(BaseHTTPRequestHandler):
         model = body.get("model", "")
         if "boom" in model:
             self.send_json(500, {"error": {"message": "stand-in exploded"}}); return
+        if "forbidden" in model:
+            self.send_json(403, {"error": {"message": "This model requires you to complete the following before use: 18+ age confirmation",
+                                           "code": 403, "metadata": {"missing_attestation_types": ["age_18plus"]}}}); return
         if self.path == "/api/v1/chat/completions":
+            if "images-only" in model:
+                self.send_json(404, {"error": {"message": "acme/images-only is an image generation model and cannot be used with the chat/completions endpoint. Use the /api/v1/images endpoint instead.",
+                                               "code": 404}}); return
             if "vector" in model:
                 url = "data:image/svg+xml;base64," + base64.b64encode(SVG).decode()
             elif "noimage" in model:
@@ -82,6 +88,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"id": "gen-img", "choices": [{"message": {"role": "assistant", "content": "",
                                  "images": [{"type": "image_url", "image_url": {"url": url}}]}}],
                                  "usage": {"prompt_tokens": 10, "completion_tokens": 1000, "cost": 0.0192}}); return
+        if self.path == "/api/v1/images":
+            if "images-only" in model:
+                self.send_json(200, {"data": [{"b64_json": base64.b64encode(PNG).decode(), "media_type": "image/png"}],
+                                     "usage": {"cost": 0.0042}}); return
+            self.send_json(404, {"error": {"message": "unknown model"}}); return
         if self.path == "/api/v1/videos":
             job = "job-fails" if "fail" in model else "job-1"
             self.send_json(200, {"id": job, "status": "pending", "polling_url": f"{self.base()}/api/v1/videos/{job}"}); return
@@ -187,5 +198,35 @@ run --model acme/paint --modality raster_image --prompt "   "
 check_code "empty prompt: usage exit 2" "$code" 2
 OPENROUTER_BASE_URL="http://127.0.0.1:1" run --model acme/paint --modality raster_image --prompt "x"
 check_code "unreachable: exit 4" "$code" 4
+
+# --- endpoint routing and unusable models (#641) ---
+run --model acme/images-only --modality raster_image --prompt "A blue heron, ink"
+check_code "images-only, auto: written via images endpoint" "$code" 0
+check_eq "images-only, auto: file is the decoded PNG" "$(head -c 8 assets/a-blue-heron-ink.png | od -An -c | tr -d ' \n')" '211PNG\r\n032\n'
+check_eq "images-only, auto: cost 0.0042" "$(field .cost)" "0.0042"
+check_eq "images-only, auto: chat/completions then images" "$(jq -r '.path' "$work/requests.jsonl" | tr '\n' ';')" "/api/v1/chat/completions;/api/v1/images;"
+
+run --model acme/images-only --modality raster_image --prompt "Colorful parrot" --endpoint images
+check_code "--endpoint images: written" "$code" 0
+check_eq "--endpoint images: file exists" "$(head -c 8 assets/colorful-parrot.png | od -An -c | tr -d ' \n')" '211PNG\r\n032\n'
+check_eq "--endpoint images: images endpoint only" "$(jq -r '.path' "$work/requests.jsonl" | tr '\n' ';')" "/api/v1/images;"
+
+run --model acme/images-only --modality raster_image --prompt "Mountain peak" --endpoint chat
+check_code "--endpoint chat: exit 4" "$code" 4
+check_eq "--endpoint chat: error on stderr" "$(grep -c 'Use the /api/v1/images endpoint' "$work/stderr")" "1"
+[ ! -e assets/mountain-peak.png ] && printf 'ok   --endpoint chat: nothing written\n' || { printf 'FAIL --endpoint chat wrote a file\n'; fail=1; }
+check_eq "--endpoint chat: chat endpoint only" "$(jq -r '.path' "$work/requests.jsonl" | tr '\n' ';')" "/api/v1/chat/completions;"
+
+run --model acme/forbidden --modality raster_image --prompt "A locked door"
+check_code "forbidden model: exit 6" "$code" 6
+check_eq "forbidden: missing attestation on stderr" "$(grep -c '18+ age confirmation' "$work/stderr")" "1"
+[ ! -e assets/a-locked-door.png ] && printf 'ok   forbidden: nothing written\n' || { printf 'FAIL forbidden wrote a file\n'; fail=1; }
+
+run --model acme/paint --modality raster_image --endpoint bogus --prompt "x"
+check_code "--endpoint with bad value: usage exit 2" "$code" 2
+
+run --model acme/paint --modality raster_image --prompt "A ceramic pot"
+check_code "existing model without --endpoint: written" "$code" 0
+check_eq "existing model: uses chat only, no images call" "$(jq -c 'select(.method=="POST") | .path' "$work/requests.jsonl" | sort -u | tr '\n' ';')" '"/api/v1/chat/completions";'
 
 exit $fail
