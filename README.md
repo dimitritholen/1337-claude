@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="1337" width="360">
+  <img src="assets/logo-1337-claude.png" alt="1337 Claude" width="420">
 </p>
 
 > My personal experimentation repo for Claude Code. This is where I test new
