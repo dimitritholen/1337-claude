@@ -144,6 +144,13 @@ work when the plugin is installed and used in any folder, not only this one.
   `hooks/review-gate.sh` and `hooks/route-guard.sh` call it to anchor on the
   last dispatch that actually spent the slot. Test:
   `tests/builder-dispatches.test.sh`.
+- `hooks/lib/git-subcommand.sh`: sourced helper; `git_subcommand WORD...`
+  (the words after `git`) sets `git_sub` and `git_sub_at`, skipping git
+  global options (`-C`/`-c` with bare or quoted values, `--no-pager`,
+  `--git-dir`, `--work-tree` and the like). An option it cannot parse comes
+  back as `git_sub` starting with `-`, which `hooks/orchestrator-guard.sh`
+  refuses and `hooks/read-cap.sh` counts as a read. Test:
+  `tests/git-subcommand.test.sh`.
 
 All shell suites run together with `tests/run-all.sh`; a change to `hooks/` or
 `skills/` is not done until it is green.

@@ -317,6 +317,37 @@ check 0 "bash git log stays allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"git log"}}'
 check 0 "bash git blame stays allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"git blame src/lib.rs"}}'
+# A git global option in front does not hide the subcommand
+# (hooks/lib/git-subcommand.sh): the three readers are still refused, and
+# everything else behaves exactly as its plain form.
+check 2 "bash git -C <path> show rev:path dumps a file's contents" \
+  '{"tool_name":"Bash","tool_input":{"command":"git -C /repo show HEAD:secret.py"}}'
+check 2 "bash git --no-pager grep searches tracked file contents" \
+  '{"tool_name":"Bash","tool_input":{"command":"git --no-pager grep foo"}}'
+check 2 "bash git -C . cat-file dumps a file's contents" \
+  '{"tool_name":"Bash","tool_input":{"command":"git -C . cat-file -p X"}}'
+check 2 "bash git -C with a quoted path holding a space, then show rev:path" \
+  '{"tool_name":"Bash","tool_input":{"command":"git -C '"'"'/my repo'"'"' show HEAD:secret.py"}}'
+check 2 "bash git -c <k=v> --git-dir <v> show rev:path" \
+  '{"tool_name":"Bash","tool_input":{"command":"git -c core.pager=cat --git-dir /r/.git show HEAD:a.py"}}'
+check 0 "bash git -C /repo show HEAD (no colon operand) stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git -C /repo show HEAD"}}'
+check 0 "bash git -c with a colon in its value, then show HEAD, stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git -c url.a:b.insteadOf=c show HEAD"}}'
+check 0 "bash git -C . diff stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git -C . diff"}}'
+check 0 "bash git --no-pager diff HEAD stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git --no-pager diff HEAD"}}'
+check 0 "bash git -C /repo log --oneline stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git -C /repo log --oneline"}}'
+check 0 "bash git -C /repo status stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git -C /repo status"}}'
+check 0 "bash git --version stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git --version"}}'
+# An unknown option where a global option goes cannot be skipped safely (it
+# may take a value that hides the subcommand), so it is refused as a read.
+check 2 "bash git with an unknown global option is refused as a possible read" \
+  '{"tool_name":"Bash","tool_input":{"command":"git --frobnicate show HEAD"}}'
 check 0 "bash ripwire stays allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"ripwire . --for=\"x\""}}'
 py_read=$(printf "python3 - <<'EOF'\nopen('secret.txt')\nEOF")

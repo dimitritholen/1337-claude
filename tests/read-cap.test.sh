@@ -325,6 +325,27 @@ CLAUDE_1337_READ_CAP=1 check 0 "git show HEAD --stat (3rd) allowed" "$(bashcall 
 CLAUDE_1337_READ_CAP=1 check 0 "git show HEAD:src/lib.rs allowed (1st read this turn)" "$(bashcall "$sid" p36c 'git show HEAD:src/lib.rs')"
 CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "git show HEAD:src/lib.rs fills the cap, next read refused" "$(readcall "$sid" p36c)"
 
+# A git global option in front does not hide the subcommand
+# (hooks/lib/git-subcommand.sh): each reader still counts and fills the cap.
+CLAUDE_1337_READ_CAP=1 check 0 "git -C /repo show HEAD:secret.py allowed (1st read this turn)" "$(bashcall "$sid" p36d 'git -C /repo show HEAD:secret.py')"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "git -C /repo show HEAD:secret.py fills the cap, next read refused" "$(readcall "$sid" p36d)"
+CLAUDE_1337_READ_CAP=1 check 0 "git --no-pager grep foo allowed (1st read this turn)" "$(bashcall "$sid" p36e 'git --no-pager grep foo')"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "git --no-pager grep foo fills the cap, next read refused" "$(readcall "$sid" p36e)"
+CLAUDE_1337_READ_CAP=1 check 0 "git -C . cat-file -p X allowed (1st read this turn)" "$(bashcall "$sid" p36f 'git -C . cat-file -p X')"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "git -C . cat-file -p X fills the cap, next read refused" "$(readcall "$sid" p36f)"
+CLAUDE_1337_READ_CAP=1 check 0 "git -C '/my repo' show HEAD:a.py allowed (1st read this turn)" "$(bashcall "$sid" p36g "git -C '/my repo' show HEAD:a.py")"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "git -C with a quoted path fills the cap, next read refused" "$(readcall "$sid" p36g)"
+# An unknown option where a global option goes counts as a possible read.
+CLAUDE_1337_READ_CAP=1 check 0 "git --frobnicate show HEAD allowed (1st read this turn)" "$(bashcall "$sid" p36h 'git --frobnicate show HEAD')"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "git with an unknown global option counts, next read refused" "$(readcall "$sid" p36h)"
+# Non-reading git behind a global option never counts: three in one turn pass.
+CLAUDE_1337_READ_CAP=1 check 0 "git -C . diff (1st) allowed" "$(bashcall "$sid" p36i 'git -C . diff')"
+CLAUDE_1337_READ_CAP=1 check 0 "git --no-pager diff HEAD (2nd) allowed" "$(bashcall "$sid" p36i 'git --no-pager diff HEAD')"
+CLAUDE_1337_READ_CAP=1 check 0 "git -C /repo log --oneline (3rd) allowed" "$(bashcall "$sid" p36i 'git -C /repo log --oneline')"
+CLAUDE_1337_READ_CAP=1 check 0 "git -C /repo status (4th) allowed" "$(bashcall "$sid" p36i 'git -C /repo status')"
+CLAUDE_1337_READ_CAP=1 check 0 "git -c url.a:b.insteadOf=c show HEAD (5th) allowed" "$(bashcall "$sid" p36i 'git -c url.a:b.insteadOf=c show HEAD')"
+CLAUDE_1337_READ_CAP=1 check 0 "a Read after five non-reading git calls is the 1st read" "$(readcall "$sid" p36i)"
+
 # mcp__codebase-memory-mcp__search_graph counts as a read.
 CLAUDE_1337_READ_CAP=1 check 0 "mcp search_graph: first call in p37 allowed" "$(mcpcall_named "$sid" p37 mcp__codebase-memory-mcp__search_graph)"
 CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "mcp search_graph: second call in p37 refused" "$(mcpcall_named "$sid" p37 mcp__codebase-memory-mcp__search_graph)"

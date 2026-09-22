@@ -267,18 +267,28 @@ case "$tool" in
         # <rev>:<path>`, `git cat-file` in any form, and `git grep` (which
         # searches tracked file contents). Everything else under git,
         # including every `git diff` and `git show HEAD`/`git show --stat
-        # HEAD` (no colon operand), stays allowed.
+        # HEAD` (no colon operand), stays allowed. Global options in front
+        # (`git -C /repo show ...`) are skipped by hooks/lib/git-subcommand.sh;
+        # one it cannot parse is refused as a possible read.
         git_stripped=$(printf '%s\n' "$bash_cmd" | sed -E 's/^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]* )*//')
-        git_sub=$(printf '%s\n' "$git_stripped" | awk '{print $2}')
+        read -r -d '' -a git_words <<<"$git_stripped" || true
+        . "$(dirname "$0")/lib/git-subcommand.sh"
+        git_subcommand "${git_words[@]:1}"
         git_reader=""
         case "$git_sub" in
           show)
-            if printf '%s\n' "$git_stripped" | awk '{for (i=3;i<=NF;i++) { if ($i !~ /^-/ && $i ~ /:/) { print "x"; exit } } }' | grep -q x; then
-              git_reader='git show <rev>:<path>'
-            fi
+            for git_arg in "${git_words[@]:$((git_sub_at + 1))}"; do
+              case "$git_arg" in
+                -*) ;;
+                *:*) git_reader='git show <rev>:<path>'; break ;;
+              esac
+            done
             ;;
           cat-file) git_reader='git cat-file' ;;
           grep) git_reader='git grep' ;;
+          -*)
+            refuse_read "may print a file's contents: git global option $git_sub is not one this guard can parse" "$bash_cmd"
+            ;;
         esac
         if [ -n "$git_reader" ]; then
           refuse_read "prints a file's contents (not a diff) via $git_reader" "$bash_cmd"

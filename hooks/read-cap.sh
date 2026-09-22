@@ -48,6 +48,8 @@ set -u
 
 command -v jq >/dev/null 2>&1 || exit 0
 
+. "$(dirname "$0")/lib/git-subcommand.sh"
+
 # A Bash call counts as a read only when it has a segment (split on |, ;,
 # &&, ||; not a full shell parse) whose first word is a plain file-reader
 # (cat, head, tail, less, more, nl, od, xxd, strings, rg, ag, ack — these
@@ -56,7 +58,8 @@ command -v jq >/dev/null 2>&1 || exit 0
 # `ps aux | grep x` or `git log | grep fix` does not count), or `git
 # cat-file`/`git grep`/`git show <rev>:<path>` (a `git show` operand
 # containing a colon; plain `git show HEAD` or `--stat` is metadata, same
-# as `git diff`, and does not count). Any other Bash command passes
+# as `git diff`, and does not count), also behind git global options; git
+# behind a global option it cannot parse counts too. Any other Bash command passes
 # uncounted.
 bash_is_read() {
   local cmd="$1" seg first second nonflag arg
@@ -81,14 +84,19 @@ bash_is_read() {
         [ "$nonflag" -ge 2 ] && return 0
         ;;
       git)
-        case "$second" in
-          cat-file|grep) return 0 ;;
+        # Global options in front (`git -C /repo show ...`) are skipped by
+        # hooks/lib/git-subcommand.sh; one it cannot parse (git_sub
+        # starting with -) counts as a possible read.
+        shift
+        git_subcommand "$@"
+        case "$git_sub" in
+          cat-file|grep|-*) return 0 ;;
           show)
             # `git show <rev>` / `--stat` etc is metadata, same as `git
             # diff`: allowed. Only the rev:path form dumps a file's
             # contents, so it counts — an operand after `show` containing a
             # colon.
-            shift 2
+            shift "$git_sub_at"
             for arg in "$@"; do
               case "$arg" in
                 *:*) return 0 ;;
