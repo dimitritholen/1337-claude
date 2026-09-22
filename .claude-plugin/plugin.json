@@ -1,12 +1,18 @@
 {
   "name": "1337",
-  "version": "0.13.0",
-  "description": "Skills invoked as /1337:<skill>, an eight-voice output style pack with reply budgets enforced by a Stop hook, an always-on rule to evaluate requests before building them, and visual routing: image, SVG, video and speech prompts go to an OpenRouter model picked from a Jev-ranked priced list.",
+  "version": "0.14.0",
+  "description": "Skills invoked as /1337:<skill>, an eight-voice output style pack with reply budgets enforced by a Stop hook, an always-on rule to evaluate requests before building them, visual routing (image, SVG, video and speech prompts go to an OpenRouter model picked from a Jev-ranked priced list), and an opt-in tiered mode that lets Jev pick the model tier per builder step.",
   "userConfig": {
     "orchestrator": {
       "type": "boolean",
       "title": "Orchestrator mode",
       "description": "Keep the main session as a planner: lookups go to 1337:scout (Haiku), implementation to 1337:builder (model chosen per step), verification to 1337:checker (Haiku). Refuses main-session edits over 20 lines.",
+      "default": false
+    },
+    "tiered": {
+      "type": "boolean",
+      "title": "Tiered mode",
+      "description": "Before every 1337:builder dispatch, ask Jev (TypeSafe's decision model, through skills/tier/route.py) which model tier the step needs: Haiku, Sonnet or Opus. Needs a stored OpenRouter or TypeSafe key; without one the session sizes steps by hand.",
       "default": false
     }
   }

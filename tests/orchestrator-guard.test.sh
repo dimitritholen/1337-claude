@@ -57,6 +57,14 @@ check 0 "bash from subagent" \
   '{"agent_id":"abc","tool_name":"Bash","tool_input":{"command":"printf \"a\" > /repo/big.txt"}}'
 check 0 "bash piped grep, no redirect" \
   '{"tool_name":"Bash","tool_input":{"command":"cat /repo/f.txt | grep -c line"}}'
+check 0 "bash heredoc to stdin, no file redirect" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 /repo/route.py <<'EOF'\n{\\\"a\\\":1}\nEOF\"}}"
+check 2 "bash redirect without a space" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo x >/repo/f.txt"}}'
+check 0 "bash stderr to stdout only" \
+  '{"tool_name":"Bash","tool_input":{"command":"make test 2>&1 | tail -5"}}'
+check 0 "bash redirect to stderr" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo warn >&2"}}'
 "$HOOK" --rules | grep -q '^# Orchestrator mode' && echo "ok   mode on: rules printed" || { echo "FAIL mode on: rules missing"; fail=1; }
 
 unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR

@@ -4,9 +4,10 @@
 # Keeps the main session an orchestrator: subagent calls (payload carries
 # agent_id) always pass; the main session may make edits of <= MAX_LINES new
 # lines and write under ~/.claude or a temp dir. Bash commands that write
-# files (redirects, heredocs, tee, sed -i) are refused the same way — the
-# default "create a file" path is a Bash redirect, not Write. Everything else
-# is refused with a pointer to 1337:builder.
+# files (redirects, tee, sed -i) are refused the same way — the default
+# "create a file" path is a Bash redirect, not Write. A bare heredoc only
+# feeds stdin and passes; `cat <<EOF > file` is caught by its redirect.
+# Everything else is refused with a pointer to 1337:builder.
 #
 # With --rules it prints hooks/orchestrator.md instead (SessionStart), under the same
 # on/off condition.
@@ -47,7 +48,7 @@ case "$tool" in
       *"/tmp/"*|*"/private/tmp/"*|*"/var/folders/"*|*".claude/"*) exit 0 ;;
     esac
     clean=$(printf '%s\n' "$bash_cmd" | sed -e 's#[0-9]*&\?>[[:space:]]*/dev/null##g' -e 's#[0-9]*>&1##g')
-    if printf '%s\n' "$clean" | grep -qE '<<|(^|[[:space:];&(])tee([[:space:]]|$)|sed[[:space:]]+(-[a-zA-Z]+ )*-i|(^|[[:space:];&(])[0-9]*>+&?[[:space:]]'; then
+    if printf '%s\n' "$clean" | grep -qE '(^|[[:space:];&(])tee([[:space:]]|$)|sed[[:space:]]+(-[a-zA-Z]+ )*-i|(^|[[:space:];&(])[0-9]*>+[[:space:]]*[^&>[:space:]]'; then
       printf 'blocked (1337 orchestrator mode): Bash command writes files (%.80s). Dispatch it to 1337:builder with a self-contained brief; the main session may only write under ~/.claude and temp directories.\n' "$bash_cmd" >&2
       exit 2
     fi

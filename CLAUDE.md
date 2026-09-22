@@ -78,8 +78,15 @@ work when the plugin is installed and used in any folder, not only this one.
   `userConfig` (or `CLAUDE_1337_ORCHESTRATOR=1`): `agents/` holds `scout`,
   `builder` and `checker`; `hooks/orchestrator-guard.sh` injects
   `hooks/orchestrator.md` at SessionStart and refuses large main-session
-  edits and Bash file writes (redirects, heredocs, `tee`, `sed -i`).
+  edits and Bash file writes (redirects, `tee`, `sed -i`; a bare heredoc
+  passes).
   Test: `tests/orchestrator-guard.test.sh`.
+- Tiered mode, opt-in via the `tiered` option in `plugin.json` `userConfig`
+  (or `CLAUDE_1337_TIERED=1`): `hooks/tiered-rules.sh` prints
+  `hooks/tiered.md` at SessionStart, with `${CLAUDE_PLUGIN_ROOT}` replaced
+  by the real path, so the main session runs `skills/tier/route.py` before
+  every builder dispatch and uses Jev's tier as the model. Test:
+  `tests/tiered-rules.test.sh`.
 
 Behaviour that users should get goes in the plugin, never in this file.
 

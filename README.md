@@ -8,7 +8,8 @@
 
 A Claude Code plugin with eight output styles, always-on
 evaluate-before-you-build, name-your-assumptions and proactive-teammate
-rules, and an opt-in orchestrator mode that routes work to cheaper models.
+rules, an opt-in orchestrator mode that routes work to cheaper models, and an
+opt-in tiered mode that lets Jev pick the model tier per builder step.
 
 ## The voices
 
@@ -138,7 +139,7 @@ Off by default. When on, the main session only plans, dispatches and reviews:
 
 A failed check goes back to the builder once, one model tier up. A hook refuses
 main-session edits over 20 lines and new files outside `~/.claude` and temp
-directories — including Bash redirects, heredocs, `tee` and `sed -i`, which is
+directories — including Bash redirects, `tee` and `sed -i`, which is
 how an agent will actually try to write a file — so larger changes go through
 `1337:builder`.
 
@@ -180,10 +181,28 @@ A plugin cannot set environment variables. To also run built-in agents such as
 
 Agents that set their own `model`, including the three above, are not affected.
 
+## Tiered mode
+
+Off by default. When on, the main session does not size builder steps itself:
+before each `1337:builder` dispatch it runs `skills/tier/route.py` with the
+step titles and briefs, and Jev, TypeSafe's decision model, returns the tier
+(Haiku, Sonnet or Opus) with a confidence; a step under the confidence floor
+moves one tier up. The dispatch line names the tier and the confidence. Needs
+the same stored OpenRouter or TypeSafe key as `/1337:tier`; without one the
+session says so once and sizes by hand. Works with or without orchestrator
+mode, since it governs any builder dispatch; the two pair naturally.
+
+Turn it on the same four ways as orchestrator mode, with `tiered` in place of
+`orchestrator`: `--config tiered=true` at install, the option prompt when
+enabling, the `tiered` row in `/config` or `"tiered": true` next to
+`"orchestrator"` in `~/.claude/settings.json`, or `CLAUDE_1337_TIERED=1` for
+one session. Start a new session after changing it.
+
 ## Test
 
 ```bash
 tests/orchestrator-guard.test.sh
+tests/tiered-rules.test.sh
 tests/stop-review.test.sh
 tests/terse-governor.test.sh
 tests/subagent-rules.test.sh
