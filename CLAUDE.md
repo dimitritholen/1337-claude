@@ -19,6 +19,12 @@ work when the plugin is installed and used in any folder, not only this one.
   exists, else to OpenRouter's decisions endpoint with `OPENROUTER_API_KEY`;
   one retry on 408/429/5xx after at most a second. Test: `tests/lib.test.sh`
   (stand-in server, no key).
+- `skills/visual/setup-key.py`: one-time OpenRouter key onboarding. OAuth
+  PKCE against `openrouter.ai/auth` with a callback server on 127.0.0.1, a
+  nonce-guarded paste page for when the callback cannot reach this machine,
+  `--tty` for a hidden prompt; checks the key at `/api/v1/key`, stores it
+  through `lib/keys.set`, never prints it. Test: `tests/setup-key.test.sh`
+  (stand-in OpenRouter, no browser).
 - `skills/tier/route.py`: python3 script that asks Jev, TypeSafe's decision
   model, for the model tier per plan step through `lib/jev.py`. Needs a
   stored OpenRouter or TypeSafe key. Test: `tests/tier-route.test.sh`
