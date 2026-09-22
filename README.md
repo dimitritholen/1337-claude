@@ -9,6 +9,16 @@
 A Claude Code plugin that adds eight output-style voices, read-only skills
 that keep code lean, and two opt-in modes that route work to cheaper models.
 
+## Docs
+
+- [The voices](docs/output-styles.md): Eight voices change how Claude talks, from hacker to Yoda, keeping the code identical.
+- [Skills](docs/skills.md): Slash commands that shrink plans, scope and diffs to the smallest version, and hunt down dead code and debt.
+- [Visual generation](docs/visual-generation.md): Ask for images, SVGs, videos or voice-overs and pick from the cheapest models.
+- [Terse mode](docs/terse-mode.md): Keeps Claude's replies short by sending back any reply that runs over a word budget.
+- [Orchestrator mode](docs/orchestrator-mode.md): Claude plans and hands reading, coding and testing to cheaper helper agents, so a session costs less.
+- [Tiered mode](docs/tiered-mode.md): Jev picks the right model per step so cheap work doesn't burn expensive tokens.
+- [Testing](docs/testing.md): Run the test suite locally with no keys or network calls needed.
+
 ## Why it exists
 
 Claude Code sessions tend to over-build, drift from a plan, and burn an
@@ -83,13 +93,3 @@ flowchart TD
 Ask for a logo, SVG, video or voice-over and a hook intercepts before Claude starts drawing ASCII. It calls [Jev](https://typesafe.ai) to detect the modality, pulls OpenRouter's six cheapest models of that kind, asks you to pick one with prices visible, and runs `generate.py` to write the file (never overwrites). Stay with Claude is always an option.
 
 Details: [Visual generation](docs/visual-generation.md).
-
-## More
-
-- [The voices](docs/output-styles.md)
-- [Skills](docs/skills.md)
-- [Visual generation](docs/visual-generation.md)
-- [Terse mode](docs/terse-mode.md)
-- [Orchestrator mode](docs/orchestrator-mode.md)
-- [Tiered mode](docs/tiered-mode.md)
-- [Testing](docs/testing.md)
