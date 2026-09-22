@@ -101,7 +101,7 @@ t_tool "$(marker_line "$STEPS3")" "$tr3"
 t_tool "$(agent_line Agent 1337:builder haiku)" "$tr3"
 t_tool "$(agent_line Agent 1337:builder sonnet)" "$tr3"
 t_tool "$(agent_line Agent 1337:builder opus)" "$tr3"
-check_grep 2 'already has a 1337:builder dispatch' "budget spent: fourth dispatch refused" \
+check_grep 2 'still owes this step (none)' "budget spent: fourth dispatch (same tier, no retry path) refused" \
   "$MODE_TIERED" "$(payload 1337:builder haiku "$tr3" "$sid3")"
 
 # --- case 4: a dispatch whose model is not among the remaining tiers -> refused, names remaining ---
@@ -275,7 +275,63 @@ sid23="rg-23"; tr23="$TMPDIR/tr23.jsonl"
 t_tool "$(marker_line "$STEPS1_HAIKU")" "$tr23"
 t_tool "$(builder_use_line toolu_ran haiku)" "$tr23"
 t_tool "$(jq -c -n '{type:"user",message:{role:"user",content:[{type:"tool_result",tool_use_id:"toolu_ran",content:[{type:"text",text:"Async agent launched successfully."}]}]}}')" "$tr23"
-check_grep 2 'every routed step (1) already has a 1337:builder dispatch' "earlier dispatch ran: next haiku dispatch refused" \
+check_grep 2 'still owes this step (none)' "earlier dispatch ran: next haiku dispatch (no retry path) refused" \
   "$MODE_TIERED" "$(payload 1337:builder haiku "$tr23" "$sid23")"
+
+# --- case 24: haiku step's slot is spent -> the one retry at sonnet
+# (routed+1) is allowed (task #676) ---
+STEPS1_HAIKU='[{"id":1,"tier":"haiku","confidence":0.9,"escalated":false}]'
+sid24="rg-24"; tr24="$TMPDIR/tr24.jsonl"
+t_tool "$(marker_line "$STEPS1_HAIKU")" "$tr24"
+t_tool "$(agent_line Agent 1337:builder haiku)" "$tr24"
+check 0 "haiku step spent: sonnet retry allowed" \
+  "$MODE_TIERED" "$(payload 1337:builder sonnet "$tr24" "$sid24")"
+
+# --- case 25: same spent haiku step, opus (routed+2) refused: the retry
+# only reaches one tier up, never a jump ---
+sid25="rg-25"; tr25="$TMPDIR/tr25.jsonl"
+t_tool "$(marker_line "$STEPS1_HAIKU")" "$tr25"
+t_tool "$(agent_line Agent 1337:builder haiku)" "$tr25"
+check_grep 2 'still owes this step (none)' "haiku step spent: opus refused (+2 jump)" \
+  "$MODE_TIERED" "$(payload 1337:builder opus "$tr25" "$sid25")"
+
+# --- case 26: same spent haiku step, haiku again refused: a same-tier
+# extra dispatch is not the retry ---
+sid26="rg-26"; tr26="$TMPDIR/tr26.jsonl"
+t_tool "$(marker_line "$STEPS1_HAIKU")" "$tr26"
+t_tool "$(agent_line Agent 1337:builder haiku)" "$tr26"
+check_grep 2 'still owes this step (none)' "haiku step spent: haiku again refused (same-tier extra)" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr26" "$sid26")"
+
+# --- case 27: the one sonnet retry already used -> a second sonnet retry
+# is refused (retries are consumed, not a standing allowance) ---
+sid27="rg-27"; tr27="$TMPDIR/tr27.jsonl"
+t_tool "$(marker_line "$STEPS1_HAIKU")" "$tr27"
+t_tool "$(agent_line Agent 1337:builder haiku)" "$tr27"
+t_tool "$(agent_line Agent 1337:builder sonnet)" "$tr27"
+check_grep 2 'still owes this step (none)' "sonnet retry already spent: second sonnet retry refused" \
+  "$MODE_TIERED" "$(payload 1337:builder sonnet "$tr27" "$sid27")"
+
+# --- case 28: an opus-routed step's slot is spent -> no retry exists past
+# opus, any further dispatch for it is refused ---
+STEPS1_OPUS='[{"id":1,"tier":"opus","confidence":0.9,"escalated":false}]'
+sid28="rg-28"; tr28="$TMPDIR/tr28.jsonl"
+t_tool "$(marker_line "$STEPS1_OPUS")" "$tr28"
+t_tool "$(agent_line Agent 1337:builder opus)" "$tr28"
+check_grep 2 'still owes this step (none)' "opus-routed step spent: no retry exists, refused" \
+  "$MODE_TIERED" "$(payload 1337:builder opus "$tr28" "$sid28")"
+
+# --- case 29: two routed steps (haiku, sonnet), both spent -> the sonnet
+# retry (for haiku) and the opus retry (for sonnet) are each allowed once,
+# independently ---
+STEPS2_HS='[{"id":1,"tier":"haiku","confidence":0.9,"escalated":false},{"id":2,"tier":"sonnet","confidence":0.8,"escalated":false}]'
+sid29="rg-29"; tr29="$TMPDIR/tr29.jsonl"
+t_tool "$(marker_line "$STEPS2_HS")" "$tr29"
+t_tool "$(agent_line Agent 1337:builder haiku)" "$tr29"
+t_tool "$(agent_line Agent 1337:builder sonnet)" "$tr29"
+check 0 "two steps both spent: sonnet retry (for haiku) allowed" \
+  "$MODE_TIERED" "$(payload 1337:builder sonnet "$tr29" "$sid29")"
+check 0 "two steps both spent: opus retry (for sonnet) allowed" \
+  "$MODE_TIERED" "$(payload 1337:builder opus "$tr29" "$sid29")"
 
 exit $fail

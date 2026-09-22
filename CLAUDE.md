@@ -125,7 +125,10 @@ work when the plugin is installed and used in any folder, not only this one.
   `1337:builder` dispatch whose session never ran the router, whose routed
   steps are already all spent, or whose model is not one of the tiers still
   owed, reading the `1337-tier-route:`/`1337-tier-failed:` markers
-  `skills/tier/route.py` prints. `CLAUDE_1337_ROUTE_GUARD=off` disables it.
+  `skills/tier/route.py` prints; once a step's slot is spent it allows
+  exactly one further dispatch at that step's routed tier plus one (Opus
+  steps get none), consumed the same way and never stacking with an owed
+  tier's own priority. `CLAUDE_1337_ROUTE_GUARD=off` disables it.
   Test: `tests/route-guard.test.sh`.
 - `hooks/review-gate.sh`: PreToolUse hook on Bash|Agent|Task, orchestrator
   mode only, that enforces a review checkpoint: after a `1337:builder`

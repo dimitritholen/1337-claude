@@ -24,7 +24,10 @@ model, not from your own read of the step.
   builder dispatches as it routed steps — dispatch more than that and route
   again first. `CLAUDE_1337_ROUTE_GUARD=off` turns the check off.
 - A failed check goes back to the builder one tier above the routed tier,
-  once; if it fails again, take over the diagnosis yourself.
+  once; if it fails again, take over the diagnosis yourself. The guard
+  allows that one retry once the step's routed slot is spent — one tier up
+  from what it routed, never a bigger jump, never twice, and never for a
+  step routed to Opus.
 - Exit 3 means no key: say so in one line, offer `/1337:visual setup` once,
   and size the rest of the session's steps by hand from the Tiers section
   of the tier skill. Exit 4 means the call failed: size this dispatch by

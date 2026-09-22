@@ -24,13 +24,15 @@
 # No marker anywhere in the transcript means the router never ran this
 # session: refused. Otherwise the routed tiers (one per step) form a
 # multiset; every 1337:builder dispatch found AFTER that last marker line
-# spends one entry (its `model` must match a still-unspent tier, removed
-# one-for-one in dispatch order). A dispatch once every routed tier is
-# already spent, or whose `model` is not among what remains, is refused. A
-# later marker resets the budget: only dispatches after the LAST marker
-# count. A marker line whose JSON fails to parse is treated the same as no
-# marker at all (refused) — a corrupt or forged marker must not buy a
-# dispatch.
+# spends one entry, in dispatch order, with owed (still-unspent) tiers
+# always spent first regardless of which model is dispatched next. Once a
+# tier's slot is spent this way it earns exactly ONE retry dispatch at the
+# next tier up (haiku -> sonnet -> opus; an opus-routed step has no further
+# tier, so no retry — task #676). A dispatch matching neither a remaining
+# owed tier nor an unused retry is refused. A later marker resets the
+# budget: only dispatches after the LAST marker count. A marker line whose
+# JSON fails to parse is treated the same as no marker at all (refused) — a
+# corrupt or forged marker must not buy a dispatch.
 #
 # Deadlock guard (task #674): skills/tier/route.py exits 3 with no key and 4
 # when the API call itself failed; hooks/tiered.md already tells the session
@@ -190,37 +192,58 @@ dispatched=$(tail -n "+$((marker_ln + 1))" "$transcript" \
   | jq -c '[.[] | (.model // "")]' 2>/dev/null) || exit 0
 [ -n "$dispatched" ] || exit 0
 
-steps_count=$(printf '%s' "$marker_json" | jq -r '.steps | length' 2>/dev/null) || exit 0
-dispatch_count=$(printf '%s' "$dispatched" | jq -r 'length' 2>/dev/null) || exit 0
-case "$steps_count" in ''|*[!0-9]*) exit 0 ;; esac
-case "$dispatch_count" in ''|*[!0-9]*) exit 0 ;; esac
-
-if [ "$dispatch_count" -ge "$steps_count" ]; then
-  printf 'blocked (1337 tiered mode): every routed step (%d) already has a 1337:builder dispatch this route. Run `python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <file>` again before dispatching more.\n' \
-    "$steps_count" >&2
-  exit 2
-fi
-
-# Remaining tiers: the routed multiset minus one entry per dispatch already
-# made since the last marker, removed one-for-one in dispatch order.
-remaining=$(jq -n --argjson marker "$marker_json" --argjson dispatched "$dispatched" '
+# Replay the dispatches since the last marker to get the current budget: an
+# owed (still-unspent) routed tier is always spent first, in dispatch
+# order; only once a tier's slot is spent this way does it earn ONE retry
+# at the next tier up (task #676 — a failed check sends the builder back
+# one tier above the routed one, per hooks/tiered.md, and that retry must
+# not also cost the budget refusal a hand-picked model would). `remaining`
+# is the routed multiset minus spent owed slots (same one-for-one removal
+# as before); `retries` lists, for message purposes, every tier still
+# reachable through an unused retry.
+guard=$(jq -n --argjson marker "$marker_json" --argjson dispatched "$dispatched" --arg model "$model" '
+  def next_tier(t): if t == "haiku" then "sonnet" elif t == "sonnet" then "opus" else null end;
+  def prev_tier(t): if t == "sonnet" then "haiku" elif t == "opus" then "sonnet" else null end;
   def remove_one(arr; x):
     (arr | index(x)) as $i
     | if $i == null then arr else (arr[0:$i] + arr[$i+1:]) end;
+  def count_of(arr; x): [arr[] | select(. == x)] | length;
+  # Unused retries earned by tier t: how many of its slots are spent
+  # (routed count minus what is still in `remaining`), minus how many of
+  # those spent slots already cashed in their one retry.
+  def avail(routed; state; t): (count_of(routed; t) - count_of(state.remaining; t)) - count_of(state.retried; t);
+
   ([$marker.steps[].tier]) as $routed
-  | reduce $dispatched[] as $t ($routed; remove_one(.; $t))
+  | (reduce $dispatched[] as $m ({remaining: $routed, retried: []};
+       if (.remaining | index($m)) != null then
+         .remaining |= remove_one(.; $m)
+       else
+         (prev_tier($m)) as $t
+         | if $t != null and avail($routed; .; $t) > 0
+           then .retried += [$t]
+           else . end
+       end
+     )) as $state
+  | ($state.remaining | index($model)) as $owed_i
+  | (prev_tier($model)) as $mprev
+  | (($mprev != null) and (avail($routed; $state; $mprev) > 0)) as $retry_ok
+  | ([("haiku", "sonnet") | select(avail($routed; $state; .) > 0) | next_tier(.)]) as $retries
+  | {allowed: (($owed_i != null) or $retry_ok), remaining: $state.remaining, retries: $retries}
 ' 2>/dev/null) || exit 0
-[ -n "$remaining" ] || exit 0
+[ -n "$guard" ] || exit 0
 
-is_remaining=$(printf '%s' "$remaining" | jq --arg m "$model" 'any(.[]; . == $m)' 2>/dev/null) || exit 0
+allowed=$(printf '%s' "$guard" | jq -r '.allowed' 2>/dev/null) || exit 0
+[ "$allowed" = "true" ] && exit 0
 
-if [ "$is_remaining" = "true" ]; then
-  exit 0
-fi
-
-remaining_list=$(printf '%s' "$remaining" | jq -r 'join(", ")' 2>/dev/null) || exit 0
+remaining_list=$(printf '%s' "$guard" | jq -r '.remaining | join(", ")' 2>/dev/null) || exit 0
 [ -n "$remaining_list" ] || remaining_list="none"
+retries_list=$(printf '%s' "$guard" | jq -r '.retries | join(", ")' 2>/dev/null) || exit 0
 
-printf 'blocked (1337 tiered mode): 1337:builder dispatched at model %s, not one of the tiers routing still owes this step (%s). Dispatch at one of the remaining tiers, or run `python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <file>` again to re-route.\n' \
-  "${model:-<none>}" "$remaining_list" >&2
+if [ -n "$retries_list" ]; then
+  printf 'blocked (1337 tiered mode): 1337:builder dispatched at model %s, not one of the tiers routing still owes this step (%s), nor the one retry it still owes (%s). Dispatch at one of those, or run `python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <file>` again to re-route.\n' \
+    "${model:-<none>}" "$remaining_list" "$retries_list" >&2
+else
+  printf 'blocked (1337 tiered mode): 1337:builder dispatched at model %s, not one of the tiers routing still owes this step (%s). Dispatch at one of the remaining tiers, or run `python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <file>` again to re-route.\n' \
+    "${model:-<none>}" "$remaining_list" >&2
+fi
 exit 2
