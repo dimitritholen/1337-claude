@@ -139,7 +139,25 @@ case "$tool" in
     ;;
 esac
 
-[ "${lines:-0}" -le "$MAX_LINES" ] && exit 0
+if [ "${lines:-0}" -le "$MAX_LINES" ]; then
+  edit_cap="${CLAUDE_1337_EDIT_CAP:-5}"
+  if [ "$edit_cap" != "0" ]; then
+    session_id=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null) || exit 0
+    if [ -n "$session_id" ]; then
+      # No lock: parallel small edits from the main session are rare enough
+      # that a lost increment here is an acceptable risk.
+      edit_state="${TMPDIR:-/tmp}/claude-1337-edit-cap-$session_id"
+      printf '%s %s\n' "$tool" "$file" >> "$edit_state" 2>/dev/null || exit 0
+      edit_count=$(awk 'END { print NR }' "$edit_state" 2>/dev/null) || exit 0
+      if [ "$edit_count" -gt "$edit_cap" ]; then
+        printf 'blocked (1337 orchestrator mode): small edit #%d this session (cap %d). Bundle the remaining corrections into one 1337:builder brief. CLAUDE_1337_EDIT_CAP=0 disables.\n' \
+          "$edit_count" "$edit_cap" >&2
+        exit 2
+      fi
+    fi
+  fi
+  exit 0
+fi
 
 printf 'blocked (1337 orchestrator mode): %s on %s is more than %d lines. Dispatch it to 1337:builder with a self-contained brief.\n' \
   "$tool" "$file" "$MAX_LINES" >&2

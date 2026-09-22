@@ -126,4 +126,46 @@ CLAUDE_1337_INLINE_LINES=40 check 0 "inline check with a raised limit" \
 unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR
 CLAUDE_1337_ORCHESTRATOR=1 check 2 "env switch turns mode on" "$write"
 
+# Per-session small-edit cap. Isolate state in a scratch TMPDIR.
+export CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=true
+edit_cap_tmpdir=$(mktemp -d)
+export TMPDIR="$edit_cap_tmpdir"
+trap 'rm -rf "$edit_cap_tmpdir"' EXIT
+
+small_edit_a() {
+  printf '{"session_id":"ecap-%s-a","tool_name":"Edit","tool_input":{"file_path":"/repo/a.py","old_string":"a","new_string":"b"}}' "$$"
+}
+
+for n in 1 2 3 4 5; do
+  check 0 "edit cap: small edit $n/5 session ecap-a" "$(small_edit_a)"
+done
+sixth_err=$(printf '%s' "$(small_edit_a)" | "$HOOK" 2>&1 >/dev/null)
+sixth_exit=$?
+[ "$sixth_exit" -eq 2 ] && echo "ok   edit cap: sixth small edit session ecap-a" \
+  || { echo "FAIL edit cap: sixth small edit session ecap-a (exit $sixth_exit, want 2)"; fail=1; }
+printf '%s' "$sixth_err" | grep -q "small edit #6" \
+  && echo "ok   edit cap: stderr names #6" || { echo "FAIL edit cap: stderr missing #6 ($sixth_err)"; fail=1; }
+
+check 0 "edit cap: exempt path not counted after cap" \
+  "{\"session_id\":\"ecap-$$-a\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/x\",\"content\":\"x\"}}"
+
+check 2 "edit cap: large edit in fresh session does not count" \
+  "{\"session_id\":\"ecap-$$-b\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"old_string\":\"a\",\"new_string\":$bigjson}}"
+for n in 1 2 3 4 5; do
+  check 0 "edit cap: small edit $n/5 session ecap-b" \
+    "{\"session_id\":\"ecap-$$-b\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/repo/b.py\",\"old_string\":\"a\",\"new_string\":\"b\"}}"
+done
+check 2 "edit cap: sixth small edit session ecap-b" \
+  "{\"session_id\":\"ecap-$$-b\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/repo/b.py\",\"old_string\":\"a\",\"new_string\":\"b\"}}"
+
+CLAUDE_1337_EDIT_CAP=0 check 0 "edit cap: disabled via CLAUDE_1337_EDIT_CAP=0" "$(small_edit_a)"
+
+check 0 "edit cap: fresh counter for session ecap-c" \
+  "{\"session_id\":\"ecap-$$-c\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/repo/c.py\",\"old_string\":\"a\",\"new_string\":\"b\"}}"
+
+no_session_edit='{"tool_name":"Edit","tool_input":{"file_path":"/repo/nosession.py","old_string":"a","new_string":"b"}}'
+check 0 "edit cap: no session_id, repeat 1/3" "$no_session_edit"
+check 0 "edit cap: no session_id, repeat 2/3" "$no_session_edit"
+check 0 "edit cap: no session_id, repeat 3/3" "$no_session_edit"
+
 exit $fail

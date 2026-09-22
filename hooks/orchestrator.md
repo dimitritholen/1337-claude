@@ -26,7 +26,9 @@ reliably.
   session; a refusal means dispatch, never a workaround through Bash. Scripts
   (`.py`, `.sh`, `.js` and the like) are refused even under temp directories; only
   data files may be written there. Inline scripts piped into an interpreter
-  through a heredoc are refused over 20 lines (`CLAUDE_1337_INLINE_LINES`).
+  through a heredoc are refused over 20 lines (`CLAUDE_1337_INLINE_LINES`). The
+  guard counts these small edits and refuses past 5 per session
+  (`CLAUDE_1337_EDIT_CAP`).
 - Review the builder's report and the diff before moving on.
 - Independent steps go out in parallel in one message.
 - When the same standing instructions (roughly 300+ tokens) recur in three or more
