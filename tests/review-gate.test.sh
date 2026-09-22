@@ -59,6 +59,21 @@ builder_result_line() { # tool-use id
 git_diff_line() {
   jq -c -n '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Bash",input:{command:"git diff HEAD -- foo.py"}}]}}'
 }
+git_diff_stat_line() {
+  jq -c -n '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Bash",input:{command:"git diff --stat"}}]}}'
+}
+# A dispatch that ran and reported success (as hooks/lib/builder-dispatches.jq
+# expects it, an array of {type:text} blocks rather than a plain string).
+builder_success_result_line() { # tool-use id
+  jq -c -n --arg id "$1" \
+    '{type:"user",message:{role:"user",content:[{type:"tool_result",tool_use_id:$id,content:[{type:"text",text:"Async agent launched successfully."}]}]}}'
+}
+# A builder dispatch a PreToolUse hook (route-guard) refused before it ever
+# ran: hooks/lib/builder-dispatches.jq drops this shape from the anchor.
+builder_refused_result_line() { # tool-use id
+  jq -c -n --arg id "$1" \
+    '{type:"user",message:{role:"user",content:[{type:"tool_result",tool_use_id:$id,is_error:true,content:"PreToolUse:Agent hook error: [\"/x/hooks/route-guard.sh\"]: blocked (1337 tiered mode): ..."}]}}'
+}
 skill_review_line() {
   jq -c -n '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Skill",input:{skill:"1337:review"}}]}}'
 }
@@ -251,5 +266,29 @@ check 0 "dispatch gate: first-ever builder dispatch: allowed" \
 sub_payload=$(jq -c -n --arg tr "$tr5" '{agent_id:"abc",tool_name:"Agent",tool_input:{subagent_type:"1337:builder",model:"sonnet"},transcript_path:$tr,session_id:"s"}')
 check 0 "subagent-issued dispatch (agent_id set): always allowed" \
   "$MODE_ORCH" "$sub_payload"
+
+# --- case 17 (regression): a builder dispatch runs, gets reviewed, then a
+# SECOND builder dispatch is refused by route-guard before it ever ran. The
+# refusal must not re-anchor past the diff/review evidence already given —
+# a NEW builder dispatch after the refusal must still be allowed.
+tr17="$TMPDIR/tr17.jsonl"
+t_tool "$(builder_line b1)" "$tr17"
+t_tool "$(builder_success_result_line b1)" "$tr17"
+t_tool "$(git_diff_stat_line)" "$tr17"
+t_tool "$(skill_review_line)" "$tr17"
+t_tool "$(builder_line b2)" "$tr17"
+t_tool "$(builder_refused_result_line b2)" "$tr17"
+check 0 "dispatch gate: refused dispatch does not re-anchor past prior evidence: new dispatch allowed" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr17")"
+
+# --- case 18 (control): same shape, but no diff and no review before the
+# refused dispatch -> the new dispatch is still refused.
+tr18="$TMPDIR/tr18.jsonl"
+t_tool "$(builder_line b1)" "$tr18"
+t_tool "$(builder_success_result_line b1)" "$tr18"
+t_tool "$(builder_line b2)" "$tr18"
+t_tool "$(builder_refused_result_line b2)" "$tr18"
+check_grep 2 'unreviewed' "dispatch gate: refused dispatch, no prior evidence: still refused" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr18")"
 
 exit $fail

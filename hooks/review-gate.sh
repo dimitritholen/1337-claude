@@ -100,8 +100,14 @@ diff_lines=$(git diff --numstat HEAD -- 2>/dev/null | awk '
 case "$diff_lines" in ''|*[!0-9]*) diff_lines=0 ;; esac
 [ "$diff_lines" -le "$min_lines" ] && exit 0
 
-BUILDER_MARK='"subagent_type":"1337:builder"'
-builder_ln=$(grep -n -F -- "$BUILDER_MARK" "$transcript" 2>/dev/null | tail -1 | cut -d: -f1)
+# The anchor is the last builder dispatch that actually spent the slot:
+# hooks/lib/builder-dispatches.jq drops a dispatch a PreToolUse hook
+# refused (it never ran, so grepping the raw tool_use text — the old
+# approach — kept re-anchoring on refusals and never opened the gate
+# again), and keeps pending and self-failed ones.
+dispatches_jq="$(dirname "$0")/lib/builder-dispatches.jq"
+builder_ln=$(jq -R -s --argjson offset 0 -f "$dispatches_jq" "$transcript" 2>/dev/null \
+  | jq -r '(last // empty) | .line // empty' 2>/dev/null) || exit 0
 
 # No 1337:builder dispatch yet this session: nothing to review.
 [ -n "$builder_ln" ] || exit 0

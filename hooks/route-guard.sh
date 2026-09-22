@@ -181,14 +181,13 @@ if [ -z "$marker_json" ] || ! printf '%s' "$marker_json" | jq -e 'type == "objec
 fi
 
 # Only the tail after the marker line matters: dispatches spend the budget
-# in file order, streamed instead of slurped.
-dispatched=$(tail -n "+$((marker_ln + 1))" "$transcript" | jq -R 'fromjson? // empty' 2>/dev/null | jq -s '
-  [.[] | (.message.content? // [])
-    | if type == "array" then .[] else empty end
-    | select(.type == "tool_use" and (.name == "Agent" or .name == "Task")
-        and ((.input.subagent_type // "") == "1337:builder"))
-    | (.input.model // "")]
-' 2>/dev/null) || exit 0
+# in file order. hooks/lib/builder-dispatches.jq drops a dispatch another
+# PreToolUse hook refused (it never ran, so it spent nothing) and keeps
+# pending and self-failed ones.
+dispatches_jq="$(dirname "$0")/lib/builder-dispatches.jq"
+dispatched=$(tail -n "+$((marker_ln + 1))" "$transcript" \
+  | jq -R -s --argjson offset "$marker_ln" -f "$dispatches_jq" 2>/dev/null \
+  | jq -c '[.[] | (.model // "")]' 2>/dev/null) || exit 0
 [ -n "$dispatched" ] || exit 0
 
 steps_count=$(printf '%s' "$marker_json" | jq -r '.steps | length' 2>/dev/null) || exit 0

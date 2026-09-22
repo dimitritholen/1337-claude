@@ -255,4 +255,27 @@ t_tool "$(marker_line "$STEPS3")" "$tr21"
 check 0 "stale exit-2 failure marker (older than success): normal routed flow, allowed" \
   "$MODE_TIERED" "$(payload 1337:builder haiku "$tr21" "$sid21")"
 
+# --- case 22: a builder dispatch another PreToolUse hook refused never ran,
+# so it spends no routed tier: the next dispatch at that tier is allowed ---
+STEPS1_HAIKU='[{"id":1,"tier":"haiku","confidence":0.9,"escalated":false}]'
+builder_use_line() { # id model
+  jq -c -n --arg id "$1" --arg m "$2" \
+    '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",id:$id,name:"Agent",input:{subagent_type:"1337:builder",model:$m}}]}}'
+}
+sid22="rg-22"; tr22="$TMPDIR/tr22.jsonl"
+t_tool "$(marker_line "$STEPS1_HAIKU")" "$tr22"
+t_tool "$(builder_use_line toolu_refused haiku)" "$tr22"
+t_tool "$(jq -c -n '{type:"user",message:{role:"user",content:[{type:"tool_result",tool_use_id:"toolu_refused",is_error:true,content:"PreToolUse:Agent hook error: [\"/x/hooks/review-gate.sh\"]: blocked (1337 orchestrator mode): review first"}]}}')" "$tr22"
+check 0 "hook-refused earlier dispatch spends nothing: next haiku dispatch allowed" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr22" "$sid22")"
+
+# --- case 23: control for case 22: the earlier dispatch ran, so the one
+# routed step is spent and the next dispatch is refused ---
+sid23="rg-23"; tr23="$TMPDIR/tr23.jsonl"
+t_tool "$(marker_line "$STEPS1_HAIKU")" "$tr23"
+t_tool "$(builder_use_line toolu_ran haiku)" "$tr23"
+t_tool "$(jq -c -n '{type:"user",message:{role:"user",content:[{type:"tool_result",tool_use_id:"toolu_ran",content:[{type:"text",text:"Async agent launched successfully."}]}]}}')" "$tr23"
+check_grep 2 'every routed step (1) already has a 1337:builder dispatch' "earlier dispatch ran: next haiku dispatch refused" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr23" "$sid23")"
+
 exit $fail

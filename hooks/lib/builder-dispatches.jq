@@ -80,18 +80,21 @@ def is_hook_refusal(text):
    | {id: .id, name: .name, model: (.input.model // null), line: $n}]
 ) as $dispatches
 |
+# A tool_use without an id, or a tool_result without a tool_use_id, cannot
+# be paired: the dispatch counts as pending (kept) instead of crashing the
+# filter, since a crash makes callers fail open.
 # Every tool_result seen, indexed by the id it answers — text extracted the
 # same way whether it came back as a plain string or an array of
 # {type:text} blocks.
 ([$lines[] | select(.entry.type == "user")
    | (.entry.message.content? // [])
    | if type == "array" then .[] else empty end
-   | select(.type == "tool_result")
+   | select(.type == "tool_result" and ((.tool_use_id | type) == "string"))
    | {key: .tool_use_id, value: texts_of(.content)}]
  | from_entries
 ) as $results
 |
 [$dispatches[] | select(
-    ($results[.id]) as $text
+    (if (.id | type) == "string" then $results[.id] else null end) as $text
     | ($text == null) or (is_hook_refusal($text) | not)
   )]
