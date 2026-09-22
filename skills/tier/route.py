@@ -54,6 +54,13 @@ CRITERIA = {
 
 def fail(code, message):
     print(f"tier-route: {message}", file=sys.stderr)
+    # Failure marker for hook lookup, same spirit as the success marker
+    # below but its own prefix: neither grep can match the other, not even
+    # as a substring (hooks/route-guard.sh tells exit 2 -- bad input, fix
+    # and route again -- from exit 3/4 -- routing unavailable, size by hand
+    # -- by this line alone).
+    print(f'1337-tier-failed: {json.dumps({"exit": code}, separators=(",", ":"))}',
+          file=sys.stderr)
     sys.exit(code)
 
 

@@ -104,6 +104,23 @@ check_marker_json() { # description
   if printf '%s' "$marker_json" | jq . > /dev/null 2>&1; then printf 'ok   %s\n' "$1"; else printf 'FAIL %s (marker JSON does not parse)\n' "$1"; fail=1; fi
 }
 
+check_failure_marker() { # description want-exit-code
+  want="1337-tier-failed: {\"exit\":$2}"
+  if grep -qF -- "$want" "$work/stderr"; then
+    printf 'ok   %s\n' "$1"
+  else
+    printf 'FAIL %s (want %s in stderr: %s)\n' "$1" "$want" "$(cat "$work/stderr")"; fail=1
+  fi
+}
+
+check_no_failure_marker() { # description
+  if grep -qF -- '1337-tier-failed: ' "$work/stderr"; then
+    printf 'FAIL %s (failure marker present on success: %s)\n' "$1" "$(cat "$work/stderr")"; fail=1
+  else
+    printf 'ok   %s\n' "$1"
+  fi
+}
+
 three='{"task":"Add a --json flag to the todo CLI","steps":[
   {"id":1,"title":"Rename the list helper","brief":"todo.py: cmd_list -> print_list"},
   {"id":2,"title":"Add the endpoint for JSON output","brief":"todo.py: new branch in cmd_list"},
@@ -126,6 +143,7 @@ check_eq "marker tiers match main output" "$(printf '%s' "$marker" | sed 's/^133
 check_eq "marker has same step ids" "$(printf '%s' "$marker" | sed 's/^1337-tier-route: //' | jq -c '[.steps[].id]')" '[1,2,3]'
 check_eq "marker has confidence values" "$(printf '%s' "$marker" | sed 's/^1337-tier-route: //' | jq -c '[.steps[].confidence]')" '[0.9,0.8,0.95]'
 check_eq "marker has escalated flags" "$(printf '%s' "$marker" | sed 's/^1337-tier-route: //' | jq -c '[.steps[].escalated]')" '[false,false,false]'
+check_no_failure_marker "success: no failure marker on stderr"
 
 unsure='{"task":"t","steps":[{"id":"a","title":"Unsure rename"},{"id":"b","title":"Doubtful opus step"}]}'
 run "$unsure"
@@ -144,20 +162,27 @@ check_eq "lower floor: no escalation" "$(printf '%s' "$out" | jq -c '[.steps[].t
 run '{"task":"t","steps":[{"title":"Boom"}]}'
 check_code "API 500: exit 4" "$code" 4
 check_eq "failure explained on stderr" "$(grep -c 'Jev call failed' "$work/stderr")" "1"
+check_eq "success marker absent on exit 4" "$marker" ""
+check_failure_marker "failure marker printed on exit 4" 4
 
 run 'not json'
 check_code "bad input: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (not json)" 2
 run '{"task":"t","steps":[]}'
 check_code "no steps: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (no steps)" 2
 run '{"task":"","steps":[{"title":"x"}]}'
 check_code "empty task: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (empty task)" 2
 run '{"task":"t","steps":[{"brief":"no title"}]}'
 check_code "step without title: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (no title)" 2
 
 TYPESAFE_API_KEY= run "$three"
 check_code "no key: exit 3" "$code" 3
 check_eq "no key explained on stderr" "$(grep -c 'TYPESAFE_API_KEY' "$work/stderr")" "1"
-check_eq "marker absent on exit 3" "$marker" ""
+check_eq "success marker absent on exit 3" "$marker" ""
+check_failure_marker "failure marker printed on exit 3" 3
 
 # The file-argument form reads the same input.
 printf '%s' "$three" > "$work/in.json"

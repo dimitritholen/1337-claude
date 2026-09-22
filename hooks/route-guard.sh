@@ -34,15 +34,26 @@
 #
 # Deadlock guard (task #674): skills/tier/route.py exits 3 with no key and 4
 # when the API call itself failed; hooks/tiered.md already tells the session
-# to size those steps by hand instead of retrying. If the LAST route.py
-# invocation this session (a Bash tool_use whose command names
-# skills/tier/route.py) is not followed by a valid marker — whether because
-# it printed a recognisable `tier-route: ` failure line, or printed nothing
-# recognisable at all — that attempt is treated as failed, not routed:
-# 1337:builder dispatches are let through with a one-line stderr notice
-# instead of refused forever. `CLAUDE_1337_ROUTE_GUARD=off` disables the
-# whole hook, same `off` convention as CLAUDE_1337_READ_CAP/GREP_CAP in
-# hooks/read-cap.sh.
+# to size those steps by hand instead of retrying. route.py's fail() also
+# prints a failure marker (`1337-tier-failed: {"exit":N}`, same
+# tool_result-only extraction as the success marker) as the last thing it
+# does before exiting, so this hook reads the exit code instead of
+# inferring it from absence:
+#   - a failure marker with exit 3 or 4, newer than the last success
+#     marker, means routing was unavailable (no key, or the call failed):
+#     1337:builder dispatches are let through with a one-line stderr
+#     notice instead of refused forever.
+#   - a failure marker with exit 2, newer than the last success marker,
+#     means route.py rejected its own input (bad steps file) — fixable by
+#     the session that wrote it, so this REFUSES, naming the fix.
+#   - a failure marker older than the last success marker is stale
+#     (a later, successful re-route supersedes it) and means nothing.
+#   - a route.py invocation with neither marker after it (an old route.py
+#     from before this hook could recognise a failure marker, for
+#     instance) falls back to today's behaviour: allow with the notice, so
+#     it can never deadlock a session.
+# `CLAUDE_1337_ROUTE_GUARD=off` disables the whole hook, same `off`
+# convention as CLAUDE_1337_READ_CAP/GREP_CAP in hooks/read-cap.sh.
 #
 # Mirrors the mode gate of hooks/tiered-rules.sh and hooks/dispatch-nudge.sh
 # (same four env switches), and the transcript-parsing/refusal shape of
@@ -91,18 +102,53 @@ transcript=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/n
 [ -n "$transcript" ] && [ -f "$transcript" ] && [ -r "$transcript" ] || exit 0
 
 MARKER_PREFIX='1337-tier-route: '
+FAIL_PREFIX='1337-tier-failed: '
 
-# Last file line that could hold a marker, and last file line that could be
-# a route.py invocation. `grep -n -F` streams the file; it does not load it.
+# Last file line that could hold a marker, last file line that could hold a
+# failure marker, and last file line that could be a route.py invocation.
+# `grep -n -F` streams the file; it does not load it.
 marker_ln=$(grep -n -F -- "$MARKER_PREFIX" "$transcript" 2>/dev/null | tail -1 | cut -d: -f1)
+fail_ln=$(grep -n -F -- "$FAIL_PREFIX" "$transcript" 2>/dev/null | tail -1 | cut -d: -f1)
 route_ln=$(grep -n -F -- 'skills/tier/route.py' "$transcript" 2>/dev/null | tail -1 | cut -d: -f1)
 
+# The evidence: if the last failure marker is newer than the last success
+# marker, read its exit code from the tool_result that carries it — same
+# extraction the success marker gets a few lines down, so prose that merely
+# quotes the marker text (not inside a tool_result) grants nothing.
+fail_exit=""
+if [ -n "$fail_ln" ] && { [ -z "$marker_ln" ] || [ "$fail_ln" -gt "$marker_ln" ]; }; then
+  fail_json=$(sed -n "${fail_ln}p" "$transcript" | jq -r --arg mp "$FAIL_PREFIX" '
+    def texts_of(entry):
+      (entry.message.content? // [])
+      | if type == "array" then
+          [.[] | select(.type == "tool_result")
+            | (.content
+                | if type == "string" then .
+                  elif type == "array" then ([.[]? | select(.type == "text") | .text] | join("\n"))
+                  else empty end)]
+        else [] end;
+    ([texts_of(.)[]? | split("\n")[] | select(startswith($mp))] | last // empty)
+  ' 2>/dev/null)
+  fail_json="${fail_json#"$FAIL_PREFIX"}"
+  if [ -n "$fail_json" ]; then
+    fail_exit=$(printf '%s' "$fail_json" | jq -r 'if type == "object" and (.exit | type) == "number" then (.exit | tostring) else empty end' 2>/dev/null)
+  fi
+fi
+
+case "$fail_exit" in
+  3|4)
+    printf '1337 tiered mode: the last tier-router attempt this session did not route (no key, or the call failed) — sizing steps by hand per hooks/tiered.md; 1337:builder dispatch allowed without a routed tier this once.\n' >&2
+    exit 0
+    ;;
+  2)
+    printf 'blocked (1337 tiered mode): the last tier-router attempt this session rejected its steps file (bad input). Fix the steps file and run `python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <file>` again before dispatching.\n' >&2
+    exit 2
+    ;;
+esac
+
 # The deadlock guard: the most recent route.py invocation (if any) produced
-# no marker after it — refused a valid marker, printed a recognisable
-# `tier-route: ` failure, or printed nothing intelligible at all, all count
-# the same way here (route.py never prints a marker on a failure path, so
-# "no marker after the call" already covers every one of them; a
-# `tier-route: ` line, when present, only confirms it).
+# no marker after it at all — an old route.py from before this hook could
+# recognise a failure marker, for instance. Must not deadlock the session.
 if [ -n "$route_ln" ] && { [ -z "$marker_ln" ] || [ "$route_ln" -gt "$marker_ln" ]; }; then
   printf '1337 tiered mode: the last tier-router attempt this session did not route (no key, or the call failed) — sizing steps by hand per hooks/tiered.md; 1337:builder dispatch allowed without a routed tier this once.\n' >&2
   exit 0

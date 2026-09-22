@@ -66,6 +66,16 @@ text_result_line() { # text
     '{type:"user",message:{role:"user",content:[{type:"tool_result",content:$body}]}}'
 }
 
+# A Bash tool_result carrying route.py's failure marker, embedded the way
+# it really lands in a transcript (fail() prints it on stderr, which the
+# Bash tool still surfaces inside its tool_result).
+fail_marker_line() { # exit-code
+  jq -c -n --argjson code "$1" \
+    '"1337-tier-failed: " + ({exit:$code} | tostring)' \
+  | jq -c -n --argjson body "$(cat)" \
+    '{type:"user",message:{role:"user",content:[{type:"tool_result",content:$body}]}}'
+}
+
 payload() { # subagent_type model transcript_path session_id
   jq -c -n --arg s "$1" --arg m "$2" --arg tr "$3" --arg sid "$4" \
     '{tool_name:"Agent",tool_input:{subagent_type:$s,model:$m},transcript_path:$tr,session_id:$sid}'
@@ -213,5 +223,36 @@ else
   printf 'skip unreadable transcript: allowed, silent (running as root, chmod 000 has no effect)\n'
 fi
 chmod 644 "$tr17"
+
+# --- case 18: route.py failed with exit 3 (no key), failure marker newer
+# than the last success marker -> allowed, sizing-by-hand notice ---
+sid18="rg-18"; tr18="$TMPDIR/tr18.jsonl"
+t_tool "$(route_call_line)" "$tr18"
+t_tool "$(fail_marker_line 3)" "$tr18"
+check_grep 0 'sizing steps by hand' "failure marker exit 3: allowed, notice" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr18" "$sid18")"
+
+# --- case 19: route.py failed with exit 4 (API call failed), same ---
+sid19="rg-19"; tr19="$TMPDIR/tr19.jsonl"
+t_tool "$(route_call_line)" "$tr19"
+t_tool "$(fail_marker_line 4)" "$tr19"
+check_grep 0 'sizing steps by hand' "failure marker exit 4: allowed, notice" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr19" "$sid19")"
+
+# --- case 20: route.py failed with exit 2 (bad input), failure marker
+# newer than the last success marker -> REFUSED, names the fix ---
+sid20="rg-20"; tr20="$TMPDIR/tr20.jsonl"
+t_tool "$(route_call_line)" "$tr20"
+t_tool "$(fail_marker_line 2)" "$tr20"
+check_grep 2 'rejected its steps file' "failure marker exit 2: refused, names the fix" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr20" "$sid20")"
+
+# --- case 21: a failure marker OLDER than the last success marker is
+# stale and means nothing: the normal routed flow applies ---
+sid21="rg-21"; tr21="$TMPDIR/tr21.jsonl"
+t_tool "$(fail_marker_line 2)" "$tr21"
+t_tool "$(marker_line "$STEPS3")" "$tr21"
+check 0 "stale exit-2 failure marker (older than success): normal routed flow, allowed" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr21" "$sid21")"
 
 exit $fail
