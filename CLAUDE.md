@@ -96,8 +96,9 @@ work when the plugin is installed and used in any folder, not only this one.
   edits and Bash file writes (redirects, `tee`, `sed -i`; a bare heredoc
   passes), with code files refused even under temp dirs, and inline heredoc
   scripts piped into an interpreter refused past `CLAUDE_1337_INLINE_LINES`
-  lines (default 20). Small allowed edits are capped at 5 per session
-  (`CLAUDE_1337_EDIT_CAP`).
+  lines (default 20). Small allowed edits are capped at 3 per session
+  (`CLAUDE_1337_EDIT_CAP`), a budget ripwire's own symbol edit (the one
+  sanctioned Bash write) draws on too.
   Test: `tests/orchestrator-guard.test.sh`.
 - `hooks/read-cap.sh`: PreToolUse hook, orchestrator mode only, capping the
   main session to 1 Read (`CLAUDE_1337_READ_CAP`) and 2 Grep/Glob calls

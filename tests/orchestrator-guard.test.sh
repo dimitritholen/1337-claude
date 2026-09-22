@@ -172,42 +172,111 @@ unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR CLAUDE_1337_ORCHESTRATOR
 EVAL_CLAUDE_1337_ORCHESTRATOR=1 check 2 "eval switch turns mode on" "$write"
 unset EVAL_CLAUDE_1337_ORCHESTRATOR
 
-# Per-session small-edit cap. Isolate state in a scratch TMPDIR.
+# Per-session edit cap, shared by small edits and ripwire symbol edits.
+# Isolate state in a scratch TMPDIR; every case uses its own session id.
 export CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=true
 edit_cap_tmpdir=$(mktemp -d)
 export TMPDIR="$edit_cap_tmpdir"
 trap 'rm -rf "$edit_cap_tmpdir"' EXIT
 
-small_edit_a() {
-  printf '{"session_id":"ecap-%s-a","tool_name":"Edit","tool_input":{"file_path":"/repo/a.py","old_string":"a","new_string":"b"}}' "$$"
+small_edit() { # session-suffix [file]
+  printf '{"session_id":"ecap-%s-%s","tool_name":"Edit","tool_input":{"file_path":"%s","old_string":"a","new_string":"b"}}' \
+    "$$" "$1" "${2:-/repo/a.py}"
+}
+ripwire_edit() { # session-suffix
+  printf '{"session_id":"ecap-%s-%s","tool_name":"Bash","tool_input":{"command":"ripwire . --replace-symbol-body=parse --edit-payload=/tmp/payload.txt"}}' \
+    "$$" "$1"
+}
+ripwire_map() { # session-suffix
+  printf '{"session_id":"ecap-%s-%s","tool_name":"Bash","tool_input":{"command":"ripwire . --for=\\"x\\" --legend=compact"}}' \
+    "$$" "$1"
+}
+ripwire_edit_plan() { # session-suffix
+  printf '{"session_id":"ecap-%s-%s","tool_name":"Bash","tool_input":{"command":"ripwire . --edit-plan=/tmp/plan.json --apply"}}' \
+    "$$" "$1"
+}
+ripwire_edit_plan_dry_run() { # session-suffix
+  printf '{"session_id":"ecap-%s-%s","tool_name":"Bash","tool_input":{"command":"ripwire . --edit-plan=/tmp/plan.json --dry-run"}}' \
+    "$$" "$1"
 }
 
-for n in 1 2 3 4 5; do
-  check 0 "edit cap: small edit $n/5 session ecap-a" "$(small_edit_a)"
+for n in 1 2 3; do
+  check 0 "edit cap: small edit $n/3 session ecap-a" "$(small_edit a)"
 done
-sixth_err=$(printf '%s' "$(small_edit_a)" | "$HOOK" 2>&1 >/dev/null)
-sixth_exit=$?
-[ "$sixth_exit" -eq 2 ] && echo "ok   edit cap: sixth small edit session ecap-a" \
-  || { echo "FAIL edit cap: sixth small edit session ecap-a (exit $sixth_exit, want 2)"; fail=1; }
-printf '%s' "$sixth_err" | grep -q "small edit #6" \
-  && echo "ok   edit cap: stderr names #6" || { echo "FAIL edit cap: stderr missing #6 ($sixth_err)"; fail=1; }
+fourth_err=$(printf '%s' "$(small_edit a)" | "$HOOK" 2>&1 >/dev/null)
+fourth_exit=$?
+[ "$fourth_exit" -eq 2 ] && echo "ok   edit cap: fourth small edit session ecap-a" \
+  || { echo "FAIL edit cap: fourth small edit session ecap-a (exit $fourth_exit, want 2)"; fail=1; }
+printf '%s' "$fourth_err" | grep -q "edit #4" \
+  && echo "ok   edit cap: stderr names #4" || { echo "FAIL edit cap: stderr missing #4 ($fourth_err)"; fail=1; }
+printf '%s' "$fourth_err" | grep -q "1337:builder" \
+  && echo "ok   edit cap: stderr points at 1337:builder" || { echo "FAIL edit cap: stderr missing 1337:builder ($fourth_err)"; fail=1; }
 
 check 0 "edit cap: exempt path not counted after cap" \
   "{\"session_id\":\"ecap-$$-a\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/x\",\"content\":\"x\"}}"
 
 check 2 "edit cap: large edit in fresh session does not count" \
   "{\"session_id\":\"ecap-$$-b\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"old_string\":\"a\",\"new_string\":$bigjson}}"
-for n in 1 2 3 4 5; do
-  check 0 "edit cap: small edit $n/5 session ecap-b" \
-    "{\"session_id\":\"ecap-$$-b\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/repo/b.py\",\"old_string\":\"a\",\"new_string\":\"b\"}}"
+for n in 1 2 3; do
+  check 0 "edit cap: small edit $n/3 session ecap-b" "$(small_edit b /repo/b.py)"
 done
-check 2 "edit cap: sixth small edit session ecap-b" \
-  "{\"session_id\":\"ecap-$$-b\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/repo/b.py\",\"old_string\":\"a\",\"new_string\":\"b\"}}"
+check 2 "edit cap: fourth small edit session ecap-b" "$(small_edit b /repo/b.py)"
 
-CLAUDE_1337_EDIT_CAP=0 check 0 "edit cap: disabled via CLAUDE_1337_EDIT_CAP=0" "$(small_edit_a)"
+# A ripwire symbol edit writes into the repository and spends one unit of the
+# same budget: two hand edits plus one ripwire edit fill the cap of 3.
+check 0 "edit cap: small edit 1/3 session ecap-r" "$(small_edit r)"
+check 0 "edit cap: small edit 2/3 session ecap-r" "$(small_edit r)"
+check 0 "edit cap: ripwire symbol edit 3/3 session ecap-r" "$(ripwire_edit r)"
+check 2 "edit cap: small edit after the ripwire edit filled the cap" "$(small_edit r)"
+check 2 "edit cap: another ripwire symbol edit past the cap" "$(ripwire_edit r)"
 
-check 0 "edit cap: fresh counter for session ecap-c" \
-  "{\"session_id\":\"ecap-$$-c\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/repo/c.py\",\"old_string\":\"a\",\"new_string\":\"b\"}}"
+# Payload on stdin through a heredoc, and the insert forms, are the same route.
+rw_stdin=$(printf "ripwire . --insert-after-symbol=parse --edit-payload=- <<'EOF'\nfn added() {}\nEOF")
+rw_stdinjson=$(jq -Rs . <<<"$rw_stdin")
+check 0 "edit cap: ripwire insert-after with a stdin payload" \
+  "{\"session_id\":\"ecap-$$-s\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$rw_stdinjson}}"
+
+# A map query carries no --edit-payload: it neither writes nor counts, however
+# often it runs.
+for n in 1 2 3 4 5; do
+  check 0 "edit cap: ripwire map query $n does not count" "$(ripwire_map q)"
+done
+for n in 1 2 3; do
+  check 0 "edit cap: small edit $n/3 after five map queries" "$(small_edit q)"
+done
+check 2 "edit cap: fourth small edit session ecap-q" "$(small_edit q)"
+
+# --edit-plan with --apply applies a transaction and spends one unit of the
+# same budget, the same as the single-symbol edit forms.
+check 0 "edit cap: small edit 1/3 session ecap-p" "$(small_edit p)"
+check 0 "edit cap: small edit 2/3 session ecap-p" "$(small_edit p)"
+check 0 "edit cap: ripwire edit-plan --apply 3/3 session ecap-p" "$(ripwire_edit_plan p)"
+check 2 "edit cap: small edit after the edit-plan filled the cap" "$(small_edit p)"
+check 2 "edit cap: another ripwire edit-plan past the cap" "$(ripwire_edit_plan p)"
+
+# --edit-plan with --dry-run only preflights: it neither writes nor counts,
+# however often it runs.
+for n in 1 2 3 4 5; do
+  check 0 "edit cap: ripwire edit-plan --dry-run $n does not count" "$(ripwire_edit_plan_dry_run dp)"
+done
+for n in 1 2 3; do
+  check 0 "edit cap: small edit $n/3 after five edit-plan dry-runs" "$(small_edit dp)"
+done
+check 2 "edit cap: fourth small edit session ecap-dp" "$(small_edit dp)"
+
+CLAUDE_1337_EDIT_CAP=0 check 0 "edit cap: disabled via CLAUDE_1337_EDIT_CAP=0" "$(small_edit a)"
+CLAUDE_1337_EDIT_CAP=1 check 0 "edit cap: CLAUDE_1337_EDIT_CAP=1, first edit" "$(small_edit one)"
+CLAUDE_1337_EDIT_CAP=1 check 2 "edit cap: CLAUDE_1337_EDIT_CAP=1, second edit" "$(small_edit one)"
+
+check 0 "edit cap: fresh counter for session ecap-c" "$(small_edit c /repo/c.py)"
+
+# Subagent calls never reach the counter, whatever the session id says.
+sub_edit="{\"agent_id\":\"abc\",\"session_id\":\"ecap-$$-a\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"old_string\":\"a\",\"new_string\":\"b\"}}"
+for n in 1 2 3 4; do
+  check 0 "edit cap: subagent edit $n unaffected by a filled cap" "$sub_edit"
+done
+check 0 "edit cap: subagent ripwire symbol edit unaffected" \
+  "{\"agent_id\":\"abc\",\"session_id\":\"ecap-$$-a\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ripwire . --replace-symbol-body=parse --edit-payload=/tmp/p.txt\"}}"
 
 no_session_edit='{"tool_name":"Edit","tool_input":{"file_path":"/repo/nosession.py","old_string":"a","new_string":"b"}}'
 check 0 "edit cap: no session_id, repeat 1/3" "$no_session_edit"

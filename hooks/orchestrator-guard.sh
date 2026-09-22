@@ -28,6 +28,17 @@
 # makes. The refusal names the two ways forward in the same words as
 # hooks/read-cap.sh; tests/rule-copies.test.sh keeps the copies aligned.
 #
+# One Bash write route stays open: ripwire's own symbol edit
+# (--replace-symbol-body / --insert-before-symbol / --insert-after-symbol with
+# --edit-payload), and its transactional twin --edit-plan=FILE with --apply.
+# Both resolve the definition(s) themselves and answer with a receipt — region,
+# blob_sha, edit_check — so they are the only way to change code without the
+# session having read the file first. They write into the repository, and each
+# draws on the same per-session edit budget as a small Edit, so the allowance
+# stays honest. A ripwire run without --edit-payload is a map query: it neither
+# writes nor counts. Likewise --edit-plan with --dry-run only preflights the
+# plan; it does not write and does not count.
+#
 # That scratch carve-out is about where output LANDS, not about the command
 # mentioning a scratch path somewhere: `cat src/lib.rs > /tmp/out.txt` reads
 # repository payload whatever its target, and copying payload into temp to
@@ -58,6 +69,29 @@ fi
 
 command -v jq >/dev/null 2>&1 || exit 0
 
+# The per-session edit budget, drawn on by small Edit/MultiEdit calls and by
+# ripwire's symbol edit alike: both change code the main session has not read,
+# so they share one allowance. Returns 2 when the call is past the cap, 0 when
+# it may go ahead; every failure path allows.
+count_edit() { # label recorded in the state file
+  local edit_cap session_id edit_state edit_count
+  edit_cap="${CLAUDE_1337_EDIT_CAP:-3}"
+  [ "$edit_cap" != "0" ] || return 0
+  session_id=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null) || return 0
+  [ -n "$session_id" ] || return 0
+  # No lock: parallel small edits from the main session are rare enough
+  # that a lost increment here is an acceptable risk.
+  edit_state="${TMPDIR:-/tmp}/claude-1337-edit-cap-$session_id"
+  printf '%s\n' "$1" >> "$edit_state" 2>/dev/null || return 0
+  edit_count=$(awk 'END { print NR }' "$edit_state" 2>/dev/null) || return 0
+  if [ "$edit_count" -gt "$edit_cap" ]; then
+    printf 'blocked (1337 orchestrator mode): edit #%d this session (cap %d); hand edits and ripwire symbol edits draw on the same budget. The route left is a 1337:builder dispatch with a self-contained brief. CLAUDE_1337_EDIT_CAP=0 disables.\n' \
+      "$edit_count" "$edit_cap" >&2
+    return 2
+  fi
+  return 0
+}
+
 payload="$(cat)"
 
 agent_id=$(printf '%s' "$payload" | jq -r '.agent_id // empty' 2>/dev/null) || exit 0
@@ -74,6 +108,26 @@ case "$tool" in
   Bash)
     bash_cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
     [ -n "$bash_cmd" ] || exit 0
+    first_word=$(printf '%s\n' "$bash_cmd" | sed -E 's/^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]* )*//' | awk '{print $1}')
+    # ripwire's symbol edit and its --edit-plan twin: the sanctioned ways to
+    # change code the session has not read, so they write where every other
+    # Bash write is refused, and each spends one unit of the same edit
+    # budget. A payload arriving on stdin through a heredoc is part of the
+    # edit, not an inline script, so this runs before the checks below.
+    # --edit-plan only writes with --apply; --dry-run preflights and must
+    # stay uncounted, so it falls through to the ripwire allowlist below.
+    if [ "$first_word" = "ripwire" ]; then
+      if printf '%s\n' "$bash_cmd" | grep -qE -- '--(replace-symbol-body|insert-(before|after)-symbol)([=[:space:]]|$)' \
+        && printf '%s\n' "$bash_cmd" | grep -qE -- '--edit-payload([=[:space:]]|$)'; then
+        count_edit "Bash ripwire-symbol-edit" || exit 2
+        exit 0
+      fi
+      if printf '%s\n' "$bash_cmd" | grep -qE -- '--edit-plan([=[:space:]]|$)' \
+        && printf '%s\n' "$bash_cmd" | grep -qE -- '(^|[[:space:]])--apply([[:space:]]|$)'; then
+        count_edit "Bash ripwire-edit-plan" || exit 2
+        exit 0
+      fi
+    fi
     # One awk walk over the raw command does two things: it reports the
     # first interpreter-fed heredoc body longer than CLAUDE_1337_INLINE_LINES
     # (default 20, 0 disables) on its first output line, and prints the
@@ -178,7 +232,6 @@ case "$tool" in
     # inspection, ls, tasqx and the test/build runners are always allowed; a
     # pipeline stage with no file operand of its own (a bare filter on
     # another command's stdout) is not a reader.
-    first_word=$(printf '%s\n' "$bash_cmd" | sed -E 's/^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]* )*//' | awk '{print $1}')
     case "$first_word" in
       git)
         # git is allowlisted wholesale below, but four subcommand forms dump
@@ -329,22 +382,7 @@ For anything else (config, lockfile, transcript, prose), or when the file conten
 esac
 
 if [ "${lines:-0}" -le "$MAX_LINES" ]; then
-  edit_cap="${CLAUDE_1337_EDIT_CAP:-5}"
-  if [ "$edit_cap" != "0" ]; then
-    session_id=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null) || exit 0
-    if [ -n "$session_id" ]; then
-      # No lock: parallel small edits from the main session are rare enough
-      # that a lost increment here is an acceptable risk.
-      edit_state="${TMPDIR:-/tmp}/claude-1337-edit-cap-$session_id"
-      printf '%s %s\n' "$tool" "$file" >> "$edit_state" 2>/dev/null || exit 0
-      edit_count=$(awk 'END { print NR }' "$edit_state" 2>/dev/null) || exit 0
-      if [ "$edit_count" -gt "$edit_cap" ]; then
-        printf 'blocked (1337 orchestrator mode): small edit #%d this session (cap %d). Bundle the remaining corrections into one 1337:builder brief. CLAUDE_1337_EDIT_CAP=0 disables.\n' \
-          "$edit_count" "$edit_cap" >&2
-        exit 2
-      fi
-    fi
-  fi
+  count_edit "$tool $file" || exit 2
   exit 0
 fi
 
