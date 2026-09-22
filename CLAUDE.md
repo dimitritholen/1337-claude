@@ -127,6 +127,23 @@ work when the plugin is installed and used in any folder, not only this one.
   owed, reading the `1337-tier-route:`/`1337-tier-failed:` markers
   `skills/tier/route.py` prints. `CLAUDE_1337_ROUTE_GUARD=off` disables it.
   Test: `tests/route-guard.test.sh`.
+- `hooks/review-gate.sh`: PreToolUse hook on Bash|Agent|Task, orchestrator
+  mode only, that enforces a review checkpoint: after a `1337:builder`
+  dispatch, it refuses to `git commit` or dispatch another builder until a
+  `git diff` has run and `/1337:review` has been called, unless the change is
+  at or under `CLAUDE_1337_REVIEW_MIN_LINES` (default 20). For dispatch only,
+  a `1337:checker` result starting with `FAIL` on its first line sanctions a
+  retry even without review. A `git diff` with git global options in front
+  (`git -C <path> diff`) counts. The gate anchors on the last dispatch that
+  actually ran from `hooks/lib/builder-dispatches.jq`, ignoring ones a
+  PreToolUse hook refused. `CLAUDE_1337_REVIEW_GATE=off` disables it. Test:
+  `tests/review-gate.test.sh`.
+- `hooks/lib/builder-dispatches.jq`: shared jq filter that lists
+  `1337:builder` dispatches (Agent or Task tool_use) from a transcript slice,
+  excluding ones a PreToolUse hook refused before they ran. Both
+  `hooks/review-gate.sh` and `hooks/route-guard.sh` call it to anchor on the
+  last dispatch that actually spent the slot. Test:
+  `tests/builder-dispatches.test.sh`.
 
 All shell suites run together with `tests/run-all.sh`; a change to `hooks/` or
 `skills/` is not done until it is green.
