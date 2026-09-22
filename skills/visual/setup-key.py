@@ -169,6 +169,24 @@ class Handler(BaseHTTPRequestHandler):
         self.finish_with(*check_and_store((form.get("key") or [""])[0]), "paste")
 
 
+def launch_browser(url):
+    """webbrowser.open() with the browser's own stdout and stderr sent to
+    /dev/null, so its log noise never lands next to our JSON lines."""
+    saved = [os.dup(1), os.dup(2)]
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        return bool(webbrowser.open(url))
+    except Exception:
+        return False
+    finally:
+        os.dup2(saved[0], 1)
+        os.dup2(saved[1], 2)
+        for fd in saved + [devnull]:
+            os.close(fd)
+
+
 def serve(timeout, open_browser):
     verifier = b64url(secrets.token_bytes(32))
     challenge = b64url(hashlib.sha256(verifier.encode("ascii")).digest())
@@ -187,12 +205,7 @@ def serve(timeout, open_browser):
     })
     paste_url = f"http://127.0.0.1:{port}/paste?t={nonce}"
 
-    opened = False
-    if open_browser:
-        try:
-            opened = bool(webbrowser.open(auth_url))
-        except Exception:
-            opened = False
+    opened = open_browser and launch_browser(auth_url)
     print(json.dumps({"url": auth_url, "paste_url": paste_url,
                       "browser_opened": opened, "port": port}), file=sys.stderr, flush=True)
 

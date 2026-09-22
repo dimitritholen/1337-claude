@@ -172,6 +172,22 @@ finish
 check_code "timeout: exit 2" "$code" 2
 check_eq "stdout says timed_out" "$(jq -r .status "$work/stdout")" "timed_out"
 
+# --- the browser opens on the auth url, its noise stays off our stderr ------
+cat > "$work/fake-browser" <<'EOF_BROWSER'
+#!/usr/bin/env bash
+printf '%s' "$1" > "$(dirname "$0")/opened-url"
+echo "browser log noise" >&2
+echo "browser stdout noise"
+EOF_BROWSER
+chmod +x "$work/fake-browser"
+rm -f "$work/stdout" "$work/stderr" "$work/opened-url"
+BROWSER="$work/fake-browser %s" "$SCRIPT" --timeout 1 >"$work/stdout" 2>"$work/stderr"; code=$?
+check_code "browser run: timed out as planned" "$code" 2
+check_eq "browser opened on the auth url" "$(cat "$work/opened-url" 2>/dev/null)" "$(jq -r .url "$work/stderr")"
+check_eq "browser_opened reported" "$(jq -r .browser_opened "$work/stderr")" "true"
+check_eq "stderr is one JSON line, no browser noise" "$(wc -l < "$work/stderr")" "1"
+check_eq "stdout is one JSON line, no browser noise" "$(wc -l < "$work/stdout")" "1"
+
 # --- --tty ---------------------------------------------------------------------------
 rm -f "$work/credentials" "$work/requests.jsonl"
 printf '%s\n' "$GOOD_KEY" | "$SCRIPT" --tty >"$work/stdout" 2>"$work/stderr"; code=$?
