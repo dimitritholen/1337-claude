@@ -59,6 +59,16 @@ work when the plugin is installed and used in any folder, not only this one.
 - `hooks/hooks.json` + `hooks/evaluate.md`: SessionStart hook that injects the
   evaluate-before-you-build, name-your-assumptions and proactive-teammate rules
   into every session. Behaviour checks: `evals/<case>/` (`claude plugin eval .`).
+  The orchestrator cases seed their workspace from a `scaffold.sh`, so they
+  need `--scaffold`, `--allow-tools` and a case filter:
+  `claude plugin eval . --scaffold --allow-tools Bash,Edit,Write --case 'orchestrator-*'`
+  (`--case` takes one glob; a second `--case` flag silently overrides the first).
+  A Bash grant needs the sandbox backend installed: `bubblewrap` and `socat`.
+  On a machine whose `~/.docker` holds symlinks inside it (WSL Docker Desktop
+  links `contexts` and `features.json` into the Windows profile), the Bash
+  sandbox refuses to run and the case errors out before any grader; `DOCKER_CONFIG`
+  does not help because the default `~/.docker` is always scanned. Make
+  `~/.docker/contexts` a plain directory or run those cases elsewhere.
 - `hooks/stop-review.sh`: Stop hook that once per session offers a
   `/1337:review` pass when the session diff adds 30+ lines
   (`CLAUDE_1337_REVIEW_NUDGE=0` opts out). Test: `tests/stop-review.test.sh`.
@@ -75,7 +85,8 @@ work when the plugin is installed and used in any folder, not only this one.
   brevity blocks, the build ladder, the never-cut rule) stay aligned across
   the hook copies, skills and styles.
 - Orchestrator mode, opt-in via the `orchestrator` option in `plugin.json`
-  `userConfig` (or `CLAUDE_1337_ORCHESTRATOR=1`): `agents/` holds `scout`,
+  `userConfig` (or `CLAUDE_1337_ORCHESTRATOR=1`, or `EVAL_1337_ORCHESTRATOR=1`
+  for eval cases): `agents/` holds `scout`,
   `builder` and `checker`; `hooks/orchestrator-guard.sh` injects
   `hooks/orchestrator.md` at SessionStart and refuses large main-session
   edits and Bash file writes (redirects, `tee`, `sed -i`; a bare heredoc
@@ -89,7 +100,8 @@ work when the plugin is installed and used in any folder, not only this one.
   (`CLAUDE_1337_GREP_CAP`) per user turn, past which it refuses and points to
   `1337:scout`; subagent calls are never capped. Test: `tests/read-cap.test.sh`.
 - Tiered mode, opt-in via the `tiered` option in `plugin.json` `userConfig`
-  (or `CLAUDE_1337_TIERED=1`): `hooks/tiered-rules.sh` prints
+  (or `CLAUDE_1337_TIERED=1`, or `EVAL_1337_TIERED=1` for eval cases):
+  `hooks/tiered-rules.sh` prints
   `hooks/tiered.md` at SessionStart, with `${CLAUDE_PLUGIN_ROOT}` replaced
   by the real path, so the main session runs `skills/tier/route.py` before
   every builder dispatch and uses Jev's tier as the model. Test:

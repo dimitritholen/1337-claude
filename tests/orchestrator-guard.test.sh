@@ -126,6 +126,10 @@ CLAUDE_1337_INLINE_LINES=40 check 0 "inline check with a raised limit" \
 unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR
 CLAUDE_1337_ORCHESTRATOR=1 check 2 "env switch turns mode on" "$write"
 
+unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR CLAUDE_1337_ORCHESTRATOR
+EVAL_1337_ORCHESTRATOR=1 check 2 "eval switch turns mode on" "$write"
+unset EVAL_1337_ORCHESTRATOR
+
 # Per-session small-edit cap. Isolate state in a scratch TMPDIR.
 export CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=true
 edit_cap_tmpdir=$(mktemp -d)
