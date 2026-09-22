@@ -2,7 +2,7 @@
 # Tests for skills/tier/route.py: runs it against a local stand-in for the
 # TypeSafe API and asserts the routed tiers, the escalation rule and the exit
 # codes. The stand-in picks its answer from the step title, so every case is
-# visible in the input. Needs uv (the script resolves its own dependency).
+# visible in the input. Needs python3 and jq; no key, no network.
 set -u
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)"
@@ -10,8 +10,6 @@ SCRIPT="$ROOT/skills/tier/route.py"
 fail=0
 work="$(mktemp -d)"
 trap 'rm -rf "$work"; [ -n "${server_pid:-}" ] && kill "$server_pid" 2>/dev/null' EXIT
-
-command -v uv >/dev/null 2>&1 || { printf 'skip uv not installed\n'; exit 0; }
 
 # The stand-in API: answers each step_N choice from the words in its title,
 # records the last request body for assertions, and fails on demand.
@@ -71,7 +69,9 @@ for _ in $(seq 50); do [ -s "$work/port" ] && break; sleep 0.1; done
 [ -s "$work/port" ] || { printf 'FAIL stand-in server did not start\n'; exit 1; }
 export TYPESAFE_BASE_URL="http://127.0.0.1:$(cat "$work/port")"
 export TYPESAFE_API_KEY="test-key"
-unset CLAUDE_1337_TIER_FLOOR
+# No credentials file and no OpenRouter key, so the "no key" case is real.
+export CLAUDE_1337_CREDENTIALS="$work/no-such-credentials"
+unset CLAUDE_1337_TIER_FLOOR OPENROUTER_API_KEY OPENROUTER_BASE_URL TYPESAFE_DEFAULT_MODEL
 
 run() { # input-json -> stdout in $out, exit code in $code
   out=$(printf '%s' "$1" | "$SCRIPT" 2>"$work/stderr"); code=$?

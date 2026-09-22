@@ -31,8 +31,8 @@ doubt.
 
 # Route with Jev
 
-When `TYPESAFE_API_KEY` is set, the tier per step comes from Jev, TypeSafe's
-decision model, not from your own read. Split the task into steps first,
+With a stored OpenRouter or TypeSafe key, the tier per step comes from Jev,
+TypeSafe's decision model, not from your own read. Split the task into steps first,
 then run the router once with every step:
 
 ```bash

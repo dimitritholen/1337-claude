@@ -1,8 +1,4 @@
-#!/usr/bin/env -S uv run --quiet --script
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["typesafe-sdk>=0.7,<1"]
-# ///
+#!/usr/bin/env python3
 """Assign a model tier to each step of a plan by asking Jev, TypeSafe's
 decision model, one Choice question per step.
 
@@ -23,17 +19,18 @@ A step whose confidence falls under the floor is escalated one tier, because
 an uncertain "haiku" is a retry waiting to happen. The floor is 0.5 unless
 CLAUDE_1337_TIER_FLOOR says otherwise.
 
-Needs TYPESAFE_API_KEY in the environment. Nothing else is read: no
-credentials file, no config. Exit codes: 0 routed, 2 bad input, 3 no key,
-4 the API call failed. Every failure prints one line on stderr so the skill
-can fall back to sizing by hand.
+Needs a stored OpenRouter or TypeSafe key (see lib/keys.py: the
+environment, then ~/.config/1337/credentials). Exit codes: 0 routed, 2 bad
+input, 3 no key, 4 the API call failed. Every failure prints one line on
+stderr so the skill can fall back to sizing by hand.
 """
 
 import json
 import os
 import sys
 
-from typesafe_sdk import Choice, RetryPolicy, TypeSafeClient, TypeSafeError
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from lib import jev, keys  # noqa: E402
 
 TIERS = ["haiku", "sonnet", "opus"]
 
@@ -86,65 +83,66 @@ def escalate(tier):
 def main(argv):
     task, steps = read_input(argv)
 
-    if not os.environ.get("TYPESAFE_API_KEY"):
-        fail(3, "TYPESAFE_API_KEY is not set; export it and run again")
+    try:
+        jev.transport()
+    except keys.MissingKey:
+        fail(3, "no key: export OPENROUTER_API_KEY (or TYPESAFE_API_KEY) or "
+                f"store it once in {keys.path()}")
+    except keys.UnsafeFile as e:
+        fail(3, str(e))
 
     floor = float(os.environ.get("CLAUDE_1337_TIER_FLOOR", "0.5"))
 
     # Every step goes into one state so each question can name its own step
     # and still see the others: the same rename is haiku in a script and
     # sonnet next to a public API.
-    keys = [f"step_{i}" for i in range(len(steps))]
+    step_keys = [f"step_{i}" for i in range(len(steps))]
     state = {
         "task": task,
         "steps": {
             key: {"title": step["title"], "brief": step.get("brief", "")}
-            for key, step in zip(keys, steps)
+            for key, step in zip(step_keys, steps)
         },
     }
     questions = {
-        key: Choice(
-            instructions=(
-                f"Which is the cheapest model tier that can build `steps.{key}` "
-                "reliably in one go, as part of `task`? Cheap is the default; "
-                "a higher tier must be earned by the hard part of the step."
-            ),
-            criteria=CRITERIA,
+        key: jev.choice(
+            f"Which is the cheapest model tier that can build `steps.{key}` "
+            "reliably in one go, as part of `task`? Cheap is the default; "
+            "a higher tier must be earned by the hard part of the step.",
+            CRITERIA,
         )
-        for key in keys
+        for key in step_keys
     }
 
     try:
-        with TypeSafeClient(
-            model=os.environ.get("TYPESAFE_DEFAULT_MODEL", "jev-latest"),
-            base_url=os.environ.get("TYPESAFE_BASE_URL"),
-            timeout=15.0,
-            retry=RetryPolicy(max_retries=2),
-        ) as client:
-            response = client.system_one(state=state, questions=questions)
-    except TypeSafeError as e:
+        response = jev.decide(state, questions, timeout=15.0)
+    except jev.JevError as e:
         fail(4, f"Jev call failed: {e}")
 
     routed = []
-    for key, step in zip(keys, steps):
-        answer = response.answers[key]
-        tier = answer.choice
-        escalated = answer.confidence < floor and tier != TIERS[-1]
+    for key, step in zip(step_keys, steps):
+        answer = response["answers"][key]
+        tier = answer.get("choice")
+        confidence = float(answer.get("confidence") or 0.0)
+        probabilities = answer.get("probabilities") or {}
+        if tier not in TIERS:
+            fail(4, f"Jev answered {key} with {tier!r}, not one of {TIERS}")
+        escalated = confidence < floor and tier != TIERS[-1]
         if escalated:
             tier = escalate(tier)
         routed.append(
             {
-                "id": step.get("id", keys.index(key) + 1),
+                "id": step.get("id", step_keys.index(key) + 1),
                 "tier": tier,
-                "confidence": round(answer.confidence, 3),
+                "confidence": round(confidence, 3),
                 "probabilities": {
-                    t: round(answer.probabilities.get(t, 0.0), 3) for t in TIERS
+                    t: round(float(probabilities.get(t, 0.0)), 3) for t in TIERS
                 },
                 "escalated": escalated,
             }
         )
 
-    json.dump({"model": response.model, "floor": floor, "steps": routed}, sys.stdout)
+    json.dump({"model": response["model"], "floor": floor, "steps": routed}, sys.stdout)
     print()
 
 

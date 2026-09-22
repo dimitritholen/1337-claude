@@ -19,10 +19,10 @@ work when the plugin is installed and used in any folder, not only this one.
   exists, else to OpenRouter's decisions endpoint with `OPENROUTER_API_KEY`;
   one retry on 408/429/5xx after at most a second. Test: `tests/lib.test.sh`
   (stand-in server, no key).
-- `skills/tier/route.py`: `uv run` script (inline dependency on
-  `typesafe-sdk`) that asks Jev, TypeSafe's decision model, for the model
-  tier per plan step over the TypeSafe API. Needs `TYPESAFE_API_KEY`; reads
-  nothing else. Test: `tests/tier-route.test.sh` (stand-in API, no key).
+- `skills/tier/route.py`: python3 script that asks Jev, TypeSafe's decision
+  model, for the model tier per plan step through `lib/jev.py`. Needs a
+  stored OpenRouter or TypeSafe key. Test: `tests/tier-route.test.sh`
+  (stand-in API, no key).
 - `output-styles/<name>.md`: a pack of voices (`1337:l33t`, `1337:unc`,
   `1337:tremendous`, `1337:silent`, `1337:hippy`, `1337:pimp`, `1337:surfer`,
   `1337:yoda`),
