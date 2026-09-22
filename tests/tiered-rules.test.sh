@@ -47,7 +47,7 @@ fi
 check nonempty "CLAUDE_1337_TIERED=1 with plugin option false: rules printed" \
   CLAUDE_PLUGIN_OPTION_TIERED=false CLAUDE_1337_TIERED=1
 
-check nonempty "EVAL_1337_TIERED=1 alone: rules printed" \
-  CLAUDE_PLUGIN_OPTION_TIERED=false CLAUDE_1337_TIERED=0 EVAL_1337_TIERED=1
+check nonempty "EVAL_CLAUDE_1337_TIERED=1 alone: rules printed" \
+  CLAUDE_PLUGIN_OPTION_TIERED=false CLAUDE_1337_TIERED=0 EVAL_CLAUDE_1337_TIERED=1
 
 exit $fail

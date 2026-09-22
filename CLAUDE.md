@@ -85,7 +85,7 @@ work when the plugin is installed and used in any folder, not only this one.
   brevity blocks, the build ladder, the never-cut rule) stay aligned across
   the hook copies, skills and styles.
 - Orchestrator mode, opt-in via the `orchestrator` option in `plugin.json`
-  `userConfig` (or `CLAUDE_1337_ORCHESTRATOR=1`, or `EVAL_1337_ORCHESTRATOR=1`
+  `userConfig` (or `CLAUDE_1337_ORCHESTRATOR=1`, or `EVAL_CLAUDE_1337_ORCHESTRATOR=1`
   for eval cases): `agents/` holds `scout`,
   `builder` and `checker`; `hooks/orchestrator-guard.sh` injects
   `hooks/orchestrator.md` at SessionStart and refuses large main-session
@@ -100,7 +100,7 @@ work when the plugin is installed and used in any folder, not only this one.
   (`CLAUDE_1337_GREP_CAP`) per user turn, past which it refuses and points to
   `1337:scout`; subagent calls are never capped. Test: `tests/read-cap.test.sh`.
 - Tiered mode, opt-in via the `tiered` option in `plugin.json` `userConfig`
-  (or `CLAUDE_1337_TIERED=1`, or `EVAL_1337_TIERED=1` for eval cases):
+  (or `CLAUDE_1337_TIERED=1`, or `EVAL_CLAUDE_1337_TIERED=1` for eval cases):
   `hooks/tiered-rules.sh` prints
   `hooks/tiered.md` at SessionStart, with `${CLAUDE_PLUGIN_ROOT}` replaced
   by the real path, so the main session runs `skills/tier/route.py` before

@@ -12,7 +12,7 @@
 # With --rules it prints hooks/orchestrator.md instead (SessionStart), under the same
 # on/off condition.
 #
-# EVAL_1337_ORCHESTRATOR=1 is the switch eval cases use, since `claude plugin
+# EVAL_CLAUDE_1337_ORCHESTRATOR=1 is the switch eval cases use, since `claude plugin
 # eval` cases may only set EVAL_* variables.
 #
 # Exit 2 + stderr refuses; exit 0 allows. Every failure path exits 0.
@@ -22,7 +22,7 @@ set -u
 
 MAX_LINES=20
 
-[ "${CLAUDE_PLUGIN_OPTION_ORCHESTRATOR:-false}" = "true" ] || [ "${CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] || [ "${EVAL_1337_ORCHESTRATOR:-0}" = "1" ] || exit 0
+[ "${CLAUDE_PLUGIN_OPTION_ORCHESTRATOR:-false}" = "true" ] || [ "${CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] || [ "${EVAL_CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] || exit 0
 
 if [ "${1:-}" = "--rules" ]; then
   cat "$(dirname "$0")/orchestrator.md"

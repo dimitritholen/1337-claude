@@ -110,12 +110,12 @@ check 0 "stale lock: first read in fresh prompt allowed" "$(readcall "$sid_lock"
 edit_payload=$(printf '{"session_id":"%s","prompt_id":"p1","tool_name":"Edit","tool_input":{"file_path":"/repo/a.py"}}' "$sid")
 check 0 "Edit tool_name not counted" "$edit_payload"
 
-# m. eval switch turns mode on: EVAL_1337_ORCHESTRATOR=1 alone, no other knob set.
+# m. eval switch turns mode on: EVAL_CLAUDE_1337_ORCHESTRATOR=1 alone, no other knob set.
 unset CLAUDE_1337_READ_CAP CLAUDE_1337_GREP_CAP
 unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR
-export EVAL_1337_ORCHESTRATOR=1
+export EVAL_CLAUDE_1337_ORCHESTRATOR=1
 check 0 "eval switch: first read in p6" "$(readcall "$sid" p6)"
 check_grep 2 'Read #2' "eval switch: second read in p6 refused" "$(readcall "$sid" p6)"
-unset EVAL_1337_ORCHESTRATOR
+unset EVAL_CLAUDE_1337_ORCHESTRATOR
 
 exit $fail
