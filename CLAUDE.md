@@ -25,6 +25,11 @@ work when the plugin is installed and used in any folder, not only this one.
   `--tty` for a hidden prompt; checks the key at `/api/v1/key`, stores it
   through `lib/keys.set`, never prints it. Test: `tests/setup-key.test.sh`
   (stand-in OpenRouter, no browser).
+- `skills/visual/catalogue.py`: `models(modality)` lists OpenRouter's
+  generation models for `raster_image`, `vector_svg`, `video` or `speech`
+  with one price and unit each (image token, second or video token,
+  character), cheapest first, live on every call. Test:
+  `tests/catalogue.test.sh` (fixture JSON shaped like the live lists).
 - `skills/tier/route.py`: python3 script that asks Jev, TypeSafe's decision
   model, for the model tier per plan step through `lib/jev.py`. Needs a
   stored OpenRouter or TypeSafe key. Test: `tests/tier-route.test.sh`
