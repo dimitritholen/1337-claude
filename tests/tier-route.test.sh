@@ -73,8 +73,17 @@ export TYPESAFE_API_KEY="test-key"
 export CLAUDE_1337_CREDENTIALS="$work/no-such-credentials"
 unset CLAUDE_1337_TIER_FLOOR OPENROUTER_API_KEY OPENROUTER_BASE_URL TYPESAFE_DEFAULT_MODEL
 
-run() { # input-json -> stdout in $out, exit code in $code
-  out=$(printf '%s' "$1" | "$SCRIPT" 2>"$work/stderr"); code=$?
+run() { # input-json -> stdout in $out (main JSON only), exit code in $code, marker in $marker
+  raw_output=$(printf '%s' "$1" | "$SCRIPT" 2>"$work/stderr"); code=$?
+  # Split output into main JSON and marker line (only if there's output)
+  if [ -z "$raw_output" ]; then
+    out=""
+    marker=""
+  else
+    # Last line is the marker, rest is the main JSON
+    marker=$(printf '%s' "$raw_output" | tail -n 1)
+    out=$(printf '%s' "$raw_output" | head -n -1)
+  fi
 }
 
 check_code() { # description got want
@@ -83,6 +92,16 @@ check_code() { # description got want
 
 check_eq() { # description got want
   if [ "$2" = "$3" ]; then printf 'ok   %s\n' "$1"; else printf 'FAIL %s (got %s, want %s)\n' "$1" "$2" "$3"; fail=1; fi
+}
+
+check_marker_prefix() { # description
+  prefix=$(printf '%s' "$marker" | cut -c1-17)
+  if [ "$prefix" = "1337-tier-route: " ]; then printf 'ok   %s\n' "$1"; else printf 'FAIL %s (got prefix: %s)\n' "$1" "$prefix"; fail=1; fi
+}
+
+check_marker_json() { # description
+  marker_json=$(printf '%s' "$marker" | sed 's/^1337-tier-route: //')
+  if printf '%s' "$marker_json" | jq . > /dev/null 2>&1; then printf 'ok   %s\n' "$1"; else printf 'FAIL %s (marker JSON does not parse)\n' "$1"; fail=1; fi
 }
 
 three='{"task":"Add a --json flag to the todo CLI","steps":[
@@ -101,6 +120,12 @@ check_eq "task in state" "$(jq -r '.state.task' "$work/last-request.json")" "Add
 check_eq "brief in state" "$(jq -r '.state.steps.step_2.brief' "$work/last-request.json")" "todo.py: lock around save()"
 check_eq "question names its step" "$(jq -r '.questions.step_1.instructions' "$work/last-request.json" | grep -c 'steps.step_1')" "1"
 check_eq "three tiers offered" "$(jq -c '.questions.step_0.criteria | keys' "$work/last-request.json")" '["haiku","opus","sonnet"]'
+check_marker_prefix "marker starts at column 0 with exact prefix"
+check_marker_json "marker JSON parses"
+check_eq "marker tiers match main output" "$(printf '%s' "$marker" | sed 's/^1337-tier-route: //' | jq -c '[.steps[].tier]')" '["haiku","sonnet","opus"]'
+check_eq "marker has same step ids" "$(printf '%s' "$marker" | sed 's/^1337-tier-route: //' | jq -c '[.steps[].id]')" '[1,2,3]'
+check_eq "marker has confidence values" "$(printf '%s' "$marker" | sed 's/^1337-tier-route: //' | jq -c '[.steps[].confidence]')" '[0.9,0.8,0.95]'
+check_eq "marker has escalated flags" "$(printf '%s' "$marker" | sed 's/^1337-tier-route: //' | jq -c '[.steps[].escalated]')" '[false,false,false]'
 
 unsure='{"task":"t","steps":[{"id":"a","title":"Unsure rename"},{"id":"b","title":"Doubtful opus step"}]}'
 run "$unsure"
@@ -110,6 +135,8 @@ check_eq "escalation is flagged" "$(printf '%s' "$out" | jq -r '.steps[0].escala
 check_eq "opus under the floor stays opus" "$(printf '%s' "$out" | jq -r '.steps[1].tier')" "opus"
 check_eq "opus is not flagged" "$(printf '%s' "$out" | jq -r '.steps[1].escalated')" "false"
 check_eq "confidence passed through" "$(printf '%s' "$out" | jq -r '.steps[0].confidence')" "0.3"
+check_marker_prefix "escalation case: marker has prefix"
+check_eq "marker reflects escalation" "$(printf '%s' "$marker" | sed 's/^1337-tier-route: //' | jq -c '[.steps[].escalated]')" '[true,false]'
 
 CLAUDE_1337_TIER_FLOOR=0.2 run "$unsure"
 check_eq "lower floor: no escalation" "$(printf '%s' "$out" | jq -c '[.steps[].tier, .floor]')" '["haiku","opus",0.2]'
@@ -130,6 +157,7 @@ check_code "step without title: exit 2" "$code" 2
 TYPESAFE_API_KEY= run "$three"
 check_code "no key: exit 3" "$code" 3
 check_eq "no key explained on stderr" "$(grep -c 'TYPESAFE_API_KEY' "$work/stderr")" "1"
+check_eq "marker absent on exit 3" "$marker" ""
 
 # The file-argument form reads the same input.
 printf '%s' "$three" > "$work/in.json"

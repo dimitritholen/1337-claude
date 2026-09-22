@@ -142,8 +142,26 @@ def main(argv):
             }
         )
 
-    json.dump({"model": response["model"], "floor": floor, "steps": routed}, sys.stdout)
+    main_output = {"model": response["model"], "floor": floor, "steps": routed}
+    json.dump(main_output, sys.stdout)
     print()
+
+    # Print the marker line for hook lookup: compact JSON, no probabilities.
+    marker_steps = [
+        {
+            "id": step["id"],
+            "tier": step["tier"],
+            "confidence": step["confidence"],
+            "escalated": step["escalated"],
+        }
+        for step in routed
+    ]
+    marker = {
+        "model": response["model"],
+        "floor": floor,
+        "steps": marker_steps,
+    }
+    print(f"1337-tier-route: {json.dumps(marker, separators=(',', ':'))}")
 
 
 if __name__ == "__main__":
