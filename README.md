@@ -218,24 +218,12 @@ one session. Start a new session after changing it.
 ## Test
 
 ```bash
-tests/orchestrator-guard.test.sh
-tests/read-cap.test.sh
-tests/dispatch-nudge.test.sh
-tests/tiered-rules.test.sh
-tests/stop-review.test.sh
-tests/terse-governor.test.sh
-tests/subagent-rules.test.sh
-tests/rule-copies.test.sh
-tests/tier-route.test.sh
-tests/route-guard.test.sh
-tests/lib.test.sh
-tests/setup-key.test.sh
-tests/catalogue.test.sh
-tests/visual-route.test.sh
-tests/generate.test.sh
+tests/run-all.sh
 ```
 
-All of them run against local stand-ins: no key, no network, no browser.
+All of them run against local stand-ins: no key, no network, no browser. A line
+starting with `todo` is a pinned gap that a later task will flip, and never
+fails the run.
 
 The session rules (evaluate, assumptions, proactive teammate) are checked by an
 eval suite in `evals/`, run with and without the plugin so each case shows

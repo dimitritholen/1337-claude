@@ -5,6 +5,9 @@ set -u
 
 HOOK="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)/hooks/read-cap.sh"
 fail=0
+ok_count=0
+fail_count=0
+todo_count=0
 
 STATEDIR="$(mktemp -d)"
 export TMPDIR="$STATEDIR"
@@ -16,7 +19,7 @@ check() { # expected-exit description payload
   local got out
   out=$(printf '%s' "$3" | "$HOOK" 2>&1 >/dev/null)
   got=$?
-  if [ "$got" -eq "$1" ]; then printf 'ok   %s\n' "$2"; else printf 'FAIL %s (exit %s, want %s)\n' "$2" "$got" "$1"; fail=1; fi
+  if [ "$got" -eq "$1" ]; then printf 'ok   %s\n' "$2"; ok_count=$((ok_count + 1)); else printf 'FAIL %s (exit %s, want %s)\n' "$2" "$got" "$1"; fail=1; fail_count=$((fail_count + 1)); fi
   printf '%s' "$out"
 }
 
@@ -25,9 +28,9 @@ check_grep() { # expected-exit want-in-stderr description payload
   out=$(printf '%s' "$4" | "$HOOK" 2>&1 >/dev/null)
   got=$?
   if [ "$got" -eq "$1" ] && printf '%s' "$out" | grep -q "$2"; then
-    printf 'ok   %s\n' "$3"
+    printf 'ok   %s\n' "$3"; ok_count=$((ok_count + 1))
   else
-    printf 'FAIL %s (exit %s, want %s; stderr: %s)\n' "$3" "$got" "$1" "$out"; fail=1
+    printf 'FAIL %s (exit %s, want %s; stderr: %s)\n' "$3" "$got" "$1" "$out"; fail=1; fail_count=$((fail_count + 1))
   fi
 }
 
@@ -36,9 +39,37 @@ check_notgrep() { # expected-exit not-in-stderr description payload
   out=$(printf '%s' "$4" | "$HOOK" 2>&1 >/dev/null)
   got=$?
   if [ "$got" -eq "$1" ] && ! printf '%s' "$out" | grep -q "$2"; then
-    printf 'ok   %s\n' "$3"
+    printf 'ok   %s\n' "$3"; ok_count=$((ok_count + 1))
   else
-    printf 'FAIL %s (exit %s, want %s; stderr: %s)\n' "$3" "$got" "$1" "$out"; fail=1
+    printf 'FAIL %s (exit %s, want %s; stderr: %s)\n' "$3" "$got" "$1" "$out"; fail=1; fail_count=$((fail_count + 1))
+  fi
+}
+
+# Todo variants of check()/check_grep(): same signature, same assertion, but
+# never fail the run — they pin behaviour that #660 will build. Once #660
+# lands, rename todo_check to check (and todo_check_grep to check_grep) at
+# the call site and the case is live.
+todo_check() { # expected-exit description payload
+  local got out
+  out=$(printf '%s' "$3" | "$HOOK" 2>&1 >/dev/null)
+  got=$?
+  todo_count=$((todo_count + 1))
+  if [ "$got" -eq "$1" ]; then
+    printf 'todo %s (passes now)\n' "$2"
+  else
+    printf 'todo %s (want %s got %s)\n' "$2" "$1" "$got"
+  fi
+}
+
+todo_check_grep() { # expected-exit want-in-stderr description payload
+  local out got
+  out=$(printf '%s' "$4" | "$HOOK" 2>&1 >/dev/null)
+  got=$?
+  todo_count=$((todo_count + 1))
+  if [ "$got" -eq "$1" ] && printf '%s' "$out" | grep -q "$2"; then
+    printf 'todo %s (passes now)\n' "$3"
+  else
+    printf 'todo %s (want %s got %s)\n' "$3" "$1" "$got"
   fi
 }
 
@@ -50,6 +81,18 @@ readcall_path() { # session prompt_id file_path extra
 }
 grepcall() { # session prompt_id tool extra
   printf '{"session_id":"%s","prompt_id":"%s","tool_name":"%s","tool_input":{"pattern":"x"}%s}' "$1" "$2" "$3" "${4:-}"
+}
+bashcall() { # session prompt_id command
+  printf '{"session_id":"%s","prompt_id":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" "$2" "$3"
+}
+mcpcall() { # session prompt_id
+  printf '{"session_id":"%s","prompt_id":"%s","tool_name":"mcp__codebase-memory-mcp__get_code_snippet","tool_input":{}}' "$1" "$2"
+}
+editcall() { # session prompt_id
+  printf '{"session_id":"%s","prompt_id":"%s","tool_name":"Edit","tool_input":{"file_path":"/repo/a.py"}}' "$1" "$2"
+}
+readcall_transcript() { # session transcript_path
+  printf '{"session_id":"%s","tool_name":"Read","tool_input":{"file_path":"/repo/a.py"},"transcript_path":"%s"}' "$1" "$2"
 }
 
 # a. mode off: Read passes.
@@ -114,9 +157,9 @@ wait
 allowed=$(grep -c -F -x 'exit=0' "$exits")
 refused=$(grep -c -F -x 'exit=2' "$exits")
 if [ "$allowed" -eq 1 ] && [ "$refused" -eq 5 ]; then
-  printf 'ok   parallel: one read allowed, five refused\n'
+  printf 'ok   parallel: one read allowed, five refused\n'; ok_count=$((ok_count + 1))
 else
-  printf 'FAIL parallel: %s allowed, %s refused (want 1 and 5; exits: %s)\n' "$allowed" "$refused" "$(tr '\n' ' ' < "$exits")"; fail=1
+  printf 'FAIL parallel: %s allowed, %s refused (want 1 and 5; exits: %s)\n' "$allowed" "$refused" "$(tr '\n' ' ' < "$exits")"; fail=1; fail_count=$((fail_count + 1))
 fi
 
 # k. a stale lock left behind does not block the next Read.
@@ -168,9 +211,9 @@ done
 out=$(printf '%s' "$(grepcall "$sid" p13 Grep)" | CLAUDE_1337_GREP_CAP=0 PATH="$NOPWIRE_DIR" "$HOOK" 2>&1 >/dev/null)
 got=$?
 if [ "$got" -eq 2 ] && printf '%s' "$out" | grep -q '1337:scout' && ! printf '%s' "$out" | grep -q 'ripwire'; then
-  printf 'ok   ripwire missing from PATH: message names only 1337:scout\n'
+  printf 'ok   ripwire missing from PATH: message names only 1337:scout\n'; ok_count=$((ok_count + 1))
 else
-  printf 'FAIL ripwire missing from PATH: message names only 1337:scout (exit %s; stderr: %s)\n' "$got" "$out"; fail=1
+  printf 'FAIL ripwire missing from PATH: message names only 1337:scout (exit %s; stderr: %s)\n' "$got" "$out"; fail=1; fail_count=$((fail_count + 1))
 fi
 
 # s-v. subagent nudge: a subagent's first Grep/Glob is refused once, naming
@@ -182,7 +225,7 @@ if command -v ripwire >/dev/null 2>&1; then
   CLAUDE_1337_GREP_CAP=off check 0 "subagent nudge: second grep from agent ag1 allowed" "$(grepcall "$sid" p14 Grep ',"agent_id":"ag1"')"
   CLAUDE_1337_GREP_CAP=off check_grep 2 'ripwire' "subagent nudge: different agent (ag2) nudged independently" "$(grepcall "$sid" p14 Glob ',"agent_id":"ag2"')"
 else
-  printf 'ok   subagent nudge tests skipped: ripwire not on PATH\n'
+  printf 'ok   subagent nudge tests skipped: ripwire not on PATH\n'; ok_count=$((ok_count + 1))
 fi
 
 CLAUDE_1337_READ_CAP=off check 0 "subagent nudge: Read from a subagent never nudged" "$(readcall "$sid" p14 ',"agent_id":"ag3"')"
@@ -190,9 +233,77 @@ CLAUDE_1337_READ_CAP=off check 0 "subagent nudge: Read from a subagent never nud
 out=$(printf '%s' "$(grepcall "$sid" p14 Grep ',"agent_id":"ag4"')" | CLAUDE_1337_GREP_CAP=off PATH="$NOPWIRE_DIR" "$HOOK" 2>&1 >/dev/null)
 got=$?
 if [ "$got" -eq 0 ]; then
-  printf 'ok   subagent nudge: no nudge when ripwire absent from PATH\n'
+  printf 'ok   subagent nudge: no nudge when ripwire absent from PATH\n'; ok_count=$((ok_count + 1))
 else
-  printf 'FAIL subagent nudge: no nudge when ripwire absent from PATH (exit %s; stderr: %s)\n' "$got" "$out"; fail=1
+  printf 'FAIL subagent nudge: no nudge when ripwire absent from PATH (exit %s; stderr: %s)\n' "$got" "$out"; fail=1; fail_count=$((fail_count + 1))
 fi
 
+# --- gap cases (tasqx #657/#660): today's hook does not implement these yet;
+# todo_check/todo_check_grep pin the wanted behaviour without failing the
+# run. Each becomes a real (failing-if-wrong) check by renaming its
+# todo_check(_grep) call to check(_grep) once #660 lands.
+
+# 25. READ_CAP=0 must not disable the Grep cap: with GREP_CAP=2 a third
+# Grep/Glob in one turn is still refused.
+printf '%s' "$(grepcall "$sid" p25 Grep)" | CLAUDE_1337_READ_CAP=0 CLAUDE_1337_GREP_CAP=2 "$HOOK" >/dev/null 2>&1
+printf '%s' "$(grepcall "$sid" p25 Glob)" | CLAUDE_1337_READ_CAP=0 CLAUDE_1337_GREP_CAP=2 "$HOOK" >/dev/null 2>&1
+CLAUDE_1337_READ_CAP=0 CLAUDE_1337_GREP_CAP=2 todo_check_grep 2 'Grep/Glob #3' "gap 25: READ_CAP=0 does not disable the Grep cap, third grep-kind call refused" "$(grepcall "$sid" p25 Grep)"
+
+# 26. a Bash call whose command reads a file (cat/rg/git show) counts as a
+# read against READ_CAP: with READ_CAP=1 the second such call is refused.
+printf '%s' "$(bashcall "$sid" p26 'cat src/lib.rs')" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
+CLAUDE_1337_READ_CAP=1 todo_check 2 "gap 26: second Bash read (rg TODO src) refused under READ_CAP=1" "$(bashcall "$sid" p26 'rg TODO src')"
+printf '%s' "$(bashcall "$sid" p26 'git show HEAD:src/lib.rs')" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
+
+# 27. an mcp__codebase-memory-mcp__get_code_snippet call counts as a read
+# against READ_CAP.
+printf '%s' "$(mcpcall "$sid" p27)" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
+CLAUDE_1337_READ_CAP=1 todo_check 2 "gap 27: second mcp__codebase-memory-mcp__get_code_snippet call refused under READ_CAP=1" "$(mcpcall "$sid" p27)"
+
+# 28. two consecutive user turns with identical transcript text get distinct
+# turn keys: a read in the second turn is not charged to the first.
+sid28="$sid-gap28"
+transcript28="$STATEDIR/transcript-gap28.jsonl"
+printf '{"type":"user","message":{"content":"hello there"}}\n' > "$transcript28"
+printf '%s' "$(readcall_transcript "$sid28" "$transcript28")" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
+printf '{"type":"assistant","message":{"content":"ok"}}\n' >> "$transcript28"
+printf '{"type":"user","message":{"content":"hello there"}}\n' >> "$transcript28"
+CLAUDE_1337_READ_CAP=1 todo_check 0 "gap 28: identical text in a second turn gets its own turn key, first read of it not charged to the first turn" "$(readcall_transcript "$sid28" "$transcript28")"
+
+# 29. a sidechain user entry (isSidechain:true) as the transcript's last
+# entry is ignored when deriving the turn key: a read within the same real
+# turn, made after a sidechain entry lands at the end of the transcript,
+# is still charged to that turn.
+sid29="$sid-gap29"
+transcript29="$STATEDIR/transcript-gap29.jsonl"
+printf '{"type":"user","message":{"content":"real turn text"}}\n' > "$transcript29"
+printf '%s' "$(readcall_transcript "$sid29" "$transcript29")" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
+printf '{"type":"user","isSidechain":true,"message":{"content":"side note text"}}\n' >> "$transcript29"
+CLAUDE_1337_READ_CAP=1 todo_check 2 "gap 29: a trailing sidechain entry does not change the turn key, second read of the same turn refused" "$(readcall_transcript "$sid29" "$transcript29")"
+
+# 30. stale state from a previous session_id does not count against a new
+# session_id.
+sidA30="$sid-gap30A"
+sidB30="$sid-gap30B"
+printf '%s' "$(readcall "$sidA30" p30)" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
+CLAUDE_1337_READ_CAP=1 todo_check 0 "gap 30: stale state from a previous session_id does not count against a new session_id" "$(readcall "$sidB30" p30)"
+
+# 31. a lock dir with an empty ts file counts as live: the hook waits it out
+# (treats it as stale only after its own spin threshold) rather than
+# stealing it immediately; the call that follows still succeeds.
+sidL31="$sid-gap31"
+lockdir31="$STATEDIR/claude-1337-read-cap-$sidL31.lock"
+mkdir -p "$lockdir31"
+: > "$lockdir31/ts"
+CLAUDE_1337_READ_CAP=1 todo_check 0 "gap 31: a lock dir with an empty ts file counts as live, the call waits it out and still succeeds" "$(readcall "$sidL31" p31)"
+
+# 32/33. Read, then a small Edit, then Read: with READ_CAP=1 the Edit itself
+# is allowed (33) and does not reset the count, so the second Read is still
+# refused (32).
+sid3233="$sid-gap3233"
+printf '%s' "$(readcall "$sid3233" p32)" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/null 2>&1
+CLAUDE_1337_READ_CAP=1 todo_check 0 "gap 33: an Edit between two Reads is itself allowed" "$(editcall "$sid3233" p32)"
+CLAUDE_1337_READ_CAP=1 todo_check 2 "gap 32: the second Read after an intervening Edit is still refused under READ_CAP=1" "$(readcall "$sid3233" p32)"
+
+printf 'summary: %d ok, %d FAIL, %d todo\n' "$ok_count" "$fail_count" "$todo_count"
 exit $fail

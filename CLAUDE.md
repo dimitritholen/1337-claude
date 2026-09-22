@@ -128,6 +128,9 @@ work when the plugin is installed and used in any folder, not only this one.
   `skills/tier/route.py` prints. `CLAUDE_1337_ROUTE_GUARD=off` disables it.
   Test: `tests/route-guard.test.sh`.
 
+All shell suites run together with `tests/run-all.sh`; a change to `hooks/` or
+`skills/` is not done until it is green.
+
 Behaviour that users should get goes in the plugin, never in this file.
 
 ## Try it locally
