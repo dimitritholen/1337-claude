@@ -20,6 +20,9 @@ cat > "$work/image.json" <<'EOF_JSON'
   "pricing": {"prompt": "0", "completion": "0", "image_token": "0.0000191616766467066", "image_output": "0.0000191616766467066"}},
  {"id": "recraft/recraft-v4.1", "name": "Recraft: Recraft V4.1", "description": "Recraft V4.1 is an image generation model tuned for high aesthetics.",
   "pricing": {"prompt": "0", "completion": "0", "image_output": "0.00000838323353293413"}},
+ {"id": "recraft/recraft-v4-styles-vector", "name": "Recraft: Recraft V4 Styles Vector",
+  "description": "Recraft V4 Styles Vector is a style-consistent image generation model from Recraft. Every request requires at least one style reference.",
+  "pricing": {"prompt": "0", "completion": "0", "image_output": "0.0000119760479041916"}},
  {"id": "acme/svg-maker", "name": "Acme SVG Maker", "description": "Draws things.",
   "pricing": {"prompt": "0", "completion": "0", "image_output": "0.00001"}},
  {"id": "openrouter/auto", "name": "Auto Router", "description": "Picks a model.", "pricing": {"prompt": "-1", "completion": "-1"}},
@@ -95,8 +98,9 @@ check_eq "no vector model in the raster list" "$(printf '%s' "$out" | jq '[.[] |
 
 run vector_svg
 check_code "vector_svg: listed" "$code" 0
-check_eq "vector flag from id (recraft) and from name (svg)" "$(printf '%s' "$out" | jq -c '[.[].id]')" '["acme/svg-maker","recraft/recraft-v4.1-vector"]'
-check_eq "recraft vector keeps name, description and price" "$(printf '%s' "$out" | jq -c '.[1] | [.name, (.description | startswith("Recraft V4.1 Vector is the vector")), (.price*1e9|round), .unit, .vector]')" '["Recraft: Recraft V4.1 Vector",true,19162,"image token",true]'
+check_eq "vector flag from id (recraft) and from name (svg)" "$(printf '%s' "$out" | jq -c '[.[].id]')" '["acme/svg-maker","recraft/recraft-v4-styles-vector","recraft/recraft-v4.1-vector"]'
+check_eq "styles model flagged as needing a reference, plain vector not" "$(printf '%s' "$out" | jq -c '[.[] | select(.id | startswith("recraft/")) | .reference_required]')" '[true,false]'
+check_eq "recraft vector keeps name, description and price" "$(printf '%s' "$out" | jq -c '.[2] | [.name, (.description | startswith("Recraft V4.1 Vector is the vector")), (.price*1e9|round), .unit, .vector]')" '["Recraft: Recraft V4.1 Vector",true,19162,"image token",true]'
 check_eq "raster and vector split the image list" "$(grep -c 'output_modalities=image' "$work/requests.log")" "2"
 check_eq "no key: no Authorization header" "$(grep -c ' None$' "$work/requests.log")" "2"
 

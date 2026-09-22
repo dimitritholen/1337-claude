@@ -6,7 +6,7 @@
                 [--voice alloy]
 
 Raster and vector go through POST /api/v1/chat/completions with
-modalities ["image", "text"]; the first message.images entry is a data
+modalities ["image"]; the first message.images entry is a data
 URL whose media type names the extension (image/svg+xml gives .svg).
 Video posts /api/v1/videos, polls the job every few seconds until it is
 completed or failed, then downloads the first content URL. Speech posts
@@ -113,7 +113,9 @@ def make_image(model, prompt, aspect, key):
     body = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "modalities": ["image", "text"],
+        # "image" alone: models such as Recraft vector output only images and
+        # refuse a request that also asks for text.
+        "modalities": ["image"],
         "usage": {"include": True},
     }
     if aspect:

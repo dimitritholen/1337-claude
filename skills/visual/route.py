@@ -120,7 +120,7 @@ def route(prompt, started):
         return None
 
     entries = [e for e in catalogue.models(modality, timeout=budget(started))
-               if e["price"] is not None][:CANDIDATES]
+               if e["price"] is not None and not e["reference_required"]][:CANDIDATES]
     if not entries:
         return None
     by_id = {e["id"]: e for e in entries}

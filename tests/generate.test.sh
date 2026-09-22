@@ -114,7 +114,7 @@ check_code "raster: written" "$code" 0
 check_eq "raster: default path is assets/<slug>.png" "$(field .path)" "assets/a-red-fox-watercolour.png"
 check_eq "raster: file is the decoded PNG" "$(head -c 8 assets/a-red-fox-watercolour.png | od -An -c | tr -d ' \n')" '211PNG\r\n032\n'
 check_eq "raster: media type and cost on stdout" "$(field '[.media_type, .cost, .model, .modality] | @csv')" '"image/png",0.0192,"acme/paint","raster_image"'
-check_eq "raster: chat completions with image modality and usage" "$(jq -c 'select(.method=="POST") | [.path, .body.modalities, .body.usage.include, .body.messages[0].content]' "$work/requests.jsonl")" '["/api/v1/chat/completions",["image","text"],true,"A red fox, watercolour"]'
+check_eq "raster: chat completions with image modality and usage" "$(jq -c 'select(.method=="POST") | [.path, .body.modalities, .body.usage.include, .body.messages[0].content]' "$work/requests.jsonl")" '["/api/v1/chat/completions",["image"],true,"A red fox, watercolour"]'
 check_eq "raster: bearer sent" "$(jq -r '.auth' "$work/requests.jsonl")" "Bearer test-key"
 check_eq "raster: no image_config without --aspect" "$(jq -c '.body | has("image_config")' "$work/requests.jsonl")" "false"
 

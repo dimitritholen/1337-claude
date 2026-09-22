@@ -3,7 +3,8 @@
 
     from skills.visual import catalogue   # or import catalogue next to it
     for m in catalogue.models("vector_svg"):
-        m["id"], m["name"], m["description"], m["price"], m["unit"], m["vector"]
+        m["id"], m["name"], m["description"], m["price"], m["unit"], m["vector"],
+        m["reference_required"]   # needs a reference image, useless for a bare prompt
 
 Modalities: raster_image, vector_svg (both from GET /api/v1/models
 ?output_modalities=image, split on the vector flag), video (GET
@@ -33,6 +34,9 @@ from lib import keys  # noqa: E402
 
 MODALITIES = ("raster_image", "vector_svg", "video", "speech")
 VECTOR = re.compile(r"\b(vector|svg)\b", re.IGNORECASE)
+# Models that cannot work from a bare prompt (Recraft "Styles" need a style
+# reference image on every request); the router skips them.
+REFERENCE_REQUIRED = re.compile(r"requires at least one (style|reference)", re.IGNORECASE)
 
 
 class CatalogueError(Exception):
@@ -76,6 +80,7 @@ def _entry(model, price, unit):
         "price": price,
         "unit": unit,
         "vector": bool(VECTOR.search(text)),
+        "reference_required": bool(REFERENCE_REQUIRED.search(model.get("description") or "")),
     }
 
 

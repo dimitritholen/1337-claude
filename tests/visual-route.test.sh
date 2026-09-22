@@ -24,6 +24,9 @@ IMAGE = {"data": [
  {"id": "recraft/recraft-v4.1-vector", "name": "Recraft: Recraft V4.1 Vector",
   "description": "Recraft V4.1 Vector is the vector (SVG) variant of Recraft V4.1, tuned for high aesthetics.",
   "pricing": {"prompt": "0", "completion": "0", "image_output": "0.0000191616766467066"}},
+ {"id": "recraft/recraft-v4-styles-vector", "name": "Recraft: Recraft V4 Styles Vector",
+  "description": "Style-consistent vector model. Every request requires at least one style reference.",
+  "pricing": {"prompt": "0", "completion": "0", "image_output": "0.000001"}},
  {"id": "acme/svg-cheap", "name": "Acme SVG Cheap", "description": "Cheap svg drawings.",
   "pricing": {"prompt": "0", "completion": "0", "image_output": "0.000005"}},
  {"id": "acme/svg-mid", "name": "Acme SVG Mid", "description": "Mid svg drawings.",
@@ -133,7 +136,7 @@ check_eq "svg prompt: asks with AskUserQuestion" "$(ctx | grep -c 'AskUserQuesti
 check_eq "svg prompt: names generate.py with modality" "$(ctx | grep -c 'generate.py" --model <chosen id> --modality vector_svg')" "1"
 check_eq "two Jev calls and one catalogue fetch" "$(jq -r '.method + " " + .path' "$work/requests.jsonl" | tr '\n' ';')" "POST /api/alpha/decisions;GET /api/v1/models?output_modalities=image;POST /api/alpha/decisions;"
 check_eq "modality question offers the five labels" "$(jq -c 'select(.method=="POST" and .body.questions.modality) | .body.questions.modality.criteria | keys' "$work/requests.jsonl" | head -n 1)" '["raster_image","speech","text_or_code","vector_svg","video"]'
-check_eq "model question: six cheapest priced vector models, no raster, no unpriced" "$(jq -c 'select(.body.questions.model) | .body.questions.model.criteria | keys' "$work/requests.jsonl")" '["acme/svg-cheap","acme/svg-dear","acme/svg-mid","recraft/recraft-v4.1-vector"]'
+check_eq "model question: priced vector models only, no raster, no unpriced, no reference-only" "$(jq -c 'select(.body.questions.model) | .body.questions.model.criteria | keys' "$work/requests.jsonl")" '["acme/svg-cheap","acme/svg-dear","acme/svg-mid","recraft/recraft-v4.1-vector"]'
 check_eq "model criteria carry description and price" "$(jq -r 'select(.body.questions.model) | .body.questions.model.criteria["recraft/recraft-v4.1-vector"]' "$work/requests.jsonl" | grep -c 'Recraft V4.1 Vector is the vector.*Price \$0.0192 per 1K image tokens')" "1"
 check_eq "prompt goes to Jev as state" "$(jq -r 'select(.method=="POST") | .body.state.prompt' "$work/requests.jsonl" | sort -u)" "make me an SVG illustration of a fox"
 
