@@ -203,6 +203,12 @@ the same stored OpenRouter or TypeSafe key as `/1337:tier`; without one the
 session says so once and sizes by hand. Works with or without orchestrator
 mode, since it governs any builder dispatch; the two pair naturally.
 
+Enforced, not just asked for: a hook refuses a `1337:builder` dispatch that
+never routed this session, that would spend more dispatches than the router
+routed steps, or whose model is not one of the tiers still owed — one
+routing call licenses exactly as many builder dispatches as it routed steps.
+`CLAUDE_1337_ROUTE_GUARD=off` turns the check off.
+
 Turn it on the same four ways as orchestrator mode, with `tiered` in place of
 `orchestrator`: `--config tiered=true` at install, the option prompt when
 enabling, the `tiered` row in `/config` or `"tiered": true` next to
@@ -221,6 +227,7 @@ tests/terse-governor.test.sh
 tests/subagent-rules.test.sh
 tests/rule-copies.test.sh
 tests/tier-route.test.sh
+tests/route-guard.test.sh
 tests/lib.test.sh
 tests/setup-key.test.sh
 tests/catalogue.test.sh

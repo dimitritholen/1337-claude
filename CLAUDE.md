@@ -120,6 +120,13 @@ work when the plugin is installed and used in any folder, not only this one.
   by the real path, so the main session runs `skills/tier/route.py` before
   every builder dispatch and uses Jev's tier as the model. Test:
   `tests/tiered-rules.test.sh`.
+- `hooks/route-guard.sh`: PreToolUse hook on Agent/Task, tiered mode only,
+  that enforces the rule above instead of leaving it to prose: it refuses a
+  `1337:builder` dispatch whose session never ran the router, whose routed
+  steps are already all spent, or whose model is not one of the tiers still
+  owed, reading the `1337-tier-route:`/`1337-tier-failed:` markers
+  `skills/tier/route.py` prints. `CLAUDE_1337_ROUTE_GUARD=off` disables it.
+  Test: `tests/route-guard.test.sh`.
 
 Behaviour that users should get goes in the plugin, never in this file.
 

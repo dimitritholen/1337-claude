@@ -17,6 +17,12 @@ model, not from your own read of the step.
   that step. A step marked `escalated: true` already moved one tier up; do
   not raise it again.
 - A single-step change still goes through the router: one step, one call.
+- This is enforced, not advice: a hook refuses a `1337:builder` dispatch when
+  the router never ran this session, when every routed step is already
+  spent, or when the dispatched model is not one of the tiers still owed,
+  and its message says which. One routing call licenses exactly as many
+  builder dispatches as it routed steps — dispatch more than that and route
+  again first. `CLAUDE_1337_ROUTE_GUARD=off` turns the check off.
 - A failed check goes back to the builder one tier above the routed tier,
   once; if it fails again, take over the diagnosis yourself.
 - Exit 3 means no key: say so in one line, offer `/1337:visual setup` once,
