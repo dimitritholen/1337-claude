@@ -5,13 +5,21 @@
 # hand-picked one.
 #
 # Scope: only a call with subagent_type "1337:builder" is judged; every
-# other agent type, and any payload without a subagent_type, passes.
+# other agent type, and any payload without a subagent_type, passes. A
+# dispatch made by a subagent rather than the main session (payload carries
+# agent_id) always passes too: the main session routes, or falls back,
+# before it ever calls one — mirrors hooks/orchestrator-guard.sh:97-98 and
+# the subagent carve-out in hooks/read-cap.sh.
 #
 # Evidence: the session transcript (JSONL, at .transcript_path) is scanned
 # for the LAST line matching the marker `1337-tier-route: `, printed by
 # skills/tier/route.py on stdout (so it lands inside a tool_result of a Bash
 # call). What follows the prefix is JSON: {"model":..., "floor":...,
 # "steps":[{"id":..,"tier":"sonnet","confidence":..,"escalated":bool}, ...]}.
+# Each transcript line is one JSONL entry, so a `grep -n` line number IS
+# that entry's position: only the tail after the last marker line is ever
+# parsed with jq (task #674 — a 22MB transcript slurped whole into one jq -s
+# array cost 0.56s/147MB; grep -n streams the search instead).
 #
 # No marker anywhere in the transcript means the router never ran this
 # session: refused. Otherwise the routed tiers (one per step) form a
@@ -20,26 +28,50 @@
 # one-for-one in dispatch order). A dispatch once every routed tier is
 # already spent, or whose `model` is not among what remains, is refused. A
 # later marker resets the budget: only dispatches after the LAST marker
-# count.
+# count. A marker line whose JSON fails to parse is treated the same as no
+# marker at all (refused) — a corrupt or forged marker must not buy a
+# dispatch.
+#
+# Deadlock guard (task #674): skills/tier/route.py exits 3 with no key and 4
+# when the API call itself failed; hooks/tiered.md already tells the session
+# to size those steps by hand instead of retrying. If the LAST route.py
+# invocation this session (a Bash tool_use whose command names
+# skills/tier/route.py) is not followed by a valid marker — whether because
+# it printed a recognisable `tier-route: ` failure line, or printed nothing
+# recognisable at all — that attempt is treated as failed, not routed:
+# 1337:builder dispatches are let through with a one-line stderr notice
+# instead of refused forever. `CLAUDE_1337_ROUTE_GUARD=off` disables the
+# whole hook, same `off` convention as CLAUDE_1337_READ_CAP/GREP_CAP in
+# hooks/read-cap.sh.
 #
 # Mirrors the mode gate of hooks/tiered-rules.sh and hooks/dispatch-nudge.sh
 # (same four env switches), and the transcript-parsing/refusal shape of
 # hooks/dispatch-nudge.sh and hooks/orchestrator-guard.sh.
 #
-# This step does not fail open on: no OpenRouter/TypeSafe key, a failed
-# router call, a missing/unreadable transcript, or an off switch for this
-# hook specifically — those are task #674. Every OTHER failure path (no jq,
-# a payload that fails to parse, a marker line that fails to parse as JSON)
-# exits 0, same as every other hook here.
+# This step does not fail open on: no jq, a payload that fails to parse, or
+# a payload with no `model` at all (that dispatch is simply refused: with no
+# model to compare, it can never be "one of the remaining tiers"). A
+# missing/unreadable transcript_path stays silent (this step cannot tell
+# "router never ran" from "cannot see the transcript"); an existing, readable
+# but empty transcript is NOT the same thing — no marker can be in it, so it
+# is refused like any other transcript with no marker.
 #
 # Exit 2 + stderr refuses; exit 0 allows.
 set -u
 
 [ "${CLAUDE_PLUGIN_OPTION_TIERED:-false}" = "true" ] || [ "${CLAUDE_1337_TIERED:-0}" = "1" ] || [ "${EVAL_CLAUDE_1337_TIERED:-0}" = "1" ] || exit 0
 
+# `off` (any case) disables this hook entirely.
+guard_lc=$(printf '%s' "${CLAUDE_1337_ROUTE_GUARD:-}" | tr '[:upper:]' '[:lower:]')
+[ "$guard_lc" != "off" ] || exit 0
+
 command -v jq >/dev/null 2>&1 || exit 0
 
 payload="$(cat)"
+
+# A nested dispatch made by a subagent, not the main session, always passes.
+agent_id=$(printf '%s' "$payload" | jq -r '.agent_id // empty' 2>/dev/null) || exit 0
+[ -n "$agent_id" ] && exit 0
 
 tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null) || exit 0
 case "$tool" in
@@ -58,7 +90,32 @@ transcript=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/n
 # it stays silent rather than guessing.
 [ -n "$transcript" ] && [ -f "$transcript" ] && [ -r "$transcript" ] || exit 0
 
-result=$(jq -R 'fromjson? // empty' "$transcript" 2>/dev/null | jq -s '
+MARKER_PREFIX='1337-tier-route: '
+
+# Last file line that could hold a marker, and last file line that could be
+# a route.py invocation. `grep -n -F` streams the file; it does not load it.
+marker_ln=$(grep -n -F -- "$MARKER_PREFIX" "$transcript" 2>/dev/null | tail -1 | cut -d: -f1)
+route_ln=$(grep -n -F -- 'skills/tier/route.py' "$transcript" 2>/dev/null | tail -1 | cut -d: -f1)
+
+# The deadlock guard: the most recent route.py invocation (if any) produced
+# no marker after it — refused a valid marker, printed a recognisable
+# `tier-route: ` failure, or printed nothing intelligible at all, all count
+# the same way here (route.py never prints a marker on a failure path, so
+# "no marker after the call" already covers every one of them; a
+# `tier-route: ` line, when present, only confirms it).
+if [ -n "$route_ln" ] && { [ -z "$marker_ln" ] || [ "$route_ln" -gt "$marker_ln" ]; }; then
+  printf '1337 tiered mode: the last tier-router attempt this session did not route (no key, or the call failed) — sizing steps by hand per hooks/tiered.md; 1337:builder dispatch allowed without a routed tier this once.\n' >&2
+  exit 0
+fi
+
+if [ -z "$marker_ln" ]; then
+  printf 'blocked (1337 tiered mode): 1337:builder dispatched with no tier routing this session. Write the steps to a JSON file and run `python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <file>` once for all of them, then dispatch at the tier it assigns.\n' >&2
+  exit 2
+fi
+
+# Extract the marker's JSON payload from just that one line: same
+# tool_result/text-splitting shape as before, applied to a single entry.
+marker_json=$(sed -n "${marker_ln}p" "$transcript" | jq -r --arg mp "$MARKER_PREFIX" '
   def texts_of(entry):
     (entry.message.content? // [])
     | if type == "array" then
@@ -68,47 +125,28 @@ result=$(jq -R 'fromjson? // empty' "$transcript" 2>/dev/null | jq -s '
                 elif type == "array" then ([.[]? | select(.type == "text") | .text] | join("\n"))
                 else empty end)]
       else [] end;
-  def agents_of(entry):
-    (entry.message.content? // [])
-    | if type == "array" then
-        [.[] | select(.type == "tool_use" and (.name == "Agent" or .name == "Task")
-                and ((.input.subagent_type // "") == "1337:builder"))
-          | (.input.model // "")]
-      else [] end;
-  # One entry per transcript line, in file order, carrying its own index.
-  [to_entries[] | {idx: .key, texts: texts_of(.value), agents: agents_of(.value)}] as $entries
-  | ([$entries[] | .idx as $i | .texts[] | split("\n")[]
-      | select(startswith("1337-tier-route: "))
-      | {idx: $i, line: (ltrimstr("1337-tier-route: "))}]) as $markers
-  | if ($markers | length) == 0 then
-      {found: false}
-    else
-      ($markers | last) as $last
-      | ($last.line | fromjson? // null) as $marker
-      | if $marker == null then
-          {found: false}
-        else
-          ([$entries[] | select(.idx > $last.idx) | .agents[]]) as $dispatched
-          | {
-              found: true,
-              steps: ($marker.steps // []),
-              dispatched: $dispatched
-            }
-        end
-    end
-' 2>/dev/null) || exit 0
+  ([texts_of(.)[]? | split("\n")[] | select(startswith($mp))] | last // empty)
+' 2>/dev/null)
+marker_json="${marker_json#"$MARKER_PREFIX"}"
 
-[ -n "$result" ] || exit 0
-
-found=$(printf '%s' "$result" | jq -r '.found' 2>/dev/null) || exit 0
-
-if [ "$found" != "true" ]; then
+if [ -z "$marker_json" ] || ! printf '%s' "$marker_json" | jq -e 'type == "object"' >/dev/null 2>&1; then
   printf 'blocked (1337 tiered mode): 1337:builder dispatched with no tier routing this session. Write the steps to a JSON file and run `python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <file>` once for all of them, then dispatch at the tier it assigns.\n' >&2
   exit 2
 fi
 
-steps_count=$(printf '%s' "$result" | jq -r '.steps | length' 2>/dev/null) || exit 0
-dispatch_count=$(printf '%s' "$result" | jq -r '.dispatched | length' 2>/dev/null) || exit 0
+# Only the tail after the marker line matters: dispatches spend the budget
+# in file order, streamed instead of slurped.
+dispatched=$(tail -n "+$((marker_ln + 1))" "$transcript" | jq -R 'fromjson? // empty' 2>/dev/null | jq -s '
+  [.[] | (.message.content? // [])
+    | if type == "array" then .[] else empty end
+    | select(.type == "tool_use" and (.name == "Agent" or .name == "Task")
+        and ((.input.subagent_type // "") == "1337:builder"))
+    | (.input.model // "")]
+' 2>/dev/null) || exit 0
+[ -n "$dispatched" ] || exit 0
+
+steps_count=$(printf '%s' "$marker_json" | jq -r '.steps | length' 2>/dev/null) || exit 0
+dispatch_count=$(printf '%s' "$dispatched" | jq -r 'length' 2>/dev/null) || exit 0
 case "$steps_count" in ''|*[!0-9]*) exit 0 ;; esac
 case "$dispatch_count" in ''|*[!0-9]*) exit 0 ;; esac
 
@@ -120,12 +158,12 @@ fi
 
 # Remaining tiers: the routed multiset minus one entry per dispatch already
 # made since the last marker, removed one-for-one in dispatch order.
-remaining=$(printf '%s' "$result" | jq -c '
+remaining=$(jq -n --argjson marker "$marker_json" --argjson dispatched "$dispatched" '
   def remove_one(arr; x):
     (arr | index(x)) as $i
     | if $i == null then arr else (arr[0:$i] + arr[$i+1:]) end;
-  ([.steps[].tier]) as $routed
-  | reduce .dispatched[] as $t ($routed; remove_one(.; $t))
+  ([$marker.steps[].tier]) as $routed
+  | reduce $dispatched[] as $t ($routed; remove_one(.; $t))
 ' 2>/dev/null) || exit 0
 [ -n "$remaining" ] || exit 0
 

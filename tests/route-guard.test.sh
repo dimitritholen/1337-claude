@@ -55,6 +55,17 @@ agent_line() { # tool-name subagent_type model
     '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:$tool,input:{subagent_type:$s,model:$m}}]}}'
 }
 
+# A Bash tool_use invoking the tier router (what the deadlock guard greps for).
+route_call_line() {
+  jq -c -n '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Bash",input:{command:"python3 \"${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py\" /tmp/steps.json"}}]}}'
+}
+
+# A Bash tool_result carrying arbitrary text (route.py's fail() output, etc.).
+text_result_line() { # text
+  jq -c -n --arg body "$1" \
+    '{type:"user",message:{role:"user",content:[{type:"tool_result",content:$body}]}}'
+}
+
 payload() { # subagent_type model transcript_path session_id
   jq -c -n --arg s "$1" --arg m "$2" --arg tr "$3" --arg sid "$4" \
     '{tool_name:"Agent",tool_input:{subagent_type:$s,model:$m},transcript_path:$tr,session_id:$sid}'
@@ -125,5 +136,82 @@ if [ "$got" -eq 0 ]; then
 else
   printf 'FAIL %s (exit %s; stderr: %s)\n' "Task tool name recognized" "$got" "$out"; fail=1
 fi
+
+# --- case 9: router failed with a recognisable stderr line, no marker after
+# it -> allowed (deadlock guard), one-line notice ---
+sid9="rg-9"; tr9="$TMPDIR/tr9.jsonl"
+t_tool "$(route_call_line)" "$tr9"
+t_tool "$(text_result_line "tier-route: no key: export OPENROUTER_API_KEY")" "$tr9"
+check_grep 0 'sizing steps by hand' "router failed (key): allowed, notice on stderr" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr9" "$sid9")"
+
+# --- case 10: router invoked, nothing recognisable follows it (no marker,
+# no failure text) -> still treated as a failed attempt, allowed ---
+sid10="rg-10"; tr10="$TMPDIR/tr10.jsonl"
+t_tool "$(route_call_line)" "$tr10"
+check_grep 0 'sizing steps by hand' "router call with no marker and no failure text: allowed" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr10" "$sid10")"
+
+# --- case 11: router invoked and DID produce a marker after it -> normal
+# routed flow applies, not the deadlock guard ---
+sid11="rg-11"; tr11="$TMPDIR/tr11.jsonl"
+t_tool "$(route_call_line)" "$tr11"
+t_tool "$(marker_line "$STEPS3")" "$tr11"
+check 0 "router call followed by a real marker: normal routed flow, allowed" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr11" "$sid11")"
+check_grep 2 'haiku, sonnet, opus' "same transcript: a tier the router never assigned is still refused" \
+  "$MODE_TIERED" "$(payload 1337:builder gpt5 "$tr11" "$sid11")"
+
+# --- case 12: a marker line whose JSON fails to parse is refused, not
+# allowed (hooks/route-guard.sh's comment says so; the code always has) ---
+sid12="rg-12"; tr12="$TMPDIR/tr12.jsonl"
+t_tool "$(text_result_line "1337-tier-route: {not valid json")" "$tr12"
+check_grep 2 'no tier routing this session' "corrupt marker JSON: refused, not fail-open" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr12" "$sid12")"
+
+# --- case 13: dispatch payload with no model at all -> refused (nothing to
+# match against the remaining tiers) ---
+sid13="rg-13"; tr13="$TMPDIR/tr13.jsonl"
+t_tool "$(marker_line "$STEPS3")" "$tr13"
+nomarker_payload=$(jq -c -n --arg tr "$tr13" --arg sid "$sid13" \
+  '{tool_name:"Agent",tool_input:{subagent_type:"1337:builder"},transcript_path:$tr,session_id:$sid}')
+check_grep 2 'dispatched at model <none>' "no model field: refused" \
+  "$MODE_TIERED" "$nomarker_payload"
+
+# --- case 14: a nested dispatch from a subagent (payload carries agent_id)
+# always passes, regardless of transcript state ---
+sid14="rg-14"
+sub_payload=$(jq -c -n --arg tr "$TMPDIR/does-not-exist.jsonl" --arg sid "$sid14" \
+  '{agent_id:"abc",tool_name:"Agent",tool_input:{subagent_type:"1337:builder",model:"opus"},transcript_path:$tr,session_id:$sid}')
+check 0 "subagent-issued dispatch (agent_id set): always allowed" \
+  "$MODE_TIERED" "$sub_payload"
+
+# --- case 15: transcript_path missing from the payload entirely -> allowed,
+# silent (same as an unreadable one) ---
+sid15="rg-15"
+no_transcript_payload=$(jq -c -n --arg sid "$sid15" \
+  '{tool_name:"Agent",tool_input:{subagent_type:"1337:builder",model:"haiku"},session_id:$sid}')
+check 0 "transcript_path absent from payload: allowed, silent" \
+  "$MODE_TIERED" "$no_transcript_payload"
+
+# --- case 16: transcript exists, is readable, but is empty -> refused like
+# any other transcript with no marker (not the same as unreadable) ---
+sid16="rg-16"; tr16="$TMPDIR/tr16.jsonl"
+: > "$tr16"
+check_grep 2 'no tier routing this session' "empty (but readable) transcript: refused" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr16" "$sid16")"
+
+# --- case 17: transcript exists but is unreadable -> allowed, silent ---
+sid17="rg-17"; tr17="$TMPDIR/tr17.jsonl"
+t_tool "$(agent_line Agent 1337:scout haiku)" "$tr17"
+chmod 000 "$tr17"
+unreadable_ok=0
+if [ "$(id -u)" -ne 0 ]; then
+  check 0 "unreadable transcript: allowed, silent" \
+    "$MODE_TIERED" "$(payload 1337:builder haiku "$tr17" "$sid17")"
+else
+  printf 'skip unreadable transcript: allowed, silent (running as root, chmod 000 has no effect)\n'
+fi
+chmod 644 "$tr17"
 
 exit $fail
