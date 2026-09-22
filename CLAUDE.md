@@ -33,6 +33,13 @@ work when the plugin is installed and used in any folder, not only this one.
   first and Recommended, prices in every label, stay-with-Claude last) and
   run generate.py. `CLAUDE_1337_VISUAL=0` disables. Test:
   `tests/visual-route.test.sh` (stand-in Jev and catalogue).
+- `skills/visual/generate.py`: makes the file once a model is chosen:
+  raster and vector through chat completions with the image modality
+  (extension from the data URL's media type, so Recraft vector gives
+  `.svg`), video through the async videos job, speech through the audio
+  endpoint. Writes `--out` or `assets/<slug>.<ext>`, never overwrites,
+  prints path and cost. Exit 3 no key, 4 API failure, 5 failed video job.
+  Test: `tests/generate.test.sh` (stand-in OpenRouter).
 - `skills/visual/catalogue.py`: `models(modality)` lists OpenRouter's
   generation models for `raster_image`, `vector_svg`, `video` or `speech`
   with one price and unit each (image token, second or video token,
