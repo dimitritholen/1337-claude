@@ -365,4 +365,42 @@ check 0 "bash grep filtering git output" \
 check 0 "bash ripwire piped into head" \
   '{"tool_name":"Bash","tool_input":{"command":"ripwire . --for=x | head"}}'
 
+
+# Pipeline segmentation, pinned. The walk over every segment, keeping which
+# separator fed it, is the thing under these cases: a first-word test plus a
+# count of the whole command's operands passes all of the above and still lets
+# every one of the five below through.
+# A reader anywhere in the command, not only at the head: a first-word test
+# sees `cd` here and never looks at the second segment.
+check 2 "bash reader in the second segment of an &&-chain" \
+  '{"tool_name":"Bash","tool_input":{"command":"cd src && cat lib.rs"}}'
+# `;` is not a pipe: the scanner after it reads the tree, it does not filter
+# anyone's stdout, so the pipeline carve-out must not reach it.
+check 2 "bash tree scanner after a semicolon" \
+  '{"tool_name":"Bash","tool_input":{"command":"true; rg TODO"}}'
+# -r walks the tree from the working directory even in a pipeline stage, so
+# "it is piped, therefore it is only a filter" is not sound.
+check 2 "bash recursive grep as a pipeline stage" \
+  '{"tool_name":"Bash","tool_input":{"command":"ps aux | grep -r TODO"}}'
+# A pipeline stage can still name a file operand of its own; the operand count
+# has to be per segment, not over the whole command.
+check 2 "bash pipeline stage with its own file operand" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo x | sed -n '1,80p' src/lib.rs\"}}"
+# A reader after `;` is its own command with its own operands, not a filter on
+# what `ls` printed.
+check 2 "bash reader after a semicolon" \
+  '{"tool_name":"Bash","tool_input":{"command":"ls; head -50 README.md"}}'
+
+# The other direction, so none of the five above can be satisfied by refusing
+# every pipeline: a segment fed by `|` with no file operand of its own really
+# is just a filter on another command's stdout.
+check 0 "bash grep filtering ps output stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"ps aux | grep foo"}}'
+check 0 "bash grep filtering git log output stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git log --oneline | grep fix"}}'
+# Refused for the `cat`, which dumps the file, not for the `grep`, which only
+# counts lines on stdin.
+check 2 "bash cat into a counting grep, refused for the cat" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat f | grep -c line"}}'
+
 exit $fail

@@ -92,6 +92,28 @@ count_edit() { # label recorded in the state file
   return 0
 }
 
+# The two ways forward out of a refused read, in the same words as
+# hooks/read-cap.sh: ripwire maps code, but says nothing useful about a JSON
+# config, a lockfile, a transcript or a prose doc, so those go to 1337:scout,
+# which reads in its own context. tests/rule-copies.test.sh keeps the copies
+# in the two files aligned.
+read_route() {
+  if command -v ripwire >/dev/null 2>&1; then
+    printf '%s' 'For code: `ripwire <dir> --for="<what you are after>" --legend=compact`, then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR` as follow-ups.
+For anything else (config, lockfile, transcript, prose), or when the file contents themselves are wanted: dispatch 1337:scout with the question; it reads in its own context.'
+  else
+    printf '%s' 'Dispatch 1337:scout with the question; it reads in its own context.'
+  fi
+}
+
+# Both read refusals, the git one and the generic one, say the same thing bar
+# the description of what was caught, and end on that route. Refuses on the
+# spot: there is nothing left for the caller to decide.
+refuse_read() { # what was caught, the command
+  printf 'blocked (1337 orchestrator mode): Bash command %s (%.80s).\n%s\n' "$1" "$2" "$(read_route)" >&2
+  exit 2
+}
+
 payload="$(cat)"
 
 agent_id=$(printf '%s' "$payload" | jq -r '.agent_id // empty' 2>/dev/null) || exit 0
@@ -253,15 +275,7 @@ case "$tool" in
           grep) git_reader='git grep' ;;
         esac
         if [ -n "$git_reader" ]; then
-          if command -v ripwire >/dev/null 2>&1; then
-            route='For code: `ripwire <dir> --for="<what you are after>" --legend=compact`, then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR` as follow-ups.
-For anything else (config, lockfile, transcript, prose), or when the file contents themselves are wanted: dispatch 1337:scout with the question; it reads in its own context.'
-          else
-            route='Dispatch 1337:scout with the question; it reads in its own context.'
-          fi
-          printf 'blocked (1337 orchestrator mode): Bash command prints a file'"'"'s contents (not a diff) via %s (%.80s).\n%s\n' \
-            "$git_reader" "$bash_cmd" "$route" >&2
-          exit 2
+          refuse_read "prints a file's contents (not a diff) via $git_reader" "$bash_cmd"
         fi
         exit 0
         ;;
@@ -354,17 +368,7 @@ For anything else (config, lockfile, transcript, prose), or when the file conten
       fi
     fi
     if [ -n "$reader" ]; then
-      # The same two ways forward, in the same words, as hooks/read-cap.sh:
-      # ripwire maps code, 1337:scout reads anything else in its own context.
-      if command -v ripwire >/dev/null 2>&1; then
-        route='For code: `ripwire <dir> --for="<what you are after>" --legend=compact`, then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR` as follow-ups.
-For anything else (config, lockfile, transcript, prose), or when the file contents themselves are wanted: dispatch 1337:scout with the question; it reads in its own context.'
-      else
-        route='Dispatch 1337:scout with the question; it reads in its own context.'
-      fi
-      printf 'blocked (1337 orchestrator mode): Bash command reads a file'"'"'s contents via %s (%.80s).\n%s\n' \
-        "$reader" "$bash_cmd" "$route" >&2
-      exit 2
+      refuse_read "reads a file's contents via $reader" "$bash_cmd"
     fi
     exit 0
     ;;
