@@ -44,6 +44,37 @@ set -u
 
 command -v jq >/dev/null 2>&1 || exit 0
 
+# Helper function to acquire a directory-based lock with stale detection.
+# Takes the lock directory path as argument. Sets the global variable 'held' to
+# 1 if lock acquired, 0 if not. On acquisition, arms an EXIT trap that removes
+# the lock directory, in the same statement group that sets 'held' and writes
+# the timestamp stamp, so acquisition and cleanup-registration stay atomic
+# with respect to the process dying; callers that release the lock manually
+# must also `trap - EXIT` once they do. Retries 50 times with 0.02 second
+# sleep between attempts; treats a lock older than 5 seconds (or without a
+# valid timestamp) as stale and removes it.
+acquire_lock() {
+  local lock_path="$1"
+
+  held=0
+  spin=0
+  while [ "$spin" -lt 50 ]; do
+    if mkdir "$lock_path" 2>/dev/null; then
+      held=1
+      printf '%s\n' "${EPOCHSECONDS:-$(date +%s)}" > "$lock_path/ts" 2>/dev/null
+      trap "rm -rf '$lock_path' 2>/dev/null" EXIT
+      break
+    fi
+    spin=$((spin + 1))
+    stamp=$(cat "$lock_path/ts" 2>/dev/null)
+    case "$stamp" in
+      ''|*[!0-9]*) [ "$spin" -ge 25 ] && rm -rf "$lock_path" 2>/dev/null ;;
+      *) [ "$(( ${EPOCHSECONDS:-$(date +%s)} - stamp ))" -ge 5 ] && rm -rf "$lock_path" 2>/dev/null ;;
+    esac
+    sleep 0.02
+  done
+}
+
 payload="$(cat)"
 
 agent_id=$(printf '%s' "$payload" | jq -r '.agent_id // empty' 2>/dev/null) || exit 0
@@ -64,23 +95,7 @@ if [ -n "$agent_id" ]; then
   nudge_state="${TMPDIR:-/tmp}/claude-1337-read-cap-nudge-$agent_id"
   nudge_lock="$nudge_state.lock"
 
-  held=0
-  spin=0
-  while [ "$spin" -lt 50 ]; do
-    if mkdir "$nudge_lock" 2>/dev/null; then
-      held=1
-      trap 'rm -rf "$nudge_lock" 2>/dev/null' EXIT
-      printf '%s\n' "${EPOCHSECONDS:-$(date +%s)}" > "$nudge_lock/ts" 2>/dev/null
-      break
-    fi
-    spin=$((spin + 1))
-    stamp=$(cat "$nudge_lock/ts" 2>/dev/null)
-    case "$stamp" in
-      ''|*[!0-9]*) [ "$spin" -ge 25 ] && rm -rf "$nudge_lock" 2>/dev/null ;;
-      *) [ "$(( ${EPOCHSECONDS:-$(date +%s)} - stamp ))" -ge 5 ] && rm -rf "$nudge_lock" 2>/dev/null ;;
-    esac
-    sleep 0.02
-  done
+  acquire_lock "$nudge_lock"
 
   already_nudged=0
   [ -e "$nudge_state" ] && already_nudged=1
@@ -138,26 +153,7 @@ fi
 state="${TMPDIR:-/tmp}/claude-1337-read-cap-$session_id"
 lock="$state.lock"
 
-held=0
-spin=0
-while [ "$spin" -lt 50 ]; do
-  if mkdir "$lock" 2>/dev/null; then
-    held=1
-    trap 'rm -rf "$lock" 2>/dev/null' EXIT
-    printf '%s\n' "${EPOCHSECONDS:-$(date +%s)}" > "$lock/ts" 2>/dev/null
-    break
-  fi
-  spin=$((spin + 1))
-  stamp=$(cat "$lock/ts" 2>/dev/null)
-  case "$stamp" in
-    # No stamp after half a second: a leftover directory, not a live holder.
-    ''|*[!0-9]*) [ "$spin" -ge 25 ] && rm -rf "$lock" 2>/dev/null ;;
-    # A holder that died mid-section leaves its stamp behind; 5 seconds is far
-    # more than the section costs.
-    *) [ "$(( ${EPOCHSECONDS:-$(date +%s)} - stamp ))" -ge 5 ] && rm -rf "$lock" 2>/dev/null ;;
-  esac
-  sleep 0.02
-done
+acquire_lock "$lock"
 
 printf '%s %s\n' "$turn_key" "$kind" >> "$state" 2>/dev/null || exit 0
 
