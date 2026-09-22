@@ -10,6 +10,8 @@ work when the plugin is installed and used in any folder, not only this one.
 - `.claude-plugin/marketplace.json`: makes this repo the `1337-claude` marketplace,
   so the plugin installs as `1337@1337-claude`.
 - `skills/<name>/SKILL.md`: one folder per skill.
+- `skills/visual/`: the visual routing set (`SKILL.md`, `setup-key.py`,
+  `catalogue.py`, `route.py`, `generate.py`), each described below.
 - `lib/keys.py` + `lib/jev.py`: stdlib-only helper every script that talks
   to Jev imports (`sys.path.insert(0, <plugin root>)`, then `from lib import
   keys, jev`). `keys.get(NAME)` reads the environment, then

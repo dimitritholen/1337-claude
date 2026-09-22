@@ -49,8 +49,9 @@ tiers in the plan and cite the confidence in the Escalation line. Send only
 titles and briefs, never file contents: the router needs the shape of the
 work, not the code.
 
-A non-zero exit means no routing happened: 3 is a missing key, 4 a failed
-call, and stderr says which. Size the steps by hand with the Tiers above and
+A non-zero exit means no routing happened: 3 is a missing key (offer
+`/1337:visual setup` once, which stores it for good), 4 a failed call, and
+stderr says which. Size the steps by hand with the Tiers above and
 say in one line that Jev was not used and why. Never retry in a loop.
 
 # Output

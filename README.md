@@ -77,6 +77,36 @@ claude --plugin-dir ~/projects/1337-claude
   tasqx tasks when the tasqx MCP tools are present, else as
   `plans/<slug>.md`. Writes the plan only, never code.
 
+- `/1337:visual` — makes image, SVG, video and speech files through an
+  OpenRouter model; see below. `/1337:visual setup` stores the key once.
+
+## Visual work through OpenRouter
+
+Ask for a logo, an SVG illustration, a short clip or a voice-over and a
+UserPromptSubmit hook steps in before Claude starts drawing ASCII. It asks
+Jev, TypeSafe's decision model, what the prompt wants (text or code, raster
+image, vector SVG, video, speech), pulls OpenRouter's live model list for
+that kind, has Jev rank the six cheapest, and injects one instruction:
+ask with `AskUserQuestion` first. Jev's pick comes first marked Recommended,
+then cheap to expensive, a price in every label, and "Stay with Claude"
+last. On a choice, `skills/visual/generate.py` makes the file (Recraft
+vector models return a real SVG), writes it to the path named in the
+prompt or to `assets/<slug>.<ext>` without ever overwriting, and prints the
+path and the real cost.
+
+One key serves everything, stored once:
+
+```bash
+python3 skills/visual/setup-key.py    # or /1337:visual setup in a session
+```
+
+OAuth PKCE in the browser, a paste page when the callback cannot reach the
+machine, `--tty` for a hidden prompt. The key lands in
+`~/.config/1337/credentials` (0600); `OPENROUTER_API_KEY` in the environment
+wins over it. The hook costs one Jev decision per candidate prompt (about a
+hundredth of a cent) and stays silent on a coding prompt, on low
+confidence, on any failure, and with `CLAUDE_1337_VISUAL=0`.
+
 The rules reach the workers too: a SubagentStart hook injects a compact
 digest (minimum-work ladder, assumptions discipline, tight replies) into
 every spawned subagent. `CLAUDE_1337_SUBAGENT_MATCHER` scopes it by agent
@@ -159,7 +189,14 @@ tests/terse-governor.test.sh
 tests/subagent-rules.test.sh
 tests/rule-copies.test.sh
 tests/tier-route.test.sh
+tests/lib.test.sh
+tests/setup-key.test.sh
+tests/catalogue.test.sh
+tests/visual-route.test.sh
+tests/generate.test.sh
 ```
+
+All of them run against local stand-ins: no key, no network, no browser.
 
 The session rules (evaluate, assumptions, proactive teammate) are checked by an
 eval suite in `evals/`, run with and without the plugin so each case shows
