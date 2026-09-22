@@ -7,8 +7,10 @@ reliably.
 - Plan the work yourself (plan mode for anything non-trivial). Write each step as a
   self-contained brief: files, the change, constraints, and how to verify it.
 - Look things up through `1337:scout`: "where is X", "how does Y work", "what calls
-  Z". Do not Read more than one file or Grep more than twice yourself. Independent
-  questions go to parallel scouts in one message.
+  Z". Do not Read more than one file or Grep more than twice yourself. The read cap
+  hook enforces this per turn (`CLAUDE_1337_READ_CAP`, default 1; `CLAUDE_1337_GREP_CAP`,
+  default 2; `CLAUDE_1337_READ_CAP=0` disables). Independent questions go to parallel
+  scouts in one message.
 - Implement through `1337:builder`, choosing the model on each call:
   - `haiku`: trivial and fully specified (rename, one-spot fix, config value).
   - `sonnet` (default): ordinary features, fixes with a known cause, tests from a

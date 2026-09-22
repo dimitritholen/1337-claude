@@ -83,6 +83,10 @@ work when the plugin is installed and used in any folder, not only this one.
   scripts piped into an interpreter refused past `CLAUDE_1337_INLINE_LINES`
   lines (default 20).
   Test: `tests/orchestrator-guard.test.sh`.
+- `hooks/read-cap.sh`: PreToolUse hook, orchestrator mode only, capping the
+  main session to 1 Read (`CLAUDE_1337_READ_CAP`) and 2 Grep/Glob calls
+  (`CLAUDE_1337_GREP_CAP`) per user turn, past which it refuses and points to
+  `1337:scout`; subagent calls are never capped. Test: `tests/read-cap.test.sh`.
 - Tiered mode, opt-in via the `tiered` option in `plugin.json` `userConfig`
   (or `CLAUDE_1337_TIERED=1`): `hooks/tiered-rules.sh` prints
   `hooks/tiered.md` at SessionStart, with `${CLAUDE_PLUGIN_ROOT}` replaced
