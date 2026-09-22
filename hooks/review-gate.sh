@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+# PreToolUse hook for Bash|Agent|Task, active only in orchestrator mode
+# (plugin option `orchestrator`, or CLAUDE_1337_ORCHESTRATOR=1 /
+# EVAL_CLAUDE_1337_ORCHESTRATOR=1 for eval cases — same three switches
+# hooks/route-guard.sh and hooks/read-cap.sh check). Enforces, instead of
+# leaving to prose, that the orchestrator actually reads a builder's diff and
+# runs `/1337:review` on it before committing or dispatching the next
+# builder.
+#
+# THE RULE, decided from the session transcript (JSONL, at .transcript_path):
+# after the last `1337:builder` dispatch, BOTH signals below are required
+# before the orchestrator may run `git commit` (COMMIT GATE) or dispatch
+# another `1337:builder` (DISPATCH GATE; every other subagent_type always
+# passes untouched). Either signal alone is not enough.
+#
+# THE TWO SIGNALS:
+#   - a Bash call actually running `git diff`;
+#   - a `/1337:review` invocation, either a Skill tool_use with
+#     input.skill == "1337:review", or a user message carrying the literal
+#     "<command-name>/1337:review</command-name>" tag the CLI emits for the
+#     typed slash command.
+#
+# THE RETRY EXEMPTION (dispatch gate only): if a 1337:checker dispatch
+# appears after the previous builder's dispatch and that checker's result
+# opens with the verdict token `FAIL` alone on its first line (the contract
+# agents/checker.md documents), the next 1337:builder dispatch is the
+# sanctioned retry one tier up and passes even with neither diff nor review
+# seen — without this the gate deadlocks the exact path where work is
+# already going wrong.
+#
+# SIZE CARVE-OUT: the hook measures the change itself instead of trusting
+# what got dispatched — `git diff --numstat HEAD` (covers staged and
+# unstaged together) summed added+removed. At or under
+# CLAUDE_1337_REVIEW_MIN_LINES (default 20) both refusals are skipped: a
+# one-line fix must not need a review pass.
+#
+# ESCAPES: CLAUDE_1337_REVIEW_GATE=off disables the whole hook. A nested
+# call made by a subagent (payload carries agent_id) always passes — the
+# main session is the orchestrator here, a subagent is not. A
+# missing/unreadable transcript, or not being inside a git repository, fails
+# open silently — this step cannot tell "nothing to review" from "cannot
+# see the evidence". No 1337:builder dispatch yet this session means
+# nothing to review yet, so both gates allow.
+#
+# Exit 2 + stderr refuses; exit 0 allows.
+set -u
+
+[ "${CLAUDE_PLUGIN_OPTION_ORCHESTRATOR:-false}" = "true" ] || [ "${CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] || [ "${EVAL_CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] || exit 0
+
+# `off` (any case) disables this hook entirely.
+gate_lc=$(printf '%s' "${CLAUDE_1337_REVIEW_GATE:-}" | tr '[:upper:]' '[:lower:]')
+[ "$gate_lc" != "off" ] || exit 0
+
+command -v jq >/dev/null 2>&1 || exit 0
+
+payload="$(cat)"
+
+# A nested call made by a subagent, not the main session, always passes:
+# the main session is the orchestrator here, a subagent is not.
+agent_id=$(printf '%s' "$payload" | jq -r '.agent_id // empty' 2>/dev/null) || exit 0
+[ -n "$agent_id" ] && exit 0
+
+tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null) || exit 0
+
+case "$tool" in
+  Bash)
+    # Cheap fast path: only a command actually running `git commit`
+    # triggers this gate at all; every other Bash call is free of this hook.
+    bash_cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
+    is_commit=$(printf '%s' "$bash_cmd" | jq -Rr 'test("(^|[;&|\\s])git\\s+commit(\\s|$)")' 2>/dev/null) || exit 0
+    [ "$is_commit" = "true" ] || exit 0
+    gate="commit"
+    ;;
+  Agent|Task)
+    # Cheap fast path: only a 1337:builder dispatch triggers this gate;
+    # every other subagent_type is free of it.
+    subagent_type=$(printf '%s' "$payload" | jq -r '.tool_input.subagent_type // empty' 2>/dev/null) || exit 0
+    [ "$subagent_type" = "1337:builder" ] || exit 0
+    gate="dispatch"
+    ;;
+  *) exit 0 ;;
+esac
+
+# Not being in a git repository fails open silently: nothing to gate.
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+
+transcript=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null) || exit 0
+[ -n "$transcript" ] && [ -f "$transcript" ] && [ -r "$transcript" ] || exit 0
+
+# SIZE CARVE-OUT: measure the change itself. `git diff --numstat HEAD`
+# already reflects the full working tree (staged and unstaged) against
+# HEAD; non-numeric columns (binary files show `-`) are skipped rather than
+# counted.
+min_lines="${CLAUDE_1337_REVIEW_MIN_LINES:-20}"
+case "$min_lines" in ''|*[!0-9]*) min_lines=20 ;; esac
+diff_lines=$(git diff --numstat HEAD -- 2>/dev/null | awk '
+  { if ($1 ~ /^[0-9]+$/) sum += $1; if ($2 ~ /^[0-9]+$/) sum += $2 }
+  END { print sum + 0 }
+')
+case "$diff_lines" in ''|*[!0-9]*) diff_lines=0 ;; esac
+[ "$diff_lines" -le "$min_lines" ] && exit 0
+
+BUILDER_MARK='"subagent_type":"1337:builder"'
+builder_ln=$(grep -n -F -- "$BUILDER_MARK" "$transcript" 2>/dev/null | tail -1 | cut -d: -f1)
+
+# No 1337:builder dispatch yet this session: nothing to review.
+[ -n "$builder_ln" ] || exit 0
+
+# Scan everything after the anchor line once: the diff signal, the review
+# invocation (either form), and whether a 1337:checker dispatch after the
+# anchor reported FAIL (the retry exemption). Bounded tail, never the whole
+# transcript — mirrors hooks/route-guard.sh's streaming idiom.
+scan=$(tail -n "+$((builder_ln + 1))" "$transcript" 2>/dev/null | jq -R 'fromjson? // empty' 2>/dev/null | jq -cs '
+  def texts_of(c):
+    if (c|type) == "array" then ([c[]? | select(.type == "text") | .text] | join("\n"))
+    elif (c|type) == "string" then c
+    else "" end;
+  # The checker verdict token: the first non-empty line, trimmed, must be
+  # exactly FAIL for the retry exemption to fire (agents/checker.md).
+  def verdict_line(t):
+    (t | split("\n") | map(gsub("^[ \t]+|[ \t]+$"; "")) | map(select(length > 0)) | (.[0] // ""));
+  [ .[] |
+    if .type == "assistant" then
+      ((.message.content? // [])[]? | select(.type == "tool_use")
+        | {kind:"use", id:(.id // ""), name:(.name // ""),
+           subagent_type:(.input.subagent_type // ""),
+           command:(.input.command // ""),
+           skill:(.input.skill // "")})
+    elif .type == "user" then
+      (.message.content?) as $c
+      | (
+          (if ($c|type) == "array" then
+             ($c[]? | select(.type == "tool_result")
+               | {kind:"result", tool_use_id:(.tool_use_id // ""), text:texts_of(.content)})
+           else empty end),
+          {kind:"usertext", text: texts_of($c)}
+        )
+    else empty end
+  ] as $events
+  | ($events | any(.kind == "use" and .name == "Bash"
+      and (.command | test("(^|[;&|\\s])git\\s+diff(\\s|$)")))) as $diffed
+  | ($events | any(.kind == "use" and .name == "Skill" and .skill == "1337:review")) as $skillreview
+  | ($events | any(.kind == "usertext"
+      and (.text | contains("<command-name>/1337:review</command-name>")))) as $slashreview
+  | ([$events[] | select(.kind == "use" and (.name == "Agent" or .name == "Task")
+      and .subagent_type == "1337:checker") | .id]) as $checker_ids
+  | ($events | any(.kind == "result"
+      and (.tool_use_id as $t | ($checker_ids | index($t)) != null)
+      and (verdict_line(.text) == "FAIL"))) as $checker_fail
+  | {diffed:$diffed, review:($skillreview or $slashreview), checker_fail:$checker_fail}
+' 2>/dev/null) || exit 0
+[ -n "$scan" ] || exit 0
+
+diffed=$(printf '%s' "$scan" | jq -r '.diffed' 2>/dev/null)
+reviewed=$(printf '%s' "$scan" | jq -r '.review' 2>/dev/null)
+checker_fail=$(printf '%s' "$scan" | jq -r '.checker_fail' 2>/dev/null)
+
+if [ "$diffed" = "true" ] && [ "$reviewed" = "true" ]; then
+  exit 0
+fi
+
+if [ "$gate" = "dispatch" ] && [ "$checker_fail" = "true" ]; then
+  exit 0
+fi
+
+# Name what is actually missing rather than claiming neither signal ran
+# when one of the two did.
+if [ "$diffed" != "true" ] && [ "$reviewed" != "true" ]; then
+  missing='neither `git diff` nor `/1337:review` have run since'
+elif [ "$diffed" != "true" ]; then
+  missing='`git diff` has not run since'
+else
+  missing='`/1337:review` has not run since'
+fi
+
+if [ "$gate" = "commit" ]; then
+  lead="a 1337:builder dispatch finished and $missing."
+  action="committing"
+else
+  lead="the previous 1337:builder dispatch is unreviewed — $missing, and no 1337:checker failure sanctions this as a retry."
+  action="dispatching another builder"
+fi
+printf 'blocked (1337 orchestrator mode): %s Read the diff with `git diff`, then run `/1337:review`, then approve or send the deltas back before %s. CLAUDE_1337_REVIEW_GATE=off disables.\n' "$lead" "$action" >&2
+exit 2

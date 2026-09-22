@@ -84,6 +84,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash|Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/review-gate.sh\"",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
