@@ -65,6 +65,32 @@ check 0 "bash stderr to stdout only" \
   '{"tool_name":"Bash","tool_input":{"command":"make test 2>&1 | tail -5"}}'
 check 0 "bash redirect to stderr" \
   '{"tool_name":"Bash","tool_input":{"command":"echo warn >&2"}}'
+check 2 "bash heredoc writes a script under /tmp" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cat > /tmp/x.py <<'EOF'\nprint(1)\nEOF\"}}"
+check 0 "bash heredoc writes data under /tmp" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cat > /tmp/data.json <<'EOF'\n{}\nEOF\"}}"
+check 2 "bash heredoc writes a script under a variable temp path" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"S=/tmp/claude-1000/scratch; cat > \$S/knock.py <<'EOF'\nprint(1)\nEOF\"}}"
+check 2 "bash tee writes a script under /tmp" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"tee /tmp/run.sh <<'EOF'\necho hi\nEOF\"}}"
+check 0 "bash heredoc to stdin under /tmp, no script file" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 - <<'EOF'\nprint(1)\nEOF\"}}"
+check 0 "bash redirect writes data under /tmp" \
+  '{"tool_name":"Bash","tool_input":{"command":"printf x > /tmp/out.txt"}}'
+check 2 "bash sed -i with an expression before the script file" \
+  '{"tool_name":"Bash","tool_input":{"command":"sed -i s/a/b/ /tmp/fix.sh"}}'
+check 2 "bash sed -i.bak -e before the script file" \
+  '{"tool_name":"Bash","tool_input":{"command":"sed -i.bak -e s/a/b/ /tmp/fix.sh"}}'
+check 0 "bash sed -i on a data file under /tmp" \
+  '{"tool_name":"Bash","tool_input":{"command":"sed -i s/a/b/ /tmp/notes.txt"}}'
+check 2 "bash heredoc writes a quoted script path" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"S=/tmp/claude-1000/scratch; cat > \\\"\$S/x.py\\\" <<'EOF'\nprint(1)\nEOF\"}}"
+check 2 "bash tee writes a quoted script path" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"tee '/tmp/run.sh' <<'EOF'\necho hi\nEOF\"}}"
+check 2 "bash sed -i on a quoted script path" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"sed -i 's/a/b/' \\\"/tmp/fix.sh\\\"\"}}"
+check 0 "bash heredoc writes a quoted data path under /tmp" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cat > \\\"/tmp/data.json\\\" <<'EOF'\n{}\nEOF\"}}"
 "$HOOK" --rules | grep -q '^# Orchestrator mode' && echo "ok   mode on: rules printed" || { echo "FAIL mode on: rules missing"; fail=1; }
 
 unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR

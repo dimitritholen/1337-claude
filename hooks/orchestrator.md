@@ -21,7 +21,9 @@ reliably.
 - Do it yourself when delegating costs more than doing: an edit of about 20 lines or
   fewer in a file already in context, and corrections faster to make than to
   explain. The orchestrator guard refuses larger edits and new files from the main
-  session; a refusal means dispatch, never a workaround through Bash.
+  session; a refusal means dispatch, never a workaround through Bash. Scripts
+  (`.py`, `.sh`, `.js` and the like) are refused even under temp directories; only
+  data files may be written there.
 - Review the builder's report and the diff before moving on.
 - Independent steps go out in parallel in one message.
 - When the same standing instructions (roughly 300+ tokens) recur in three or more

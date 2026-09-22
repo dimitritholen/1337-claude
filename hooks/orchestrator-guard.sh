@@ -44,10 +44,21 @@ case "$tool" in
   Bash)
     bash_cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
     [ -n "$bash_cmd" ] || exit 0
+    clean=$(printf '%s\n' "$bash_cmd" | sed -e 's#[0-9]*&\?>[[:space:]]*/dev/null##g' -e 's#[0-9]*>&1##g')
+    # Code files are builder work regardless of directory: refuse them even
+    # under the temp-dir exemption below. Data files under temp stay allowed.
+    code_ext='py|sh|bash|js|mjs|cjs|ts|rb|go|rs|php|pl|lua|html|htm|css'
+    # The target may be quoted ("f.py", 'f.py'); sed takes its expression
+    # between the -i flag and the file, so skip anything up to the last token.
+    if printf '%s\n' "$clean" | grep -qiE "(^|[[:space:];&(])[0-9]*>+[[:space:]]*[\"']?[^[:space:];&|<>]+\\.($code_ext)[\"']?([[:space:];&|]|\$)" \
+      || printf '%s\n' "$clean" | grep -qiE "(^|[[:space:];&(])tee([[:space:]]+-[A-Za-z]+)*[[:space:]]+[\"']?[^[:space:];&|<>]+\\.($code_ext)[\"']?([[:space:];&|]|\$)" \
+      || printf '%s\n' "$clean" | grep -qiE "sed[[:space:]]+([^;&|]*[[:space:]])?-[A-Za-z]*i[^;&|]*[[:space:]][\"']?[^[:space:];&|<>]+\\.($code_ext)[\"']?([[:space:];&|]|\$)"; then
+      printf 'blocked (1337 orchestrator mode): Bash command writes a code file (%.80s). Scripts are builder work even under temp directories; dispatch it to 1337:builder with a self-contained brief.\n' "$bash_cmd" >&2
+      exit 2
+    fi
     case "$bash_cmd" in
       *"/tmp/"*|*"/private/tmp/"*|*"/var/folders/"*|*".claude/"*) exit 0 ;;
     esac
-    clean=$(printf '%s\n' "$bash_cmd" | sed -e 's#[0-9]*&\?>[[:space:]]*/dev/null##g' -e 's#[0-9]*>&1##g')
     if printf '%s\n' "$clean" | grep -qE '(^|[[:space:];&(])tee([[:space:]]|$)|sed[[:space:]]+(-[a-zA-Z]+ )*-i|(^|[[:space:];&(])[0-9]*>+[[:space:]]*[^&>[:space:]]'; then
       printf 'blocked (1337 orchestrator mode): Bash command writes files (%.80s). Dispatch it to 1337:builder with a self-contained brief; the main session may only write under ~/.claude and temp directories.\n' "$bash_cmd" >&2
       exit 2
