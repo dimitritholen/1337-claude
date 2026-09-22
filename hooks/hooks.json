@@ -1,5 +1,5 @@
 {
-  "description": "Injects the 1337 rules at session start; enforces reply budgets after each turn; offers a /1337:review pass once when the session diff gets big; in orchestrator mode also the routing rules and the main-session edit guard",
+  "description": "Injects the 1337 rules at session start; enforces reply budgets after each turn; offers a /1337:review pass once when the session diff gets big; in orchestrator mode also the routing rules and the main-session edit guard; routes prompts that ask for an image, SVG, video or speech file to an OpenRouter model chosen through Jev",
   "hooks": {
     "SessionStart": [
       {
@@ -52,6 +52,17 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/orchestrator-guard.sh\"",
             "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v python3 >/dev/null 2>&1 || exit 0; python3 \"${CLAUDE_PLUGIN_ROOT}/skills/visual/route.py\"",
+            "timeout": 10
           }
         ]
       }

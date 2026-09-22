@@ -25,6 +25,14 @@ work when the plugin is installed and used in any folder, not only this one.
   `--tty` for a hidden prompt; checks the key at `/api/v1/key`, stores it
   through `lib/keys.set`, never prints it. Test: `tests/setup-key.test.sh`
   (stand-in OpenRouter, no browser).
+- `skills/visual/route.py`: UserPromptSubmit hook (wired in
+  `hooks/hooks.json`, 10-second timeout). Silent unless the prompt hits a
+  word prefilter and an OpenRouter key is stored; then one Jev Choice for
+  the modality, one over the six cheapest catalogue models, and
+  additionalContext telling Claude to ask with AskUserQuestion (Jev's pick
+  first and Recommended, prices in every label, stay-with-Claude last) and
+  run generate.py. `CLAUDE_1337_VISUAL=0` disables. Test:
+  `tests/visual-route.test.sh` (stand-in Jev and catalogue).
 - `skills/visual/catalogue.py`: `models(modality)` lists OpenRouter's
   generation models for `raster_image`, `vector_svg`, `video` or `speech`
   with one price and unit each (image token, second or video token,
