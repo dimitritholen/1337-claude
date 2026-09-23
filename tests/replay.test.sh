@@ -21,14 +21,14 @@ check() { # description condition (already evaluated, 0/1)
 printf '%s\n' "$out" | grep -q '^line	tool	first	verdict	recorded	next$'
 check "TSV header present" $?
 
-printf '%s\n' "$out" | grep -qF 'allowed 8'
-check "summary: allowed 8" $?
+printf '%s\n' "$out" | grep -qF 'allowed 10'
+check "summary: allowed 10" $?
 
-printf '%s\n' "$out" | grep -qF 'refused 6'
-check "summary: refused 6" $?
+printf '%s\n' "$out" | grep -qF 'refused 4'
+check "summary: refused 4" $?
 
-printf '%s\n' "$out" | grep -qF 'then-refused-now-allowed 0'
-check "summary: then-refused-now-allowed 0" $?
+printf '%s\n' "$out" | grep -qF 'then-refused-now-allowed 2'
+check "summary: then-refused-now-allowed 2" $?
 
 printf '%s\n' "$out" | grep -qF 'then-allowed-now-refused 2'
 check "summary: then-allowed-now-refused 2" $?
@@ -37,17 +37,15 @@ check "summary: then-allowed-now-refused 2" $?
 printf '%s\n' "$out" | grep -qP '^2\tBash\tsed\trefused\trefused\tEdit$'
 check "sed-i row: still refused, matches the recorded refusal" $?
 
-# The two git-commit-heredoc rows: orchestrator-guard.sh's tonight-fixed
-# write check no longer trips on their heredoc body, but read-cap.sh's
-# default-0 read cap independently catches the trailing `| head -1` /
-# `| tail -2` pipeline stage (head/tail always count, piped or not — see
-# hooks/read-cap.sh's bash_is_read), so the combined verdict for these rows
-# stays refused rather than flipping to allowed. That is the actual finding
-# this replay surfaces, not the naive "now allowed" guess.
-printf '%s\n' "$out" | grep -qP '^10\tBash\tgit\trefused\trefused\tBash$'
-check "first git-commit row: still refused (read-cap catches the tail pipe)" $?
-printf '%s\n' "$out" | grep -qP '^12\tBash\tgit\trefused\trefused\tEdit$'
-check "second git-commit row: still refused (read-cap catches the tail pipe)" $?
+# The two git-commit-heredoc rows: orchestrator-guard.sh's write check passes
+# (heredoc is data, not a code file write), and read-cap.sh's fixed bash_is_read
+# now correctly recognizes that `| tail -2` and `| head -1` have no file
+# operands (no nonflag operands after skipping flags with arguments), so they
+# do not count as reads. These rows flip from recorded-refused to now-allowed.
+printf '%s\n' "$out" | grep -qP '^10\tBash\tgit\tallowed\trefused\tBash$'
+check "first git-commit row: now allowed (pipe filter has no file operand)" $?
+printf '%s\n' "$out" | grep -qP '^12\tBash\tgit\tallowed\trefused\tEdit$'
+check "second git-commit row: now allowed (pipe filter has no file operand)" $?
 
 # The edit-cap refusal (edit #4 past the default cap of 3) stays refused.
 printf '%s\n' "$out" | grep -qP '^14\tEdit\tplugin\.json\trefused\trefused\tBash$'

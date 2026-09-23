@@ -416,5 +416,42 @@ else
   printf 'FAIL gap 682: cat *.rs counts as a read, not glob-expanded against the hook cwd (exit %s; stderr: %s)\n' "$got" "$out"; fail=1; fail_count=$((fail_count + 1))
 fi
 
+# --- tasqx #693: plain file readers (cat, head, tail, etc.) count only when
+# they have file operands; piped stages with no file operand of their own
+# (e.g. `git log | tail -2`) do not count as reads.
+
+# A plain file reader with no file operand is not a read.
+CLAUDE_1337_READ_CAP=0 check 0 "git log | tail -2 (no file operand) allowed" "$(bashcall "$sid" p45 'git log | tail -2')"
+CLAUDE_1337_READ_CAP=0 check 0 "echo x | head -n 5 (no file operand) allowed" "$(bashcall "$sid" p46 'echo x | head -n 5')"
+
+# A plain file reader with a file operand is a read.
+CLAUDE_1337_READ_CAP=0 check 2 "tail -2 src/x.py (has file operand) refused" "$(bashcall "$sid" p47 'tail -2 src/x.py')"
+CLAUDE_1337_READ_CAP=0 check 2 "head -n 5 src/x.py (has file operand) refused" "$(bashcall "$sid" p48 'head -n 5 src/x.py')"
+CLAUDE_1337_READ_CAP=0 check 2 "cat src/x.py (has file operand) refused" "$(bashcall "$sid" p49 'cat src/x.py')"
+
+# A bare plain reader reading stdin only is not a read.
+CLAUDE_1337_READ_CAP=0 check 0 "bare cat (stdin only) allowed" "$(bashcall "$sid" p50 'cat')"
+
+# --- tasqx #693 (review): boolean flags like -s, -q don't take arguments,
+# so they shouldn't skip the next token which may be the file operand.
+
+# Boolean flags like -s (squeeze), -q (quiet) don't take arguments; the next token is still the file.
+CLAUDE_1337_READ_CAP=0 check 2 "cat -s src/x.py (file operand after boolean flag) refused" "$(bashcall "$sid" p51 'cat -s src/x.py')"
+CLAUDE_1337_READ_CAP=0 check 2 "tail -q src/x.py (file operand after boolean flag) refused" "$(bashcall "$sid" p52 'tail -q src/x.py')"
+
+# Long-form flags like --lines N take arguments; the next token is skipped.
+CLAUDE_1337_READ_CAP=0 check 2 "head --lines 3 src/x.py (file operand after flag with arg) refused" "$(bashcall "$sid" p53 'head --lines 3 src/x.py')"
+
+# Piped long-form flags with no file operand are not reads.
+CLAUDE_1337_READ_CAP=0 check 0 "git log | head --lines 3 (no file operand, piped) allowed" "$(bashcall "$sid" p54 'git log | head --lines 3')"
+
+# --- tasqx #693 (review, second pass): -n and -c mean different things for different readers.
+# For cat, -n means "number lines" (flag, no argument); for od, -c means "character format" (flag, no argument).
+# Only head/tail have -n/-c as "count" flags that take arguments.
+
+# For other readers, -n and -c are boolean flags that don't take arguments.
+CLAUDE_1337_READ_CAP=0 check 2 "cat -n src/x.py (-n as number-lines flag, file follows) refused" "$(bashcall "$sid" p55 'cat -n src/x.py')"
+CLAUDE_1337_READ_CAP=0 check 2 "od -c src/x.py (-c as character-format flag, file follows) refused" "$(bashcall "$sid" p56 'od -c src/x.py')"
+
 printf 'summary: %d ok, %d FAIL, %d todo\n' "$ok_count" "$fail_count" "$todo_count"
 exit $fail

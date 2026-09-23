@@ -106,8 +106,69 @@ bash_is_read() {
     first="${1:-}"
     second="${2:-}"
     case "$first" in
-      cat|head|tail|less|more|nl|od|xxd|strings|rg|ag|ack) return 0 ;;
-      sed) [ "$second" = "-n" ] && return 0 ;;
+      head|tail)
+        # head and tail: -n/-c/--lines/--bytes take separate arguments.
+        # For head/tail, `-n 5` means "5 lines", `-c 100` means "100 bytes".
+        shift
+        nonflag=0
+        skip_next=0
+        for arg in "$@"; do
+          if [ "$skip_next" -eq 1 ]; then
+            skip_next=0
+            continue
+          fi
+          case "$arg" in
+            -[nc]|-[nc]*[0-9]|--lines|--bytes)
+              # Flags that take separate arguments for head/tail.
+              # If attached (-n5), it's already a single token (skip it as flag).
+              # If separate (-n 5 or --lines 5), skip the flag and mark to skip the next token.
+              # --lines=N and --bytes=N are single tokens, not two.
+              case "$arg" in
+                -[nc]|--lines|--bytes) skip_next=1 ;;
+              esac
+              ;;
+            -*)
+              # Other flags: skip them
+              ;;
+            *)
+              # Non-flag operand: count it as a potential file
+              nonflag=$((nonflag + 1))
+              ;;
+          esac
+        done
+        [ "$nonflag" -ge 1 ] && return 0
+        ;;
+      cat|less|more|nl|od|xxd|strings)
+        # For these readers, all flags are boolean (no separate arguments).
+        # cat -n (number lines), od -c (character format), etc. are flags with no args.
+        # Safe to over-count by treating all tokens that don't start with - as files.
+        shift
+        nonflag=0
+        for arg in "$@"; do
+          case "$arg" in
+            -*)
+              # All flags: skip them (they don't take arguments)
+              ;;
+            *)
+              # Non-flag operand: count it as a potential file
+              nonflag=$((nonflag + 1))
+              ;;
+          esac
+        done
+        [ "$nonflag" -ge 1 ] && return 0
+        ;;
+      rg|ag|ack) return 0 ;;
+      sed)
+        shift
+        nonflag=0
+        for arg in "$@"; do
+          case "$arg" in
+            -*) ;;
+            *) nonflag=$((nonflag + 1)) ;;
+          esac
+        done
+        [ "$nonflag" -ge 2 ] && return 0
+        ;;
       grep|egrep|fgrep|awk|jq)
         shift
         nonflag=0
