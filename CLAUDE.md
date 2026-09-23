@@ -262,6 +262,9 @@ work when the plugin is installed and used in any folder, not only this one.
   hooks, agents, skills, commands and the installed plugin under
   `~/.claude/plugins` stay off-limits) and temp dirs, with code files refused
   even under temp dirs (Write too). jq missing refuses.
+  A relative target is resolved against a preceding literal `cd`/`pushd` only
+  while every operator since it is `&&` (a failed `cd` after `;` or `||` would
+  leave the shell in the repo) (#726).
   It also refuses Bash that dumps a file's contents
   (`cat`, `head`, `sed -n`, a pathless `rg` or `grep -r`, `cp`/`mv` out of
   the tree, an inline interpreter opening a file, and, inside the git
@@ -338,12 +341,14 @@ work when the plugin is installed and used in any folder, not only this one.
   own), fields separated by `\037`: segment id, piped flag, the index of
   the command word after the `VAR=val`, command/builtin/exec/env and
   keyword prefixes, a `command -v` lookup flag, the assignment indices,
-  the words (quotes removed) and the redirects with their targets; plus
-  `B` heredoc bodies and `X` constructs it does not judge. Quoted text and
-  heredoc bodies are data. `tok_parse` splits one `S` record into
-  `tok_*` variables; `tok_input_redirects` (on top of the current `tok_parse`
-  state) sets `tok_inputs` to a command-less segment's `<` targets (fd
-  digits stripped, `/dev/null`/`/dev/stdin` dropped) — the `$(< file)`
+  the words (quotes removed) and the redirects with their targets, and the
+  operator that ended the segment (`tok_sep`: `&&`, `||`, `;`, `|`, `&`, `nl`,
+  a paren, or empty) and its nesting depth inside groups and substitutions
+  (`tok_depth`); plus `B` heredoc bodies and `X` constructs it does not judge.
+  Quoted text and heredoc bodies are data. `tok_parse` splits one `S` record
+  into `tok_*` variables; `tok_input_redirects` (on top of the current
+  `tok_parse` state) sets `tok_inputs` to a command-less segment's `<` targets
+  (fd digits stripped, `/dev/null`/`/dev/stdin` dropped) — the `$(< file)`
   shape neither hook's own reader dispatch sees, since there is no command
   word to switch on; each hook still applies its own path policy on top
   (`hooks/orchestrator-guard.sh` exempts a scratch operand, `hooks/read-cap.sh`

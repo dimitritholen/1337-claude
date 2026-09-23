@@ -387,8 +387,36 @@ case "$tool" in
       fi
     done
 
+    # Lexically collapses . and .. in an absolute path (no filesystem
+    # access): the one normaliser both the cd/pushd tracker below and
+    # resolve_target's eff_dir join use, so `cd a/x && cd ..` and
+    # `cd a && echo > ../f` land on the same string.
+    normalize_path() { # absolute path
+      local p="$1" part parts=() out=()
+      IFS='/' read -r -a parts <<<"$p"
+      for part in "${parts[@]+"${parts[@]}"}"; do
+        case "$part" in
+          '' | '.') ;;
+          '..') [ "${#out[@]}" -gt 0 ] && out=("${out[@]:0:$((${#out[@]} - 1))}") ;;
+          *) out+=("$part") ;;
+        esac
+      done
+      if [ "${#out[@]}" -eq 0 ]; then printf '/'; else printf '/%s' "${out[@]}"; fi
+    }
+    # The effective directory the segment walk below tracks across cd/pushd:
+    # unknown at the start (a relative target is judged exactly as before,
+    # no cd having been seen), set absolute the moment a plain cd/pushd
+    # names one, unknown again the moment that gets ambiguous or the next
+    # separator is anything but && (see the end of judge_segment).
+    eff_dir=""
+    eff_dir_known=0
+    prev_top_sep=""
+
     # Sets rt: the target with assigned variables, $HOME, ~ and $TMPDIR put
-    # in, as far as they can be.
+    # in, as far as they can be, then joined onto the tracked effective
+    # directory when it is still relative and one is known — the fix for
+    # #726: `cd ~/.claude/projects/x && echo a >> notes.md` must not judge
+    # notes.md against the hook's own cwd.
     resolve_target() { # target
       local t="$1" k v val home_set=0 tmp_set=0
       for k in "${!var_names[@]}"; do
@@ -407,6 +435,12 @@ case "$tool" in
       if [ "$tmp_set" = 0 ]; then
         while [[ $t =~ ^(.*)\$\{TMPDIR(:?[-=][^}]*)?\}(.*)$ ]]; do t="${BASH_REMATCH[1]}/tmp/1337-scratch${BASH_REMATCH[3]}"; done
         while [[ $t =~ ^(.*)\$TMPDIR([^A-Za-z0-9_].*)?$ ]]; do t="${BASH_REMATCH[1]}/tmp/1337-scratch${BASH_REMATCH[2]}"; done
+      fi
+      if [ "$eff_dir_known" = 1 ]; then
+        case "$t" in
+          "" | /* | *"$PH"* | *'$'* | *'`'*) ;;
+          *) t="$(normalize_path "$eff_dir/$t")" ;;
+        esac
       fi
       rt="$t"
     }
@@ -655,10 +689,11 @@ case "$tool" in
     edit_labels=()
     judge_segment() { # record
       local sid piped nw nr k j i t cmd base lookup bad_var=0 reader="" nonflag=0 recursive=0 seg_text op tg
-      local words=() args=() rops=() rtgs=() operands=()
+      local words=() args=() rops=() rtgs=() operands=() sep depth cd_arg new_dir
       cmd_targets=()
       tok_parse "$1"
       sid="$tok_sid"; piped="$tok_piped"; nw="$tok_nw"; nr="$tok_nr"
+      sep="$tok_sep"; depth="$tok_depth"
       words=("${tok_words[@]+"${tok_words[@]}"}")
       rops=("${tok_rops[@]+"${tok_rops[@]}"}")
       rtgs=("${tok_rtgs[@]+"${tok_rtgs[@]}"}")
@@ -883,6 +918,53 @@ case "$tool" in
         esac
       done
       for tg in "${cmd_targets[@]+"${cmd_targets[@]}"}"; do judge_target "$tg"; done
+
+      # 4. Track the effective directory later targets in this command
+      # resolve relative to (#726). This runs after the segment's own
+      # targets are judged, since bash opens a cd's redirects before the cd
+      # runs. Only a plain cd/pushd at top level, not in a pipeline, with
+      # exactly one literal argument, updates it; anything else (no
+      # argument, `cd -`, an argument with $, a backtick or a glob, being
+      # inside a group or substitution, or reading a pipe) makes it
+      # unknown from here on, same as never having seen a cd. It carries to
+      # the next segment only across && (hooks/lib/tokenize.sh's tok_sep):
+      # after ; || | & or a newline the cd may have failed or run in a
+      # subshell, so the shell may still be in the old directory. A
+      # group's closing ) breaks it too, since the operator after the group
+      # ends an empty segment the lexer does not report. A cd reached
+      # through || (`a || cd x && ...` skips it when a succeeds) or negated
+      # with ! (the rest runs only when it failed) is unknown as well.
+      if [ -n "$cmd" ] && [ "$lookup" = 0 ]; then
+        case "$base" in
+          cd | pushd)
+            if [ "$depth" != 0 ] || [ "$piped" = 1 ] || [ "$prev_top_sep" = '||' ] \
+              || [ "${#args[@]}" -ne 1 ] || [[ " ${words[*]:0:$i} " == *" ! "* ]]; then
+              eff_dir_known=0
+            else
+              cd_arg="${args[0]}"; new_dir=""
+              case "$cd_arg" in
+                '-' | *'$'* | *'`'* | *'*'* | *'?'* | *'['* | *"$PH"*) ;;
+                /*) new_dir="$cd_arg" ;;
+                '~') new_dir="${HOME:-}" ;;
+                '~/'*) [ -n "${HOME:-}" ] && new_dir="$HOME/${cd_arg#\~/}" ;;
+                *) [ "$eff_dir_known" = 1 ] && new_dir="$eff_dir/$cd_arg" ;;
+              esac
+              if [ -n "$new_dir" ] && [ "${new_dir:0:1}" = / ]; then
+                eff_dir="$(normalize_path "$new_dir")"
+                eff_dir_known=1
+              else
+                eff_dir_known=0
+              fi
+            fi
+            ;;
+        esac
+      fi
+      if [ "$depth" = 0 ]; then
+        prev_top_sep="$sep"
+        case "$sep" in '&&' | '') ;; *) eff_dir_known=0 ;; esac
+      else
+        [ "$sep" = ')' ] && eff_dir_known=0
+      fi
     }
 
     for rec in "${segs[@]+"${segs[@]}"}"; do

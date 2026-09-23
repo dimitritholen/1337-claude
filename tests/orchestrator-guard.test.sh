@@ -564,6 +564,65 @@ check_err 2 "Bash command writes files" "echo into the tree" "$(bash_payload 'ec
 check_err 2 "Bash command writes files" "tee into the tree" "$(bash_payload 'echo x | tee src/a.txt')"
 check_err 2 "Bash command writes files" "git diff --output into the tree" "$(bash_payload 'git diff --output=src/d.txt')"
 check_err 2 "unexpanded variable" "a variable target that is not a temp path" "$(bash_payload 'S=src; echo x > $S/a.txt')"
+
+# #726: a leading `cd`/`pushd` sets the effective directory a later relative
+# redirect target in the same command resolves against, instead of judging
+# it against the hook's own cwd.
+check 0 "cd into the data allowlist, then a relative append" \
+  "$(bash_payload 'cd ~/.claude/projects/x && echo a >> notes.md')"
+check 0 "cd into the data allowlist by absolute path, then a relative append" \
+  "$(bash_payload "cd $HOME/.claude/projects/x && echo a >> notes.md")"
+check 0 "cd /tmp, then a relative redirect" "$(bash_payload 'cd /tmp && echo a > out.json')"
+check_err 2 "writes a code file" "cd /tmp, then a relative redirect to a code file is still refused" \
+  "$(bash_payload 'cd /tmp && echo a > run.sh')"
+check_err 2 "outside the data allowlist" "cd off the data allowlist under ~/.claude is still refused" \
+  "$(bash_payload 'cd ~/.claude/plugins && echo a > x.json')"
+check_err 2 "Bash command writes files" "cd to an unresolved variable leaves the target judged as today" \
+  "$(bash_payload 'cd "$SOMEVAR" && echo a > f.md')"
+check 0 "cd .. walks back up the tracked directory lexically" \
+  "$(bash_payload 'cd ~/.claude/projects/x && cd .. && echo a > f.md')"
+check_err 2 "Bash command writes files" "a cd inside a ( ) group does not carry to the rest of the command" \
+  "$(bash_payload '(cd /tmp) && echo a > f.md')"
+check_err 2 "Bash command writes files" "no cd at all: a plain relative redirect is unaffected" \
+  "$(bash_payload 'echo a > f.md')"
+# The directory carries only across &&: after ; || | & or a newline the cd
+# may have failed or run in a subshell, so the shell may still be in the repo.
+for c in 'cd /tmp/nope; echo x > README.md' 'cd /tmp || true; echo x > README.md' \
+  'cd /tmp | echo x > README.md' 'cd /tmp & echo x > README.md' 'cd /tmp && true; echo x > README.md' \
+  "$(printf 'cd /tmp\necho x > README.md')" 'true || cd /tmp && echo x > README.md' \
+  '! cd /tmp && echo x > README.md' 'echo | cd /tmp && echo x > README.md' \
+  'cd /tmp && (true) && echo x > README.md' 'cd /tmp > README.md'; do
+  check_err 2 "Bash command writes files" "the cd does not carry: $(printf '%s' "$c" | tr '\n' ' ')" "$(bash_payload "$c")"
+done
+check 0 "an unbroken && chain keeps the cd directory" \
+  "$(bash_payload 'cd /tmp && echo a > a.json && echo b > b.json')"
+check 0 "a substitution inside the chain does not break it" \
+  "$(bash_payload 'cd /tmp && echo $(date) > a.json')"
+
+# hooks/lib/tokenize.sh reports each segment's ending operator (tok_sep) and
+# nesting depth (tok_depth).
+tok_seps() ( # command -> "words:sep:depth" per segment, space separated, a substitution placeholder as @
+  . "$(dirname "$HOOK")/lib/tokenize.sh"
+  out=""
+  while IFS= read -r rec; do
+    case "$rec" in "S$TOK_US"*) ;; *) continue ;; esac
+    tok_parse "$rec"
+    w="${tok_words[*]}"
+    out="$out ${w//$TOK_PH/@}:$tok_sep:$tok_depth"
+  done < <(printf '%s\n' "$1" | tokenize)
+  printf '%s' "${out# }"
+)
+tok_case() { # expected command
+  local got desc
+  got=$(tok_seps "$2"); desc=$(printf '%s' "$2" | tr '\n' ' ')
+  if [ "$got" = "$1" ]; then printf 'ok   tok_sep/tok_depth: %s\n' "$desc"; else printf 'FAIL tok_sep/tok_depth: %s (got %s, want %s)\n' "$desc" "$got" "$1"; fail=1; fi
+}
+tok_case 'a:&&:0 b:||:0 c:;:0 d:|:0 e:&:0 f::0' 'a && b || c; d | e & f'
+tok_case 'a:nl:0 b:|:0 c::0' "$(printf 'a\nb |& c')"
+tok_case 'x:;:1 y::1 z::1 echo @ @::0' 'echo $(x; y) `z`'
+tok_case 'a:(:0 b:&&:1 c:):1 d::0' 'a ( b && c ) && d'
+tok_case 'x::1 cat @::0' 'cat <(x)'
+
 check 0 "a heredoc body naming rm -rf is data for git commit -F -" \
   "$(bash_payload "$(printf "git commit -q -F - <<'EOF'\nclean up: rm -rf build\nEOF")")"
 check 0 "a multi-line quoted commit message is one word" \

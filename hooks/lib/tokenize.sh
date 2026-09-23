@@ -12,7 +12,7 @@
 # Comments (# at the start of a word) are dropped.
 #
 # Records, fields separated by \037 (TOK_US):
-#   S sid piped at lookup na a... nw word... nr op target ... E
+#   S sid piped at lookup na a... nw word... nr op target ... sep depth E
 #     sid     segment id, unique within the command
 #     piped   1 when the segment reads the previous one's stdout (after |)
 #     at      0-based index into word... of the command word, after the
@@ -30,6 +30,13 @@
 #     nr op target ...  the redirects: op as written (> >> < << <<- <<<
 #             &> &>> >& <& <> >|, with a leading fd number such as 2>),
 #             target the word after it (for << and <<-, the heredoc marker)
+#     sep     the operator that ended the segment: && || ; | & (|& is |,
+#             ;; is ;), nl for a newline, ( or ) for a group's parens, and
+#             empty at the end of the command or of a $( ), backtick or
+#             <( ) context. An operator that ends an empty segment (the
+#             `&&` right after a `( )` group's `)`) is not reported anywhere.
+#     depth   0 at top level; one more for each ( ) group, $( ), backtick,
+#             <( ) and >( ) the segment sits inside
 #   B sid body   the heredoc bodies segment sid opened, concatenated
 #   X reason     a construct the lexer does not judge (an unquoted heredoc
 #                body or arithmetic holding a command substitution, a
@@ -38,7 +45,7 @@
 # Newlines and tabs inside a quoted word, and any \037, turn into spaces.
 #
 # tok_parse REC splits one S record into tok_sid, tok_piped, tok_at,
-# tok_lookup, tok_nw, tok_nr and the arrays tok_assigns, tok_words, tok_rops,
+# tok_lookup, tok_nw, tok_nr, tok_sep, tok_depth and the arrays tok_assigns, tok_words, tok_rops,
 # tok_rtgs. Bash 3.2 safe: indexed arrays only, and words come out of `read
 # -a`, never an unquoted expansion, so a glob in a word stays literal.
 # Tests: tests/orchestrator-guard.test.sh, tests/read-cap.test.sh.
@@ -87,7 +94,10 @@ function prefix(c,   i, t, k, n1) {
   }
   pat = (i > n1 ? n1 : i - 1)
 }
-function endseg(c, sep,   k, out) {
+# The nesting depth of stack entry k: the ( ) groups and substitutions
+# (P, S, B) at or below it, the top-level N not counted.
+function dep(k,   j, d) { d = 0; for (j = 1; j <= k; j++) if (st[j] == "P" || st[j] == "S" || st[j] == "B") d++; return d }
+function endseg(c, sep, d,   k, out) {
   flushword(c)
   if (pend[c] != "") { err = "a redirect with no target"; pend[c] = "" }
   if (nw[c] > 0 || nr[c] > 0) {
@@ -98,10 +108,10 @@ function endseg(c, sep,   k, out) {
     for (k = 1; k <= nw[c]; k++) out = out US clean(w[c, k])
     out = out US nr[c]
     for (k = 1; k <= nr[c]; k++) out = out US rop[c, k] US clean(rtg[c, k])
-    print out US "E"
+    print out US sep US d US "E"
   }
   nw[c] = 0; nr[c] = 0; cur[c] = ++SID
-  pip[c] = (sep == "PIPE")
+  pip[c] = (sep == "|")
 }
 # $( ... ), <( ... ), >( ... ): a new command context. $(( )) is arithmetic,
 # not a command, and is skipped whole.
@@ -166,37 +176,37 @@ function lex(   i, c, d, top, C, op, k) {
     if (c == "$" && d == "(") { i = opensub(i, C); continue }
     if ((c == "<" || c == ">") && d == "(") { i = opensub(i, C); continue }
     if (c == "`") {
-      if (top == "B") { endseg(C, "END"); sp--; i++; continue }
+      if (top == "B") { endseg(C, "", dep(sp)); sp--; i++; continue }
       addc(C, PH); sp++; st[sp] = "B"; cx[sp] = newctx(); i++; continue
     }
     if (c == ")") {
-      if (top == "S") { endseg(C, "END"); sp--; i++; continue }
-      endseg(C, "SEQ")
+      if (top == "S") { endseg(C, "", dep(sp)); sp--; i++; continue }
+      endseg(C, ")", dep(sp))
       if (top == "P") sp--
       i++; continue
     }
-    if (c == "(") { endseg(C, "SEQ"); sp++; st[sp] = "P"; cx[sp] = C; i++; continue }
+    if (c == "(") { endseg(C, "(", dep(sp)); sp++; st[sp] = "P"; cx[sp] = C; i++; continue }
     if (c == "#" && !inw[C]) { while (i <= n && substr(s, i, 1) != "\n") i++; continue }
     if (c == "\n") {
       flushword(C)
       if (nh > hdone) i = heredocs(i); else i++
-      endseg(C, "SEQ"); continue
+      endseg(C, "nl", dep(sp)); continue
     }
-    if (c == ";") { endseg(C, "SEQ"); i++; if (d == ";") i++; continue }
+    if (c == ";") { endseg(C, ";", dep(sp)); i++; if (d == ";") i++; continue }
     if (c == "|") {
-      if (d == "|") { endseg(C, "SEQ"); i += 2; continue }
-      endseg(C, "PIPE"); i++; if (d == "&") i++
+      if (d == "|") { endseg(C, "||", dep(sp)); i += 2; continue }
+      endseg(C, "|", dep(sp)); i++; if (d == "&") i++
       continue
     }
     if (c == "&") {
-      if (d == "&") { endseg(C, "SEQ"); i += 2; continue }
+      if (d == "&") { endseg(C, "&&", dep(sp)); i += 2; continue }
       if (d == ">") {
         flushword(C); op = "&>"; i += 2
         if (substr(s, i, 1) == ">") { op = "&>>"; i++ }
         if (pend[C] != "") err = "a redirect with no target"
         pend[C] = op; continue
       }
-      endseg(C, "SEQ"); i++; continue
+      endseg(C, "&", dep(sp)); i++; continue
     }
     if (c == "<" || c == ">") {
       op = ""
@@ -213,7 +223,7 @@ function lex(   i, c, d, top, C, op, k) {
     if (c == " " || c == "\t" || c == "\r") { flushword(C); i++; continue }
     addc(C, c); i++
   }
-  for (k = sp; k >= 0; k--) if (st[k] == "N" || st[k] == "S" || st[k] == "B") endseg(cx[k], "END")
+  for (k = sp; k >= 0; k--) if (st[k] == "N" || st[k] == "S" || st[k] == "B") endseg(cx[k], "", dep(k))
   for (k in bodies) print "B" US k US clean(bodies[k])
   if (err != "") print "X" US err
 }
@@ -248,6 +258,8 @@ tok_parse() { # one S record
     tok_rops+=("${f[$((k + 1 + 2 * j))]}")
     tok_rtgs+=("${f[$((k + 2 + 2 * j))]}")
   done
+  k=$((k + 1 + 2 * tok_nr))
+  tok_sep="${f[$k]}"; tok_depth="${f[$((k + 1))]}"
   return 0
 }
 
