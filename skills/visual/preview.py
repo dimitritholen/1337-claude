@@ -56,7 +56,7 @@ def _dims_png(raw):
         return None
 
 
-def _dims_svg(raw):
+def dims_svg(raw):
     match = re.search(
         rb'viewBox\s*=\s*["\']\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)', raw)
     if not match:
@@ -77,7 +77,7 @@ def describe(path, raw):
     if ext == ".png":
         dims = _dims_png(raw)
     elif ext == ".svg":
-        dims = _dims_svg(raw)
+        dims = dims_svg(raw)
     return f"{dims[0]}×{dims[1]}" if dims else None
 
 

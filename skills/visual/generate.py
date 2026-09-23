@@ -54,7 +54,20 @@ clamped to the image; a no-op with a stderr note for any other format.
 file once it is on disk, and adds its result path ("preview" in the
 stdout JSON) — the contact-sheet PNG when a headless browser rendered
 one, else the HTML. Never fails generate.py: the paid file already
-exists, so any exception is a stderr note only.
+exists, so any exception is a stderr note only. With critique still
+enabled, --preview previews the critique's final file instead.
+
+Every raster or vector generation (not video, not speech) is followed by
+a critique.py pass in-process: the written file is judged against the
+prompt and, if it fails, fixed for up to --rounds tries (default 2,
+--critic overrides the critic model). --trim runs before the critique,
+so the critic sees the trimmed file; a fix-round output is not trimmed.
+The stdout JSON gains a "critique" key (critique.run()'s result) and a
+top-level "final" (the critique's final path); "path" and "cost" stay
+the original generation's, so "cost" plus "critique.cost" is the total
+spend. Opt out with --no-critique or CLAUDE_1337_CRITIQUE=0. A critique
+failure (no key, API error, ...) never fails the command: it is a
+stderr note and a {"error": "..."} under "critique".
 
 The file goes to --out, else assets/<slug of the prompt>.<ext> under the
 current directory, never overwriting (a -2, -3 suffix instead). Stdout
@@ -565,7 +578,14 @@ def main(argv):
     parser.add_argument("--reference", help="existing PNG/JPEG/WebP/SVG to edit or vary (raster and vector only)")
     parser.add_argument("--preview", action="store_true",
                         help="also write a GitHub dark/light contact sheet through preview.py")
+    parser.add_argument("--rounds", type=int, default=2,
+                        help="max critique fix rounds (raster/vector only, default 2)")
+    parser.add_argument("--critic", help="critique.py critic model id (default its own built-in default)")
+    parser.add_argument("--no-critique", action="store_true",
+                        help="skip the critique pass that otherwise always follows raster/vector generation")
     args = parser.parse_args(argv[1:])
+    if args.rounds < 0:
+        parser.error("--rounds must be >= 0")
     if args.cost:
         return cmd_cost(args.since)
     if not args.model:
@@ -659,12 +679,32 @@ def main(argv):
 
     result = {"path": path, "model": args.model, "modality": args.modality,
               "media_type": media_type, "bytes": len(raw), "cost": cost}
+
+    critique_disabled = args.no_critique or os.environ.get("CLAUDE_1337_CRITIQUE", "1").lower() in ("0", "off", "false")
+    preview_target = [path]
+    if args.modality in ("raster_image", "vector_svg") and not critique_disabled:
+        try:
+            # Imported lazily: critique.py imports this module, so a
+            # top-level import here would be circular. Kept inside the
+            # try so an import failure is also a stderr note, not a
+            # non-zero exit -- the paid file is already written.
+            import critique
+            critique_result = critique.run(path, args.prompt, args.model, rounds=args.rounds,
+                                            critic=args.critic, key=key, aspect=args.aspect,
+                                            transparent=args.transparent)
+            result["critique"] = critique_result
+            result["final"] = critique_result["final"]
+            preview_target = critique_result["files"]
+        except Exception as e:  # noqa: BLE001 - the paid file is already written, this must never cost it
+            print(f"generate: critique skipped: {type(e).__name__}: {e}", file=sys.stderr)
+            result["critique"] = {"error": f"{type(e).__name__}: {e}"}
+
     if args.preview:
         # The paid file is already on disk; a preview failure must never
         # take that away, so any exception here is a stderr note, not
         # a non-zero exit.
         try:
-            preview_result = preview.make_preview([path])
+            preview_result = preview.make_preview(preview_target)
             result["preview"] = preview_result.get("png") or preview_result["html"]
         except Exception as e:  # noqa: BLE001 - same data-loss guard as svg cleanup/--trim above
             print(f"generate: --preview skipped: {type(e).__name__}: {e}", file=sys.stderr)

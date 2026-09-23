@@ -56,6 +56,20 @@ SVG_BAD_UTF8 = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4">\xff\
 MP4 = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 24
 MP3 = b"ID3" + b"\x00" * 13
 polls = {}
+critic_calls = {}
+
+
+def critic_answer(model):
+    """(pass, defects) for a critic call: passes by default (every model
+    generate.py's own tests exercise), unless the model id names a
+    critique-specific scenario."""
+    n = critic_calls[model] = critic_calls.get(model, 0) + 1
+    if model == "acme/critic-fail-then-pass":
+        if n == 1:
+            return False, [{"type": "artifact", "where": "a smudge", "box": None,
+                            "severity": 5, "fix": "remove the smudge"}]
+        return True, []
+    return True, []
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args): pass
@@ -115,6 +129,13 @@ class Handler(BaseHTTPRequestHandler):
         if "forbidden" in model:
             self.send_json(403, {"error": {"message": "This model requires you to complete the following before use: 18+ age confirmation",
                                            "code": 403, "metadata": {"missing_attestation_types": ["age_18plus"]}}}); return
+        messages = body.get("messages") or []
+        is_critic = self.path == "/api/v1/chat/completions" and bool(messages) and messages[0].get("role") == "system"
+        if is_critic:
+            passed, defects = critic_answer(model)
+            content = json.dumps({"pass": passed, "defects": defects})
+            self.send_json(200, {"choices": [{"message": {"role": "assistant", "content": content}}],
+                                 "usage": {"cost": 0.002}}); return
         if self.path == "/api/v1/chat/completions":
             if "images-only" in model:
                 self.send_json(404, {"error": {"message": "acme/images-only is an image generation model and cannot be used with the chat/completions endpoint. Use the /api/v1/images endpoint instead.",
@@ -166,6 +187,11 @@ export OPENROUTER_BASE_URL="http://127.0.0.1:$(cat "$work/port")"
 export CLAUDE_1337_CREDENTIALS="$work/no-such-file"
 export OPENROUTER_API_KEY="test-key"
 export CLAUDE_1337_POLL_SECONDS=0
+# Every existing case below predates the mandatory critique pass and asserts
+# exact request sequences/counts; CLAUDE_1337_CRITIQUE=0 keeps them exercising
+# only the generation call they were written for. The "--- critique (#?) ---"
+# section near the end turns it back on to test the wiring itself.
+export CLAUDE_1337_CRITIQUE=0
 mkdir -p "$work/cwd" && cd "$work/cwd"
 
 check_code() { if [ "$2" -eq "$3" ]; then printf 'ok   %s\n' "$1"; else printf 'FAIL %s (exit %s, want %s): %s\n' "$1" "$2" "$3" "$(cat "$work/stderr")"; fail=1; fi; }
@@ -502,5 +528,55 @@ check_eq "unwritable log path: stderr note" "$(grep -c 'generate: cost log skipp
 chmod 700 "$unwritable_dir"
 
 unset CLAUDE_1337_VISUAL_LOG
+
+# --- critique wired in (mandatory after raster/vector) ---
+CLAUDE_1337_CRITIQUE=1 run --model acme/paint --modality raster_image --prompt "A fox, critiqued"
+check_code "critique default: still written and exit 0" "$code" 0
+check_eq "critique default: critique.pass true" "$(field .critique.pass)" "true"
+check_eq "critique default: final equals path (nothing to fix)" "$(field .final)" "$(field .path)"
+check_eq "critique default: one extra critic call" "$(jq -c 'select(.body.messages[0].role=="system")' "$work/requests.jsonl" | wc -l | tr -d ' ')" "1"
+
+run --model acme/paint --modality raster_image --prompt "A fox, no critique flag"
+check_code "--no-critique unset but CLAUDE_1337_CRITIQUE=0 (test default): still written" "$code" 0
+check_eq "CLAUDE_1337_CRITIQUE=0 (test default): no critique key" "$(field 'has("critique")')" "false"
+check_eq "CLAUDE_1337_CRITIQUE=0 (test default): no critic call" "$(jq -c 'select(.body.messages[0].role=="system")' "$work/requests.jsonl" | wc -l | tr -d ' ')" "0"
+
+CLAUDE_1337_CRITIQUE=1 run --model acme/paint --modality raster_image --prompt "A fox, explicit no-critique" --no-critique
+check_code "--no-critique: still written" "$code" 0
+check_eq "--no-critique: no critique key" "$(field 'has("critique")')" "false"
+check_eq "--no-critique: no critic call" "$(jq -c 'select(.body.messages[0].role=="system")' "$work/requests.jsonl" | wc -l | tr -d ' ')" "0"
+
+CLAUDE_1337_CRITIQUE=1 run --model acme/paint --modality raster_image --prompt "A fox, one fix round" --critic acme/critic-fail-then-pass --rounds 1
+check_code "--rounds 1, failing then passing critic: exit 0" "$code" 0
+check_eq "--rounds 1: critique.pass true after the fix" "$(field .critique.pass)" "true"
+check_eq "--rounds 1: final is the .r1 file" "$(printf '%s' "$(field .final)" | grep -Ec '\.r1\.png$')" "1"
+check_eq "--rounds 1: top-level path stays the original" "$(printf '%s' "$(field .path)" | grep -Ec '\.r1\.png$')" "0"
+
+CLAUDE_1337_CRITIQUE=1 run --model acme/paint --modality raster_image --prompt "A fox, critic boom" --critic acme/critic-boom
+check_code "critic API failure: still exit 0 (paid file already written)" "$code" 0
+check_eq "critic API failure: critique.error present" "$([ -n "$(field .critique.error)" ] && [ "$(field .critique.error)" != "null" ] && echo yes || echo no)" "yes"
+check_eq "critic API failure: stderr note" "$(grep -c 'generate: critique skipped:' "$work/stderr")" "1"
+check_eq "critic API failure: file still exists" "$([ -s "$(field .path)" ] && echo yes || echo no)" "yes"
+
+broken="$work/broken"
+mkdir -p "$broken/skills"
+cp -r "$ROOT/skills/visual" "$broken/skills/visual"
+cp -r "$ROOT/lib" "$broken/lib"
+printf 'raise ImportError("boom")\n' > "$broken/skills/visual/critique.py"
+out=$(CLAUDE_1337_CRITIQUE=1 "$broken/skills/visual/generate.py" --model acme/paint --modality raster_image --prompt "A fox, critique import broken" 2>"$work/stderr")
+code=$?
+check_code "critique import failure: still exit 0 (paid file already written)" "$code" 0
+check_eq "critique import failure: critique.error present" "$([ -n "$(field .critique.error)" ] && [ "$(field .critique.error)" != "null" ] && echo yes || echo no)" "yes"
+check_eq "critique import failure: stderr note" "$(grep -c 'generate: critique skipped:' "$work/stderr")" "1"
+check_eq "critique import failure: file still exists" "$([ -s "$(field .path)" ] && echo yes || echo no)" "yes"
+
+CLAUDE_1337_CRITIQUE=1 run --model acme/video --modality video --prompt "A fox, no critique for video" --duration 2
+check_code "video: still written, critique never applies" "$code" 0
+check_eq "video: no critique key" "$(field 'has("critique")')" "false"
+check_eq "video: no critic call" "$(jq -c 'select(.body.messages[0].role=="system")' "$work/requests.jsonl" | wc -l | tr -d ' ')" "0"
+
+CLAUDE_1337_CRITIQUE=1 run --model acme/tts --modality speech --prompt "A fox, no critique for speech"
+check_code "speech: still written, critique never applies" "$code" 0
+check_eq "speech: no critique key" "$(field 'has("critique")')" "false"
 
 exit $fail

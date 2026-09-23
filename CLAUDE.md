@@ -11,7 +11,8 @@ work when the plugin is installed and used in any folder, not only this one.
   so the plugin installs as `1337@1337-claude`.
 - `skills/<name>/SKILL.md`: one folder per skill.
 - `skills/visual/`: the visual routing set (`SKILL.md`, `setup-key.py`,
-  `catalogue.py`, `route.py`, `generate.py`, `preview.py`), each described below.
+  `catalogue.py`, `route.py`, `generate.py`, `critique.py`, `preview.py`),
+  each described below.
 - `lib/keys.py` + `lib/jev.py`: stdlib-only helper every script that talks
   to Jev imports (`sys.path.insert(0, <plugin root>)`, then `from lib import
   keys, jev`). `keys.get(NAME)` reads the environment, then
@@ -84,10 +85,42 @@ work when the plugin is installed and used in any folder, not only this one.
   stderr note, never a non-zero exit). `generate.py --cost [--since 24h|7d|30m|<ISO
   date>]` sums that log and prints the total, call count and calls without
   a known price, no key or network needed.
+  A raster or vector write (not video, not speech) is always followed by a
+  `critique.run()` call in-process (imported lazily, since `critique.py`
+  imports this module): `--rounds N` (default 2) and `--critic <model id>`
+  pass through, `--no-critique` or `CLAUDE_1337_CRITIQUE=0` skip it. The
+  JSON line gains the critique result under `critique` and a top-level
+  `final`; `path` and `cost` stay the original generation's, so `cost` plus
+  `critique.cost` is the total spend. `--trim` runs before the critique, so
+  the critic judges the trimmed file. Same as `--preview`: a critique
+  failure (no key, API error, unparseable reply) is never fatal, only a
+  stderr note and `{"error": ...}` under `critique`, since the paid file is
+  already written.
   Exit 3 no key, 4 API failure, 5 failed video job, 6 model unusable
   for this account, 7 `--transparent` on a non-alpha model, 8 `--reference`
   on a model with no image input. Test: `tests/generate.test.sh` (stand-in
   OpenRouter).
+- `skills/visual/critique.py`: judges a generated raster or vector file
+  against its prompt with a vision-model critic (`DEFAULT_CRITIC`,
+  overridable by `--critic`, then `CLAUDE_1337_CRITIC`), and fixes what it
+  finds. The critic answers strict JSON (`pass`, a list of defects each
+  with a type, where, a normalised bounding box, a 1-5 severity and a fix
+  instruction); `pass` is computed locally, severity >= 3 fails it, never
+  trusted from the model's own claim. An SVG is rasterised through
+  `preview.py`'s headless-Chrome machinery, its window sized from the
+  SVG's own `viewBox` aspect ratio (long edge 1024px, `preview.dims_svg`),
+  or sent as SVG source text when no browser is on PATH. While not passing
+  and rounds used are under `--rounds` (default 2), the defects drive one
+  more generation (the current file as `--reference` when
+  `catalogue.reference_supported` allows it), written next to the original
+  as `<stem>.rN.<ext>` and judged in turn; the final file is the passing
+  one, else the lowest-scored (a fix can make things worse), ties to the
+  later file. Also importable as `from critique import run`, called by
+  `generate.py` after every raster/vector write; `run()` never prints or
+  exits. Exit 0 done (pass or not), 2 bad args/missing file/unsupported
+  type, 3 no key, 4 API or catalogue failure, 9 the critic reply is still
+  unparseable after one retry. Test: `tests/critique.test.sh` (stand-in
+  OpenRouter, fake `google-chrome`).
 - `skills/visual/preview.py`: `<file>...` [`--out path.png`] writes a
   self-contained HTML contact sheet showing each file twice, on GitHub dark
   (`#0d1117`) and white (`#ffffff`), with name and dimensions when known

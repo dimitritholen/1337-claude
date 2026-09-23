@@ -14,6 +14,7 @@ never fails the run.
 
 - `tests/builder-dispatches.test.sh`
 - `tests/catalogue.test.sh`
+- `tests/critique.test.sh`
 - `tests/dispatch-nudge.test.sh`
 - `tests/generate.test.sh`
 - `tests/git-subcommand.test.sh`

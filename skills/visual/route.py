@@ -114,7 +114,8 @@ def context(prompt, picks, transparent=False):
     def command(modality):
         extra = " --transparent" if transparent and modality == "raster_image" else ""
         return (f"python3 \"{generate}\" --model <chosen id> --modality {modality} "
-                f"--prompt-file <path to the design brief>{extra} [--out <path named in the prompt>]")
+                f"--prompt-file <path to the design brief>{extra} [--out <path named in the prompt>] "
+                "(raster/vector: always followed by a critique pass, can take several minutes)")
 
     brief_instruction = (
         "Turn the request into a design brief (subject, hierarchy, style, colours, "

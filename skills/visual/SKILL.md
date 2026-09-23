@@ -42,10 +42,28 @@ that choice.
      --model <chosen id> --modality raster_image|vector_svg|video|speech \
      --prompt-file <path to the design brief> [--out <path>] \
      [--endpoint auto|chat|images] [--aspect 16:9] [--duration 8] [--voice alloy] \
-     [--transparent] [--trim [--trim-margin 32]] [--reference <file>] [--preview]
+     [--transparent] [--trim [--trim-margin 32]] [--reference <file>] [--preview] \
+     [--rounds 2] [--critic <model id>] [--no-critique]
    ```
 
-   Print the brief in the report too, so the user can correct it.
+   Print the brief in the report too, so the user can correct it. Run it with
+   a Bash timeout of 600000 ms: a raster or vector generation is always
+   followed by a critique pass (fix rounds included), which can take several
+   minutes.
+
+   A raster or vector generation is always judged by a vision-model critic
+   and, if it finds defects, fixed for up to `--rounds` tries (default 2,
+   `--critic` picks the model). The JSON line gains a `critique` object
+   (`pass`, `rounds`, `files`, `defects`, `cost`, `critic`) and a top-level
+   `final` (the file that ended up best); `path` and `cost` stay the
+   original generation's — report the `final` file, whether it `pass`ed,
+   any remaining `defects`, and the cost as `cost` plus `critique.cost`.
+   Opt out with `--no-critique` or `CLAUDE_1337_CRITIQUE=0` (video and
+   speech never get critiqued). A critique failure (no key, API error, an
+   unparseable critic reply) never fails the generation: `critique` holds
+   `{"error": ...}` instead, on stderr too, and the paid file is still
+   there. `--trim` runs before the critique, so the critic sees the
+   trimmed file; a fix round's own output is not trimmed.
 
    `--trim` (raster PNG only) crops fully-transparent margins, leaving
    `--trim-margin` pixels (default 32); pairs well with `--transparent`.
@@ -63,10 +81,11 @@ that choice.
    over, pass `--reference <that path>` (raster or vector only). It only
    works on a model `catalogue.py` marks `reference_supported: true`.
 
-   It prints one JSON line with `path`, `media_type`, `bytes` and `cost`.
-   Report the path and the cost in one line. On "Stay with Claude" carry on
-   as usual and do not mention the models again. `--endpoint auto` (default)
-   posts to chat/completions and retries against /api/v1/images on a 404.
+   It prints one JSON line with `path`, `media_type`, `bytes`, `cost`, and
+   (raster/vector) `critique` and `final` as above. Report the path and the
+   cost in one line. On "Stay with Claude" carry on as usual and do not
+   mention the models again. `--endpoint auto` (default) posts to
+   chat/completions and retries against /api/v1/images on a 404.
 
 Without the hook block (a direct `/1337:visual <request>`), do the same by
 hand: run `skills/visual/catalogue.py <modality> 6` for the list, ask the
