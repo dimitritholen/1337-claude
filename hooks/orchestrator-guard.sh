@@ -373,6 +373,53 @@ case "$tool" in
     var_names=()
     var_vals=()
 
+    # A bare `VAR=$(mktemp ...)` — no -p/--tmpdir/-t or template overriding
+    # where it lands — is guaranteed under $TMPDIR by mktemp(1) itself, the
+    # same guarantee a literal temp path carries; resolve VAR to a stand-in
+    # temp path up front so `> $VAR/f` reads as scratch below. The nested
+    # `$(mktemp ...)` call is still lexed and judged as its own segment, so
+    # `VAR=$(mktemp -d -p /etc)` is refused there regardless of this.
+    #
+    # That guarantee dies the moment VAR is bound again anywhere else in the
+    # command: `D=$(mktemp -d); D=src; echo x > $D/f` must not resolve $D.
+    # mk_rebound looks for a second plain/`+=` assignment to VAR (the
+    # mktemp one is the first) or a `read`/`declare`/`local`/`typeset`/
+    # `export`/`for`/`select` naming VAR without one; either disqualifies
+    # the variable and it is left unresolved, same as any other dynamic
+    # value.
+    mk_rebound() { # var
+      local v="$1" assign_re bind_re scan cnt=0
+      assign_re="(^|[^A-Za-z0-9_])$v"'\+?='
+      scan="$bash_cmd"
+      while [[ $scan =~ $assign_re ]]; do
+        cnt=$((cnt + 1))
+        scan="${scan#*"${BASH_REMATCH[0]}"}"
+        [ "$cnt" -gt 1 ] && return 0
+      done
+      bind_re='(^|[;&|`(])[[:space:]]*(read|declare|local|typeset|export|for|select)([[:space:]]+-[A-Za-z][A-Za-z-]*)*[[:space:]]+'"$v"'([^A-Za-z0-9_=]|$)'
+      [[ $bash_cmd =~ $bind_re ]] && return 0
+      return 1
+    }
+    mk_scan="$bash_cmd"
+    mk_re='([A-Za-z_][A-Za-z0-9_]*)=\$\([[:space:]]*mktemp\b([^)]*)\)'
+    while [[ $mk_scan =~ $mk_re ]]; do
+      mk_var="${BASH_REMATCH[1]}"; mk_argstr="${BASH_REMATCH[2]}"
+      mk_scan="${mk_scan#*"${BASH_REMATCH[0]}"}"
+      read -r -a mk_words <<<"$mk_argstr"
+      mk_bare=1
+      for mk_w in "${mk_words[@]}"; do
+        case "$mk_w" in
+          -p | --tmpdir | -p?* | --tmpdir=* | -t) mk_bare=0 ;;
+          -*) ;;
+          *) mk_bare=0 ;; # a bare template argument also picks the target
+        esac
+      done
+      if [ "$mk_bare" = 1 ] && ! mk_rebound "$mk_var"; then
+        var_names+=("$mk_var")
+        var_vals+=("${tmp_real:-/tmp}/1337-mktemp")
+      fi
+    done
+
     # Sets rt: the target with assigned variables, $HOME, ~ and $TMPDIR put
     # in, as far as they can be.
     resolve_target() { # target
@@ -538,8 +585,17 @@ case "$tool" in
       done
       case "$git_sub" in
         '' | status | log | diff | show | branch | blame | ls-files | add | commit | tag | stash | push | fetch | pull \
-          | rev-parse | remote | version | help)
+          | rev-parse | rev-list | describe | remote | version | help)
           return 0 ;;
+        reset)
+          # Bookkeeping only: --soft and --mixed (the default) touch HEAD
+          # and the index, not the working tree; --hard, --merge and --keep
+          # discard local changes and are refused as the write they are.
+          for a in "${@:$((git_sub_at + 1))}"; do
+            case "$a" in --hard | --merge | --keep) return 1 ;; esac
+          done
+          return 0
+          ;;
         config)
           local get=0
           for a in "${@:$((git_sub_at + 1))}"; do
@@ -620,10 +676,22 @@ case "$tool" in
       seg_text="${words[*]+"${words[*]}"}"
       seg_text="${seg_text//$PH/\$(...)}"
 
+      # A `for VAR in ...` or `select VAR in ...` header, and a `case WORD
+      # in` header, name no command of their own (the loop/case body is a
+      # segment on its own, judged there); without this a loop variable
+      # like `f` in `for f in docs/*.md` is mistaken for the command.
+      if [ "$nw" -gt 0 ]; then
+        case "${words[0]}" in
+          for | select | case) i="$nw" ;;
+          *) i=0 ;;
+        esac
+      else
+        i=0
+      fi
+
       # Skip what runs the next word rather than being the command:
       # VAR=val assignments, the command/builtin/exec/env prefixes with their
       # flags, and the shell keywords that introduce a command.
-      i=0
       while [ "$i" -lt "$nw" ]; do
         t="${words[$i]}"
         if [[ $t =~ ^([A-Za-z_][A-Za-z0-9_]*)= ]]; then
@@ -742,6 +810,21 @@ case "$tool" in
                 | claude | tasqx) ;;
               tee)
                 for t in "${args[@]+"${args[@]}"}"; do [[ $t == -* ]] || cmd_targets+=("$t"); done ;;
+              mkdir)
+                # A directory under temp or ~/.claude is the session's own
+                # scratch, same as a file written there; elsewhere it is a
+                # tree write. -m's mode argument is not a path.
+                j=0
+                for t in "${args[@]+"${args[@]}"}"; do
+                  [ "$j" = 1 ] && { j=0; continue; }
+                  case "$t" in
+                    -m | --mode) j=1 ;;
+                    -m?* | --mode=*) ;;
+                    -*) ;;
+                    *) cmd_targets+=("$t") ;;
+                  esac
+                done
+                ;;
               sort)
                 j=0
                 for t in "${args[@]+"${args[@]}"}"; do
@@ -793,7 +876,10 @@ case "$tool" in
               awk) awk_allowed "${args[@]+"${args[@]}"}" || refuse_segment "$seg_text" ;;
               git) git_allowed "${args[@]+"${args[@]}"}" || refuse_segment "$seg_text" ;;
               python3) is_plugin_script "${args[0]:-}" || refuse_segment "$seg_text" ;;
-              bash | sh) is_runner "${args[0]:-}" || refuse_segment "$seg_text" ;;
+              bash | sh)
+                # `-n` parses the script for syntax errors and runs nothing
+                # in it, so any path is fine, not just a test runner.
+                [ "${args[0]:-}" = "-n" ] || is_runner "${args[0]:-}" || refuse_segment "$seg_text" ;;
               ripwire)
                 local edit=0 edit_payload=0 plan=0 apply=0
                 for t in "${args[@]+"${args[@]}"}"; do
