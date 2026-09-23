@@ -242,6 +242,10 @@ work when the plugin is installed and used in any folder, not only this one.
   this way before splitting it into segments or picking out its first word
   (`hooks/orchestrator-guard.sh` has its own lexer). Covered by
   `tests/read-cap.test.sh`.
+- `.claude/skills/seed-corpus/`: repo-local skill (not shipped) for turning a
+  shell test suite into a JSONL corpus of captured checks, one row per
+  execution with payload, exit code, and error fragment. Worked example:
+  `tests/guard-corpus.jsonl` and `tests/guard-corpus.test.sh` (task #657).
 
 All shell suites run together with `tests/run-all.sh`; a change to `hooks/` or
 `skills/` is not done until it is green.
