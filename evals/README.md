@@ -37,4 +37,22 @@ An `llm` grader sees only the final reply by default (`focus: last_message`).
 To judge a file the run wrote, give the grader
 `focus: {source: file, path: <path>}`; `focus: files` shows only the list of
 changed paths, and `focus: trace` opens with pages of injected hook output, which
-drowned the Write call in the `plan-file` judge's view.
+drowned the Write call in the `plan-file` judge's view. Worse, the judge's
+trace keeps only the first 12 and last 12 messages and elides the rest, so
+anything in the middle of a long run (a router call, a builder dispatch)
+is invisible to it.
+
+For what happened during a run, prefer the deterministic graders:
+
+- `tool_used` and `tool_order` count every tool call in the trace,
+  subagents' included, with no way to tell them apart. `input_match` is a
+  regex over the call's input as JSON. `tool_order` compares the first
+  call matching `before` with the first matching `after`.
+- `regex` with `target: trace` sees the whole trace, one JSON message per
+  line, nothing elided. Every assistant line ends its message with
+  `"parent_tool_use_id":null` in the main session and `"toolu_..."` in a
+  subagent, so `flags: m` and a pattern anchored on `^\{"type":"assistant"`
+  and ending in `\},"parent_tool_use_id":null,` matches a main-session call
+  only. The orchestrator and tier-route cases use this to tell a builder's
+  Write from the main session's, and a main-session Read or `cat` from a
+  scout's.

@@ -12,11 +12,8 @@ by bare filename, a path ending in those filenames such as
 `hooks/route.py`, or a path/line reference such as `hooks/route.py:19`.
 Naming the second override point anywhere in the answer counts, including
 as a caveat — an answer that reports it and then notes that `route.py`
-only reads the process environment is correct and passes. Pass also
-requires that the main session obtained this information through a
-`1337:scout` subagent rather than reading `route.py` or `SKILL.md`
-itself.
+only reads the process environment is correct and passes.
 
 Fail when the answer misses the words, the floor, or either override
-point, cites no source file for its claims, or the main session read the
-files directly instead of dispatching a scout.
+point, or cites no source file for its claims. How the answer was obtained
+is judged by other graders, not this one.
