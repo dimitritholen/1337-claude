@@ -3,7 +3,9 @@
 
 Reads the hook payload on stdin and stays silent (exit 0, no output)
 unless the prompt matches the word prefilter and an OpenRouter key is
-stored. Then one Jev Choice says what the prompt asks for (text_or_code,
+stored. A prompt whose stripped text starts with <task-notification> or
+<system-reminder> is a system event, not typed input, and is skipped
+before the prefilter even runs. Then one Jev Choice says what the prompt asks for (text_or_code,
 raster_image, vector_svg, video, speech); confidence under the floor or
 text_or_code means silence. For a visual modality the six cheapest
 catalogue entries go into one more Choice: Jev's pick is the
@@ -40,6 +42,7 @@ PREFILTER = re.compile(
     r"animation|animations|voice|voices|speech|narrate|narration|tts|audio)\b",
     re.IGNORECASE,
 )
+SYSTEM_EVENT = re.compile(r"^\s*<(task-notification|system-reminder)\b")
 MODALITIES = {
     "text_or_code": "Prose, code, data, a diagram in text, or anything Claude writes itself; "
                     "also questions about images or videos that need no new file made.",
@@ -151,7 +154,9 @@ def main():
         prompt = payload.get("prompt") if isinstance(payload, dict) else None
     except ValueError:
         return 0
-    if not isinstance(prompt, str) or not PREFILTER.search(prompt):
+    if not isinstance(prompt, str) or SYSTEM_EVENT.match(prompt):
+        return 0
+    if not PREFILTER.search(prompt):
         return 0
     try:
         if not keys.find("OPENROUTER_API_KEY"):

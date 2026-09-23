@@ -188,4 +188,23 @@ out=$(printf 'not json' | "$SCRIPT" 2>"$work/stderr"); code=$?
 check_code "bad stdin: exit 0" "$code" 0
 check_eq "bad stdin: silent" "$out" ""
 
+run "<task-notification>agent finished making a video: sunrise.mp4</task-notification>"
+check_code "task-notification prompt: exit 0" "$code" 0
+check_eq "task-notification prompt: silent" "$out" ""
+check_eq "task-notification prompt: no Jev call" "$(requests)" "0"
+
+run "  <task-notification>agent finished making a video</task-notification>"
+check_code "task-notification prompt with leading whitespace: exit 0" "$code" 0
+check_eq "task-notification prompt with leading whitespace: silent" "$out" ""
+check_eq "task-notification prompt with leading whitespace: no Jev call" "$(requests)" "0"
+
+run "<system-reminder><task-notification>video render done</task-notification></system-reminder>"
+check_code "task-notification wrapped in system-reminder: exit 0" "$code" 0
+check_eq "task-notification wrapped in system-reminder: silent" "$out" ""
+check_eq "task-notification wrapped in system-reminder: no Jev call" "$(requests)" "0"
+
+run "Earlier a <task-notification> arrived, now please make a video of a sunrise"
+check_eq "task-notification mentioned mid-prompt still routes: video prompt" "$(ctx | grep -c 'asks for a video')" "1"
+check_eq "task-notification mentioned mid-prompt still routes: Jev called" "$(requests)" "3"
+
 exit $fail

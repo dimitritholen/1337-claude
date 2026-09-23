@@ -28,8 +28,11 @@ work when the plugin is installed and used in any folder, not only this one.
   through `lib/keys.set`, never prints it. Test: `tests/setup-key.test.sh`
   (stand-in OpenRouter, no browser).
 - `skills/visual/route.py`: UserPromptSubmit hook (wired in
-  `hooks/hooks.json`, 10-second timeout). Silent unless the prompt hits a
-  word prefilter and an OpenRouter key is stored; then one Jev Choice for
+  `hooks/hooks.json`, 10-second timeout). Silent on a prompt whose stripped
+  text starts with `<task-notification>` or `<system-reminder>` (a
+  background-agent event, not typed input), and otherwise silent unless the
+  prompt hits a word prefilter and an OpenRouter key is stored; then one Jev
+  Choice for
   the modality, one over the six cheapest catalogue models, and
   additionalContext telling Claude to ask with AskUserQuestion (Jev's pick
   first and Recommended, prices in every label, stay-with-Claude last) and
