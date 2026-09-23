@@ -15,12 +15,18 @@ that choice.
    svg, video, voice, ...) and an OpenRouter key is stored, it asks Jev,
    TypeSafe's decision model, what the prompt wants (text or code, raster
    image, vector SVG, video, speech) and, for a visual answer, ranks the six
-   cheapest models of that kind. It injects a `[1337 visual]` block.
+   cheapest models of that kind. A prompt can carry more than one modality
+   ("an SVG and a transparent PNG"): every visual modality Jev gives 0.3 or
+   more counts, and each gets its own ranking. It injects one `[1337 visual]`
+   block.
 2. **The user picks.** On that block, before anything else, ask with
-   `AskUserQuestion` exactly as the block says: header "Model", Jev's pick
-   first and marked Recommended, then cheap to expensive, a price in every
-   label, "Stay with Claude" last. One question, never twice for one prompt.
-3. **You generate.** On a model choice run the command the block gives:
+   `AskUserQuestion` exactly as the block says: header "Model" (or one
+   question per modality in a single call, headers "SVG model", "Image
+   model", ...), Jev's pick first and marked Recommended, then cheap to
+   expensive, a price in every label, "Stay with Claude" last. Never twice
+   for one prompt.
+3. **You generate.** On a model choice run the command the block gives, once
+   per format chosen:
 
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/skills/visual/generate.py" \
@@ -86,8 +92,11 @@ reference image on every request (Recraft "Styles") are never offered.
 # Knobs
 
 - `CLAUDE_1337_VISUAL=0` — the hook stays silent.
-- `CLAUDE_1337_VISUAL_FLOOR` — Jev confidence under which the hook stays
-  silent or drops the recommendation (0.5).
+- `CLAUDE_1337_VISUAL_FLOOR` — summed visual probability under which the
+  hook stays silent, and model confidence under which it drops the
+  recommendation (0.5).
+- `CLAUDE_1337_VISUAL_MULTI` — probability from which a further visual
+  modality counts as requested too (0.3).
 - `OPENROUTER_BASE_URL`, `CLAUDE_1337_CREDENTIALS` — API and key file
   overrides, for tests.
 - `CLAUDE_1337_POLL_SECONDS` — video job poll interval (5).

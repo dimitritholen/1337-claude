@@ -32,11 +32,13 @@ work when the plugin is installed and used in any folder, not only this one.
   text starts with `<task-notification>` or `<system-reminder>` (a
   background-agent event, not typed input), and otherwise silent unless the
   prompt hits a word prefilter and an OpenRouter key is stored; then one Jev
-  Choice for
-  the modality, one over the six cheapest catalogue models, and
-  additionalContext telling Claude to ask with AskUserQuestion (Jev's pick
-  first and Recommended, prices in every label, stay-with-Claude last) and
-  run generate.py. `CLAUDE_1337_VISUAL=0` disables. Test:
+  Choice for the modality (floor on the summed visual probability; a prompt
+  can carry more than one modality, each at 0.3 or more,
+  `CLAUDE_1337_VISUAL_MULTI`), one concurrent Choice per modality over its
+  six cheapest catalogue models, and one additionalContext block telling
+  Claude to ask with a single AskUserQuestion call, one question per
+  modality (Jev's pick first and Recommended, prices in every label,
+  stay-with-Claude last), and run generate.py once per chosen model. `CLAUDE_1337_VISUAL=0` disables. Test:
   `tests/visual-route.test.sh` (stand-in Jev and catalogue).
 - `skills/visual/generate.py`: makes the file once a model is chosen:
   raster and vector through chat completions with the image modality
