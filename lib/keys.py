@@ -25,8 +25,15 @@ class UnsafeFile(PermissionError):
     """The credentials file is readable by group or others."""
 
 
+def env(name):
+    """The environment, then EVAL_<name>: `claude plugin eval` only passes
+    EVAL_-prefixed variables through to a case, so every environment read in
+    this plugin that a test needs to steer goes through here."""
+    return os.environ.get(name) or os.environ.get(f"EVAL_{name}")
+
+
 def path():
-    return os.path.expanduser(os.environ.get("CLAUDE_1337_CREDENTIALS") or DEFAULT_PATH)
+    return os.path.expanduser(env("CLAUDE_1337_CREDENTIALS") or DEFAULT_PATH)
 
 
 def _check_mode(file_path):
@@ -53,7 +60,7 @@ def _read_lines(file_path):
 
 def find(name):
     """The key's value, or None. Raises UnsafeFile on a loose file."""
-    value = os.environ.get(name)
+    value = env(name)
     if value:
         return value
     file_path = path()

@@ -73,11 +73,11 @@ def transport():
     stray TypeSafe key never leaves decisions on OpenRouter by accident."""
     key = keys.find("TYPESAFE_API_KEY")
     if key:
-        base = os.environ.get("TYPESAFE_BASE_URL") or TYPESAFE_URL
-        model = os.environ.get("TYPESAFE_DEFAULT_MODEL") or TYPESAFE_MODEL
+        base = keys.env("TYPESAFE_BASE_URL") or TYPESAFE_URL
+        model = keys.env("TYPESAFE_DEFAULT_MODEL") or TYPESAFE_MODEL
         return base.rstrip("/") + "/v1/systemone", model, key
     key = keys.get("OPENROUTER_API_KEY")
-    base = os.environ.get("OPENROUTER_BASE_URL") or OPENROUTER_URL
+    base = keys.env("OPENROUTER_BASE_URL") or OPENROUTER_URL
     return base.rstrip("/") + "/api/alpha/decisions", OPENROUTER_MODEL, key
 
 

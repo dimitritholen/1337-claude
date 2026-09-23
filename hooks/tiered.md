@@ -5,14 +5,14 @@ model, not from your own read of the step.
 
 - Split the change into steps first, as `/1337:tier` does: five or fewer,
   each one builder brief (files it touches, the change, done condition).
-  Then run the router once with all of them. Write the JSON to a file under
-  the scratchpad or temp directory and pass its path; send titles and briefs
-  only, never file contents:
+  Then run the router once with all of them. Send titles and briefs only,
+  never file contents:
   ```bash
-  python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" /path/to/steps.json
+  python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <<'EOF'
+  {"task": "<the task in one or two lines>",
+   "steps": [{"id": 1, "title": "<step>", "brief": "<files, the change>"}]}
+  EOF
   ```
-  where the file holds `{"task": "<one or two lines>", "steps": [{"id": 1,
-  "title": "<step>", "brief": "<files, the change>"}]}`.
 - Call `1337:builder` with `model` set to the `tier` the router printed for
   that step. A step marked `escalated: true` already moved one tier up; do
   not raise it again.

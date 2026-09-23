@@ -7,6 +7,9 @@ Input: JSON on stdin (or a file path as the only argument):
     {"task": "<the whole task in a line or two>",
      "steps": [{"id": 1, "title": "...", "brief": "..."}, ...]}
 
+At most five steps, and ids (when given) must be unique; a step without an
+id falls back to its position.
+
 Output: JSON on stdout, one entry per step in input order:
 
     {"model": "jev-1.12",
@@ -77,9 +80,19 @@ def read_input(argv):
         fail(2, 'input needs a non-empty "task" string')
     if not isinstance(steps, list) or not steps:
         fail(2, 'input needs a non-empty "steps" list')
+    if len(steps) > 5:
+        fail(2, f"{len(steps)} steps is more than five: split into subtasks first")
     for i, step in enumerate(steps):
         if not isinstance(step, dict) or not step.get("title"):
             fail(2, f'steps[{i}] needs a "title"')
+    seen_ids = set()
+    for step in steps:
+        step_id = step.get("id")
+        if step_id is None:
+            continue
+        if step_id in seen_ids:
+            fail(2, f"duplicate step id: {step_id!r}")
+        seen_ids.add(step_id)
     return task, steps
 
 
@@ -93,12 +106,18 @@ def main(argv):
     try:
         jev.transport()
     except keys.MissingKey:
-        fail(3, "no key: export OPENROUTER_API_KEY (or TYPESAFE_API_KEY) or "
-                f"store it once in {keys.path()}")
+        fail(3, "no key: run /1337:visual setup once, or export "
+                "OPENROUTER_API_KEY (or TYPESAFE_API_KEY)")
     except keys.UnsafeFile as e:
         fail(3, str(e))
 
-    floor = float(os.environ.get("CLAUDE_1337_TIER_FLOOR", "0.5"))
+    floor_raw = os.environ.get("CLAUDE_1337_TIER_FLOOR", "0.5")
+    try:
+        floor = float(floor_raw)
+    except ValueError:
+        fail(2, f"CLAUDE_1337_TIER_FLOOR must be a number between 0 and 1, got {floor_raw!r}")
+    if not 0.0 <= floor <= 1.0:
+        fail(2, f"CLAUDE_1337_TIER_FLOOR must be between 0 and 1, got {floor}")
 
     # Every step goes into one state so each question can name its own step
     # and still see the others: the same rename is haiku in a script and
@@ -122,26 +141,37 @@ def main(argv):
     }
 
     try:
-        response = jev.decide(state, questions, timeout=15.0)
+        response = jev.decide(state, questions, timeout=5.0)
     except jev.JevError as e:
         fail(4, f"Jev call failed: {e}")
 
     routed = []
     for key, step in zip(step_keys, steps):
         answer = response["answers"][key]
+        if not isinstance(answer, dict):
+            fail(4, f"Jev answered {key} with {answer!r}, not an answer object")
         tier = answer.get("choice")
-        confidence = float(answer.get("confidence") or 0.0)
-        probabilities = answer.get("probabilities") or {}
+        if isinstance(tier, str):
+            tier = tier.strip().lower()
         if tier not in TIERS:
-            fail(4, f"Jev answered {key} with {tier!r}, not one of {TIERS}")
-        escalated = confidence < floor and tier != TIERS[-1]
+            fail(4, f"Jev answered {key} with {answer.get('choice')!r}, not one of {TIERS}")
+        raw_confidence = answer.get("confidence")
+        if raw_confidence is None:
+            print(f"tier-route: {key} came back with no confidence; not escalating it",
+                  file=sys.stderr)
+            confidence = None
+            escalated = False
+        else:
+            confidence = float(raw_confidence)
+            escalated = confidence < floor and tier != TIERS[-1]
         if escalated:
             tier = escalate(tier)
+        probabilities = answer.get("probabilities") or {}
         routed.append(
             {
                 "id": step.get("id", step_keys.index(key) + 1),
                 "tier": tier,
-                "confidence": round(confidence, 3),
+                "confidence": round(confidence, 3) if confidence is not None else None,
                 "probabilities": {
                     t: round(float(probabilities.get(t, 0.0)), 3) for t in TIERS
                 },

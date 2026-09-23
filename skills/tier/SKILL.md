@@ -36,7 +36,7 @@ TypeSafe's decision model, not from your own read. Split the task into steps fir
 then run the router once with every step:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <<'EOF'
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <<'EOF'
 {"task": "<the task in one or two lines>",
  "steps": [{"id": 1, "title": "<step>", "brief": "<files, the change>"}]}
 EOF

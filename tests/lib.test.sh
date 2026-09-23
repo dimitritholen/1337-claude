@@ -98,6 +98,12 @@ check_eq "file key read back" "$out" "file-key"
 OPENROUTER_API_KEY=env-key py 'from lib import keys; print(keys.get("OPENROUTER_API_KEY"))'
 check_eq "env beats file" "$out" "env-key"
 
+EVAL_TYPESAFE_API_KEY=eval-key py 'from lib import keys; print(keys.get("TYPESAFE_API_KEY"))'
+check_eq "EVAL_ prefixed variable falls back for eval cases" "$out" "eval-key"
+
+TYPESAFE_API_KEY=plain-key EVAL_TYPESAFE_API_KEY=eval-key py 'from lib import keys; print(keys.get("TYPESAFE_API_KEY"))'
+check_eq "plain env beats its EVAL_ fallback" "$out" "plain-key"
+
 py 'from lib import keys; keys.set("OTHER", "x"); keys.set("OPENROUTER_API_KEY", "new-key")'
 check_eq "set replaces its line and keeps the rest" "$(sort "$work/credentials" | tr '\n' ' ')" "OPENROUTER_API_KEY=new-key OTHER=x "
 check_eq "set keeps mode 0600" "$(stat -c %a "$work/credentials")" "600"

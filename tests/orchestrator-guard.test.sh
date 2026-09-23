@@ -555,6 +555,8 @@ check 0 "two git diffs in one chain" "$(bash_payload 'git diff --stat && git dif
 check 0 "the tier router, repo-relative" "$(bash_payload 'python3 skills/tier/route.py /tmp/claude-1000/s/steps.json')"
 check 0 "the tier router through CLAUDE_PLUGIN_ROOT" \
   "$(bash_payload 'python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" /tmp/claude-1000/s/steps.json')"
+check 0 "the tier router through CLAUDE_PLUGIN_ROOT, stdin heredoc (the documented form)" \
+  "$(bash_payload "$(printf 'python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <<'"'"'EOF'"'"'\n{\"task\":\"t\",\"steps\":[]}\nEOF')")"
 check 0 "the visual generator by its absolute path" \
   "$(bash_payload "python3 $(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)/skills/visual/generate.py --model x")"
 check 2 "a route.py outside the plugin is not the tier router" "$(bash_payload 'python3 /tmp/skills/tier/route.py')"

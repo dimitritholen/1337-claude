@@ -12,26 +12,16 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"; [ -n "${server_pid:-}" ] && kill "$server_pid" 2>/dev/null' EXIT
 
 # The stand-in API: answers each step_N choice from the words in its title,
-# records the last request body for assertions, and fails on demand.
+# records the last request body for assertions, and fails or misbehaves on
+# demand. "slow" sleeps 20s (past route.py's 5s timeout), "bad-tier" answers
+# with a tier outside TIERS, "no-confidence" omits confidence, "not-dict"
+# answers a step with something other than an object, "cased tier" answers
+# with padding and mixed case that must still parse.
 python3 - "$work" <<'EOF' &
-import json, sys
+import json, sys, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 work = sys.argv[1]
-
-def answer(title):
-    t = title.lower()
-    if "boom" in t:
-        return None
-    if "unsure" in t:
-        return "haiku", 0.3
-    if "concurrency" in t:
-        return "opus", 0.95
-    if "endpoint" in t:
-        return "sonnet", 0.8
-    if "doubtful opus" in t:
-        return "opus", 0.2
-    return "haiku", 0.9
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -40,15 +30,45 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         open(f"{work}/last-request.json", "w").write(json.dumps(body))
+        open(f"{work}/last-path.txt", "w").write(self.path)
         answers = {}
         for key in body["questions"]:
-            picked = answer(body["state"]["steps"][key]["title"])
-            if picked is None:
+            t = body["state"]["steps"][key]["title"].lower()
+            if "boom" in t:
                 self.send_response(500)
                 self.end_headers()
                 return
-            tier, confidence = picked
-            probs = {t: 0.0 for t in ("haiku", "sonnet", "opus")}
+            if "slow" in t:
+                time.sleep(20)
+                self.send_response(500)
+                self.end_headers()
+                return
+            if "bad-tier" in t:
+                answers[key] = {"type": "choice", "choice": "nonsense",
+                                "confidence": 0.9, "probabilities": {}}
+                continue
+            if "no-confidence" in t:
+                answers[key] = {"type": "choice", "choice": "sonnet",
+                                "probabilities": {"sonnet": 0.9}}
+                continue
+            if "not-dict" in t:
+                answers[key] = "oops-not-a-dict"
+                continue
+            if "cased tier" in t:
+                answers[key] = {"type": "choice", "choice": " Sonnet ",
+                                "confidence": 0.9, "probabilities": {"sonnet": 0.9}}
+                continue
+            if "unsure" in t:
+                tier, confidence = "haiku", 0.3
+            elif "concurrency" in t:
+                tier, confidence = "opus", 0.95
+            elif "endpoint" in t:
+                tier, confidence = "sonnet", 0.8
+            elif "doubtful opus" in t:
+                tier, confidence = "opus", 0.2
+            else:
+                tier, confidence = "haiku", 0.9
+            probs = {p: 0.0 for p in ("haiku", "sonnet", "opus")}
             probs[tier] = confidence
             answers[key] = {"type": "choice", "choice": tier,
                             "confidence": confidence, "probabilities": probs}
@@ -188,5 +208,89 @@ check_failure_marker "failure marker printed on exit 3" 3
 printf '%s' "$three" > "$work/in.json"
 out=$("$SCRIPT" "$work/in.json" 2>/dev/null); code=$?
 check_code "file argument: routed" "$code" 0
+
+# --- gaps 36-44 -------------------------------------------------------
+
+six='{"task":"t","steps":[{"title":"a"},{"title":"b"},{"title":"c"},{"title":"d"},{"title":"e"},{"title":"f"}]}'
+run "$six"
+check_code "more than five steps: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (six steps)" 2
+
+dup='{"task":"t","steps":[{"id":1,"title":"Endpoint one"},{"id":1,"title":"Endpoint two"}]}'
+run "$dup"
+check_code "duplicate ids: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (duplicate ids)" 2
+
+missing_id='{"task":"t","steps":[{"id":5,"title":"Endpoint A"},{"title":"Endpoint B"}]}'
+run "$missing_id"
+check_code "missing id alongside an explicit one: routed" "$code" 0
+check_eq "explicit id kept, missing id falls back to its index" "$(printf '%s' "$out" | jq -c '[.steps[].id]')" '[5,2]'
+
+cased='{"task":"t","steps":[{"id":1,"title":"Cased tier step"}]}'
+run "$cased"
+check_code "tier parsed case- and whitespace-insensitively: routed" "$code" 0
+check_eq "padded, mixed-case tier still parses" "$(printf '%s' "$out" | jq -r '.steps[0].tier')" "sonnet"
+
+noconf='{"task":"t","steps":[{"id":1,"title":"No-confidence step"}]}'
+run "$noconf"
+check_code "missing confidence: routed" "$code" 0
+check_eq "missing confidence comes back null" "$(printf '%s' "$out" | jq -r '.steps[0].confidence')" "null"
+check_eq "missing confidence never escalates" "$(printf '%s' "$out" | jq -r '.steps[0].escalated')" "false"
+check_eq "one warning about the missing confidence" "$(grep -c 'no confidence' "$work/stderr")" "1"
+check_no_failure_marker "missing confidence is not a routing failure"
+
+notdict='{"task":"t","steps":[{"id":1,"title":"Not-dict step"}]}'
+run "$notdict"
+check_code "non-dict answer: exit 4" "$code" 4
+check_failure_marker "failure marker printed on exit 4 (non-dict answer)" 4
+
+badtier='{"task":"t","steps":[{"id":1,"title":"Bad-tier step"}]}'
+run "$badtier"
+check_code "tier outside TIERS: exit 4" "$code" 4
+check_failure_marker "failure marker printed on exit 4 (bad tier)" 4
+
+CLAUDE_1337_TIER_FLOOR=2 run "$three"
+check_code "floor above 1: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (floor above 1)" 2
+
+CLAUDE_1337_TIER_FLOOR=-0.1 run "$three"
+check_code "floor below 0: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (floor below 0)" 2
+
+CLAUDE_1337_TIER_FLOOR=nope run "$three"
+check_code "floor not a number: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (floor not a number)" 2
+
+# Transport: with no TYPESAFE_API_KEY, an OpenRouter key routes over the
+# decisions endpoint instead, and the request names the OpenRouter model.
+TYPESAFE_API_KEY= OPENROUTER_API_KEY=test-or-key \
+  OPENROUTER_BASE_URL="http://127.0.0.1:$(cat "$work/port")" run "$three"
+check_code "openrouter transport: routed" "$code" 0
+check_eq "openrouter path" "$(cat "$work/last-path.txt")" "/api/alpha/decisions"
+check_eq "openrouter model in the request" "$(jq -r .model "$work/last-request.json")" "typesafe/jev-1.13"
+
+# Wall clock: a server that never answers must not cost more than the 5s
+# timeout plus the one JevError-triggering attempt (no retry on a timeout,
+# only on an HTTP status), nowhere near the 20s the stand-in sleeps.
+slow='{"task":"t","steps":[{"id":1,"title":"Slow step"}]}'
+start=$(date +%s)
+run "$slow"
+elapsed=$(( $(date +%s) - start ))
+check_code "slow server: exit 4" "$code" 4
+if [ "$elapsed" -lt 10 ]; then
+  printf 'ok   %s\n' "wall clock stays near the 5s timeout (${elapsed}s)"
+else
+  printf 'FAIL %s (%ss)\n' "wall clock stays near the 5s timeout" "$elapsed"; fail=1
+fi
+
+# The exit-3 text names one setup path, the same in all three places.
+setup_path='/1337:visual setup'
+for f in "$ROOT/skills/tier/route.py" "$ROOT/hooks/tiered.md" "$ROOT/skills/tier/SKILL.md"; do
+  if grep -qF -- "$setup_path" "$f"; then
+    printf 'ok   %s\n' "exit-3 setup path named in $(basename "$f")"
+  else
+    printf 'FAIL %s\n' "exit-3 setup path named in $(basename "$f")"; fail=1
+  fi
+done
 
 exit $fail
