@@ -393,4 +393,23 @@ check_eq "--reference over 20 MB: no request at all" "$([ -f "$work/requests.jso
 run --model acme/video --modality video --prompt "x" --reference "$ref_png"
 check_code "--reference on video: usage exit 2" "$code" 2
 
+# --- --preview (#642) ---
+preview_bin="$work/preview-bin"
+mkdir -p "$preview_bin"
+cat > "$preview_bin/google-chrome" <<'EOF'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    --screenshot=*) printf '%s' "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" | base64 -d > "${arg#--screenshot=}" ;;
+  esac
+done
+exit 0
+EOF
+chmod +x "$preview_bin/google-chrome"
+run_with_preview_path() { rm -f "$work/requests.jsonl"; out=$(PATH="$preview_bin:$PATH" "$SCRIPT" "$@" 2>"$work/stderr"); code=$?; }
+run_with_preview_path --model acme/paint --modality raster_image --prompt "A fox with a preview" --preview
+check_code "--preview: still written and exit 0" "$code" 0
+check_eq "--preview: JSON line gets a preview path" "$([ -n "$(field .preview)" ] && echo yes || echo no)" "yes"
+[ -s "$(field .preview)" ] && printf 'ok   --preview: preview file exists\n' || { printf 'FAIL --preview: preview file missing (%s)\n' "$(field .preview)"; fail=1; }
+
 exit $fail

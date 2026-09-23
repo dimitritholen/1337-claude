@@ -11,7 +11,7 @@ work when the plugin is installed and used in any folder, not only this one.
   so the plugin installs as `1337@1337-claude`.
 - `skills/<name>/SKILL.md`: one folder per skill.
 - `skills/visual/`: the visual routing set (`SKILL.md`, `setup-key.py`,
-  `catalogue.py`, `route.py`, `generate.py`), each described below.
+  `catalogue.py`, `route.py`, `generate.py`, `preview.py`), each described below.
 - `lib/keys.py` + `lib/jev.py`: stdlib-only helper every script that talks
   to Jev imports (`sys.path.insert(0, <plugin root>)`, then `from lib import
   keys, jev`). `keys.get(NAME)` reads the environment, then
@@ -74,10 +74,26 @@ work when the plugin is installed and used in any folder, not only this one.
   `image_url` content part on chat/completions, an `image` list on
   `/api/v1/images` (unverified against a live edit call). Refused before any
   request when `catalogue.reference_supported` says the model takes no image
-  input. Exit 3 no key, 4 API failure, 5 failed video job, 6 model unusable
+  input. `--preview` calls `preview.py`'s `make_preview()` in-process on the
+  written file and adds a `preview` path to the JSON line; a preview
+  failure never fails the command, since the paid file is already written.
+  Exit 3 no key, 4 API failure, 5 failed video job, 6 model unusable
   for this account, 7 `--transparent` on a non-alpha model, 8 `--reference`
   on a model with no image input. Test: `tests/generate.test.sh` (stand-in
   OpenRouter).
+- `skills/visual/preview.py`: `<file>...` [`--out path.png`] writes a
+  self-contained HTML contact sheet showing each file twice, on GitHub dark
+  (`#0d1117`) and white (`#ffffff`), with name and dimensions when known
+  (`lib/png.py` for PNG, the SVG's `viewBox`), images embedded as data URLs.
+  Renders it through whichever of `google-chrome`, `google-chrome-stable`,
+  `chromium`, `chromium-browser` is first on PATH
+  (`--headless=new --screenshot=... --window-size=... --allow-file-access-from-files
+  --hide-scrollbars --default-background-color=00000000`, 30 s timeout) into
+  one PNG. Default output a `tempfile.mkdtemp(prefix="1337-preview-")`
+  temp dir; `--out` names the PNG, the HTML goes next to it. Prints the PNG
+  path, or the HTML path (with one stderr note) when there is no browser or
+  it fails — never a non-zero exit for that. Exit 2 a missing input file.
+  Test: `tests/preview.test.sh` (fake `google-chrome` on a temp PATH).
 - `skills/visual/catalogue.py`: `models(modality)` lists OpenRouter's
   generation models for `raster_image`, `vector_svg`, `video` or `speech`
   with one price and unit each (image token, second or video token,

@@ -36,11 +36,20 @@ that choice.
      --model <chosen id> --modality raster_image|vector_svg|video|speech \
      --prompt "<the user's prompt, verbatim>" [--out <path>] \
      [--endpoint auto|chat|images] [--aspect 16:9] [--duration 8] [--voice alloy] \
-     [--transparent] [--trim [--trim-margin 32]] [--reference <file>]
+     [--transparent] [--trim [--trim-margin 32]] [--reference <file>] [--preview]
    ```
 
    `--trim` (raster PNG only) crops fully-transparent margins, leaving
    `--trim-margin` pixels (default 32); pairs well with `--transparent`.
+
+   `--preview` also writes a contact sheet showing the file on GitHub dark
+   and on white, side by side, through `skills/visual/preview.py` — the
+   quick way to check how a logo or icon reads on both. It adds a
+   `preview` path to the JSON line: a PNG when a headless Chrome or
+   Chromium is on PATH, else the HTML page itself. Run `preview.py
+   <file>...` by hand the same way on a file made earlier, or on more than
+   one file at once, when the user asks how something looks on light and
+   dark rather than asking for a new generation.
 
    When the user asks to edit or vary a previous output rather than start
    over, pass `--reference <that path>` (raster or vector only). It only

@@ -3,7 +3,7 @@
 
     generate.py --model <id> --modality raster_image|vector_svg|video|speech
                 --prompt <text> [--out <path>] [--aspect 16:9] [--duration 8]
-                [--voice alloy] [--transparent] [--reference <file>]
+                [--voice alloy] [--transparent] [--reference <file>] [--preview]
 
 Raster and vector go through POST /api/v1/chat/completions with
 modalities ["image"]; the first message.images entry is a data
@@ -44,6 +44,12 @@ in the SVG is touched.
 --trim-margin N pixels (default 32) left around the remaining content,
 clamped to the image; a no-op with a stderr note for any other format.
 
+--preview calls preview.py's make_preview() in-process on the written
+file once it is on disk, and adds its result path ("preview" in the
+stdout JSON) — the contact-sheet PNG when a headless browser rendered
+one, else the HTML. Never fails generate.py: the paid file already
+exists, so any exception is a stderr note only.
+
 The file goes to --out, else assets/<slug of the prompt>.<ext> under the
 current directory, never overwriting (a -2, -3 suffix instead). Stdout
 is one JSON line: path, model, modality, media_type, cost (USD from the
@@ -74,6 +80,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, HERE)
 from lib import keys, png  # noqa: E402
 import catalogue  # noqa: E402
+import preview  # noqa: E402
 
 MODALITIES = ("raster_image", "vector_svg", "video", "speech")
 EXTENSIONS = {
@@ -436,6 +443,8 @@ def main(argv):
     parser.add_argument("--trim-margin", type=int, default=32,
                         help="margin left around the content when --trim crops (default 32)")
     parser.add_argument("--reference", help="existing PNG/JPEG/WebP/SVG to edit or vary (raster and vector only)")
+    parser.add_argument("--preview", action="store_true",
+                        help="also write a GitHub dark/light contact sheet through preview.py")
     args = parser.parse_args(argv[1:])
     if not args.prompt.strip():
         parser.error("--prompt must not be empty")
@@ -512,8 +521,20 @@ def main(argv):
         os.makedirs(directory, exist_ok=True)
     with open(path, "wb") as f:
         f.write(raw)
-    print(json.dumps({"path": path, "model": args.model, "modality": args.modality,
-                      "media_type": media_type, "bytes": len(raw), "cost": cost}))
+
+    result = {"path": path, "model": args.model, "modality": args.modality,
+              "media_type": media_type, "bytes": len(raw), "cost": cost}
+    if args.preview:
+        # The paid file is already on disk; a preview failure must never
+        # take that away, so any exception here is a stderr note, not
+        # a non-zero exit.
+        try:
+            preview_result = preview.make_preview([path])
+            result["preview"] = preview_result.get("png") or preview_result["html"]
+        except Exception as e:  # noqa: BLE001 - same data-loss guard as svg cleanup/--trim above
+            print(f"generate: --preview skipped: {type(e).__name__}: {e}", file=sys.stderr)
+
+    print(json.dumps(result))
     return 0
 
 
