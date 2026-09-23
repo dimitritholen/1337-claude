@@ -66,9 +66,37 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.record()
         if self.path == "/api/v1/models?output_modalities=image":
+            # Escalation fixture: acme/gen is the "current" generator (price
+            # .00003); acme/gen-cheap is cheaper (excluded by the price
+            # floor), acme/gen-best/-better/-extra are pricier candidates
+            # that take a reference image, acme/gen-noimage-hi is pricier
+            # but takes no image input (excluded).
             self.send_json(200, {"data": [
-                {"id": "acme/gen", "architecture": {"input_modalities": ["text", "image"]}},
+                {"id": "acme/gen", "name": "Acme Gen", "description": "Current generator.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.00003"}},
                 {"id": "acme/gen-noref", "architecture": {"input_modalities": ["text"]}},
+                {"id": "acme/gen-cheap", "name": "Acme Cheap", "description": "Cheaper, excluded by price.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.00001"}},
+                {"id": "acme/gen-best", "name": "Acme Best", "description": "Jev's recommended pick.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.00004"}},
+                {"id": "acme/gen-better", "name": "Acme Better", "description": "Another candidate.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.00005"}},
+                {"id": "acme/gen-extra", "name": "Acme Extra", "description": "Yet another candidate.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.00006"}},
+                {"id": "acme/gen-noimage-hi", "name": "Acme No Image", "description": "No reference support, excluded.",
+                 "architecture": {"input_modalities": ["text"]}, "pricing": {"image_output": "0.00009"}},
+                {"id": "acme/gen-sort", "name": "Acme Sort", "description": "Current generator for the sort-order test.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.0000001"}},
+                {"id": "acme/gen-sort-a", "name": "Acme Sort A", "description": "Cheapest sort candidate.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.000005"}},
+                {"id": "acme/gen-sort-b", "name": "Acme Sort B", "description": "Second-cheapest sort candidate, highest probability.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.000006"}},
+                {"id": "acme/gen-sort-c", "name": "Acme Sort C", "description": "Middle-priced sort candidate, zero probability.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.000007"}},
+                {"id": "acme/gen-sort-d", "name": "Acme Sort D", "description": "Second-highest priced sort candidate, second-highest probability.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.000008"}},
+                {"id": "acme/gen-sort-e", "name": "Acme Sort E", "description": "Priciest sort candidate, zero probability.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.000009"}},
             ]}); return
         self.send_json(404, {"error": {"message": "no such path"}})
 
@@ -78,6 +106,32 @@ class Handler(BaseHTTPRequestHandler):
         model = body.get("model", "")
         messages = body.get("messages") or []
         is_critic = bool(messages) and messages[0].get("role") == "system"
+
+        if self.path == "/api/alpha/decisions":
+            state = body.get("state") or {}
+            if state.get("current_model") == "acme/gen-jevboom":
+                self.send_json(500, {"error": {"message": "stand-in exploded"}}); return
+            criteria = body["questions"]["model"]["criteria"]
+            ids = list(criteria)
+            # Non-monotonic probabilities over price-ordered candidates, to prove
+            # build_escalation sorts by probability rather than trusting the
+            # cheapest-first order rank_models hands back.
+            sort_probs = {"acme/gen-sort-a": 0.01, "acme/gen-sort-b": 0.66,
+                          "acme/gen-sort-c": 0.0, "acme/gen-sort-d": 0.33, "acme/gen-sort-e": 0.0}
+            if set(ids) & set(sort_probs):
+                pick = "acme/gen-sort-b"
+                conf = sort_probs[pick]
+                probs = {i: sort_probs.get(i, 0.0) for i in ids}
+                self.send_json(200, {"model": "jev-stand-in", "id": "req-jev", "answers": {
+                    "model": {"type": "choice", "choice": pick, "confidence": conf, "probabilities": probs}}})
+                return
+            pick = next((i for i in ids if "best" in i), ids[0])
+            conf = 0.7
+            probs = {i: round((1 - conf) / max(1, len(ids) - 1), 3) for i in ids}
+            probs[pick] = conf
+            self.send_json(200, {"model": "jev-stand-in", "id": "req-jev", "answers": {
+                "model": {"type": "choice", "choice": pick, "confidence": conf, "probabilities": probs}}})
+            return
 
         if self.path != "/api/v1/chat/completions":
             self.send_json(404, {"error": {"message": "no such path"}}); return
@@ -255,5 +309,99 @@ check_eq "wide svg: window-size argument present" "$([ -n "$window_size" ] && ec
 win_w="$(printf '%s' "$window_size" | sed 's/^--window-size=//' | cut -d, -f1)"
 win_h="$(printf '%s' "$window_size" | sed 's/^--window-size=//' | cut -d, -f2)"
 check_eq "wide svg: window keeps the SVG's 4:1 aspect ratio" "$((win_w * 100 / win_h))" "400"
+
+# --- escalation: fail after rounds offers priced, reference-taking, untried models ---
+run original.png --prompt "A red fox" --model acme/gen --critic acme/critic-fail-simple --rounds 1
+check_code "escalation: exit 0" "$code" 0
+check_eq "escalation: still failing" "$(field .pass)" "false"
+ids="$(field '.escalation.options | map(.id) | join(",")')"
+check_eq "escalation: current model excluded" "$(printf '%s' ",$ids," | grep -c ',acme/gen,')" "0"
+check_eq "escalation: cheaper model excluded" "$(printf '%s' "$ids" | grep -c 'acme/gen-cheap')" "0"
+check_eq "escalation: model without image input excluded" "$(printf '%s' "$ids" | grep -c 'acme/gen-noimage-hi')" "0"
+check_eq "escalation: pricier reference-taking candidates offered" "$ids" "acme/gen-best,acme/gen-better,acme/gen-extra"
+check_eq "escalation: recommended is acme/gen-best" "$(field .escalation.recommended)" "acme/gen-best"
+check_eq "escalation: recommended comes first" "$(field '.escalation.options[0].id')" "acme/gen-best"
+command="$(field .escalation.command)"
+check_eq "escalation: command carries the <MODEL> placeholder" "$(printf '%s' "$command" | grep -c -- '--model <MODEL>')" "1"
+check_eq "escalation: command names --defects-file" "$(printf '%s' "$command" | grep -c -- '--defects-file')" "1"
+check_eq "escalation: command names --tried with the current model" "$(printf '%s' "$command" | grep -c -- '--tried acme/gen')" "1"
+check_eq "escalation: command carries --rounds 1 for a --rounds 1 run" "$(printf '%s' "$command" | grep -c -- '--rounds 1')" "1"
+prompt_file="$(printf '%s' "$command" | grep -o -- '--prompt-file [^ ]*' | cut -d' ' -f2)"
+defects_file="$(printf '%s' "$command" | grep -o -- '--defects-file [^ ]*' | cut -d' ' -f2)"
+check_eq "escalation: prompt file holds the original prompt" "$(cat "$prompt_file")" "A red fox"
+check_eq "escalation: defects file holds the final defects" "$(jq -r '.[0].fix' "$defects_file")" "remove the smudge"
+
+# --- escalation: --rounds 0 (judge only) still yields a --rounds 1 command ---------
+run original.png --prompt "A red fox" --model acme/gen --critic acme/critic-fail-simple --rounds 0
+check_code "escalation, rounds 0: exit 0" "$code" 0
+command0="$(field .escalation.command)"
+check_eq "escalation, rounds 0: command uses --rounds 1, not --rounds 0" \
+  "$(printf '%s' "$command0" | grep -o -- '--rounds [0-9]*')" "--rounds 1"
+
+# --- escalation: --rounds 2 keeps --rounds 2 in the command -------------------------
+run original.png --prompt "A blue jay" --model acme/gen --critic acme/critic-worsening --rounds 2
+command2="$(field .escalation.command)"
+check_eq "escalation, rounds 2: command keeps --rounds 2" \
+  "$(printf '%s' "$command2" | grep -o -- '--rounds [0-9]*')" "--rounds 2"
+
+# --- escalation: options cut to 3, ordered by Jev probability, not price -----------
+run original.png --prompt "A red fox" --model acme/gen-sort --critic acme/critic-fail-simple --rounds 1 \
+  --tried "acme/gen,acme/gen-best,acme/gen-better,acme/gen-extra,acme/gen-cheap"
+check_code "escalation, sort order: exit 0" "$code" 0
+check_eq "escalation, sort order: at most 3 options" "$(field '.escalation.options | length')" "3"
+check_eq "escalation, sort order: recommended (highest probability) first" "$(field '.escalation.options[0].id')" "acme/gen-sort-b"
+check_eq "escalation, sort order: options ordered by probability descending, not price" \
+  "$(field '.escalation.options | map(.id) | join(",")')" "acme/gen-sort-b,acme/gen-sort-d,acme/gen-sort-a"
+check_eq "escalation, sort order: recommended is the top-probability model" "$(field .escalation.recommended)" "acme/gen-sort-b"
+
+# --- escalation: no key under pass, no escalation key at all -----------------------
+run original.png --prompt "A red fox" --model acme/gen --critic acme/critic-pass
+check_code "escalation, passing result: exit 0" "$code" 0
+check_eq "escalation, passing result: no escalation key" "$(field 'has("escalation")')" "false"
+check_eq "escalation, passing result: no escalation_error key" "$(field 'has("escalation_error")')" "false"
+
+# --- escalation: Jev failure never fails the run ------------------------------------
+run original.png --prompt "A red fox" --model acme/gen-jevboom --critic acme/critic-fail-simple --rounds 0
+check_code "escalation, Jev failure: exit 0" "$code" 0
+check_eq "escalation, Jev failure: no escalation key" "$(field 'has("escalation")')" "false"
+check_eq "escalation, Jev failure: escalation_error reports the JevError" "$(field .escalation_error | grep -c 'JevError')" "1"
+
+# --- escalation: no candidates left after --tried -----------------------------------
+run original.png --prompt "A red fox" --model acme/gen --critic acme/critic-fail-simple --rounds 0 \
+  --tried "acme/gen-cheap,acme/gen-best,acme/gen-better,acme/gen-extra,acme/gen-noimage-hi"
+check_code "escalation, no candidates: exit 0" "$code" 0
+check_eq "escalation, no candidates: no escalation key" "$(field 'has("escalation")')" "false"
+check_eq "escalation, no candidates: escalation_error reports it" "$(field .escalation_error | grep -c 'no escalation candidates')" "1"
+
+# --- escalation: --tried excludes those models from the next round -----------------
+run original.png --prompt "A red fox" --model acme/gen --critic acme/critic-fail-simple --rounds 0 \
+  --tried "acme/gen-best,acme/gen-better"
+check_code "escalation, --tried narrows candidates: exit 0" "$code" 0
+check_eq "escalation, --tried narrows candidates: only the untried one offered" \
+  "$(field '.escalation.options | map(.id) | join(",")')" "acme/gen-extra"
+check_eq "escalation, --tried narrows candidates: it is the recommendation" "$(field .escalation.recommended)" "acme/gen-extra"
+
+# --- --defects-file: seeds the first result, no critic call before the fix round ----
+cat > "$work/seed-defects.json" <<'EOF'
+[{"type": "artifact", "where": "a smudge", "box": null, "severity": 5, "fix": "remove the smudge"}]
+EOF
+run original.png --prompt "A red fox" --model acme/gen --critic acme/critic-pass --defects-file "$work/seed-defects.json" --rounds 1
+check_code "--defects-file: exit 0" "$code" 0
+check_eq "--defects-file: eventually passes through the fix round" "$(field .pass)" "true"
+chat_requests="$(jq -c 'select(.path=="/api/v1/chat/completions")' "$work/requests.jsonl")"
+check_eq "--defects-file: first chat call is the generator, not the critic" \
+  "$(printf '%s' "$chat_requests" | head -n1 | jq -r '.body.messages[0].role')" "user"
+check_eq "--defects-file: exactly one critic call, after the fix round" \
+  "$(printf '%s' "$chat_requests" | jq -r '.body.messages[0].role' | grep -c '^system$')" "1"
+ref_url2="$(printf '%s' "$chat_requests" | head -n1 | jq -r '.body.messages[0].content[1].image_url.url')"
+check_eq "--defects-file: fix round references the input file" \
+  "$(printf '%s' "$ref_url2" | sed 's/^data:image\/png;base64,//' | base64 -d | cmp -s - original.png && echo same || echo different)" "same"
+
+# --- naming: an escalated run on x.r1.png writes x.r2.png, not x.r1.r1.png ----------
+cp original.png escnaming.r1.png
+run escnaming.r1.png --prompt "A red fox" --model acme/gen --critic acme/critic-pass --defects-file "$work/seed-defects.json" --rounds 1
+check_code "naming: exit 0" "$code" 0
+check_eq "naming: continues the round count instead of restarting" "$(field .final)" "escnaming.r2.png"
+[ -s escnaming.r2.png ] && printf 'ok   naming: escnaming.r2.png written\n' || { printf 'FAIL naming: escnaming.r2.png missing\n'; fail=1; }
 
 exit $fail

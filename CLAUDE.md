@@ -11,8 +11,8 @@ work when the plugin is installed and used in any folder, not only this one.
   so the plugin installs as `1337@1337-claude`.
 - `skills/<name>/SKILL.md`: one folder per skill.
 - `skills/visual/`: the visual routing set (`SKILL.md`, `setup-key.py`,
-  `catalogue.py`, `route.py`, `generate.py`, `critique.py`, `preview.py`),
-  each described below.
+  `catalogue.py`, `route.py`, `generate.py`, `critique.py`, `ranking.py`,
+  `preview.py`), each described below.
 - `lib/keys.py` + `lib/jev.py`: stdlib-only helper every script that talks
   to Jev imports (`sys.path.insert(0, <plugin root>)`, then `from lib import
   keys, jev`). `keys.get(NAME)` reads the environment, then
@@ -46,7 +46,8 @@ work when the plugin is installed and used in any folder, not only this one.
   Choice for the modality (floor on the summed visual probability; a prompt
   can carry more than one modality, each at 0.3 or more,
   `CLAUDE_1337_VISUAL_MULTI`), one concurrent Choice per modality over its
-  six cheapest catalogue models, and one additionalContext block telling
+  six cheapest catalogue models (`ranking.rank_models`, the Jev-ranking
+  helper shared with `critique.py`'s escalation), and one additionalContext block telling
   Claude to ask with a single AskUserQuestion call, one question per
   modality (Jev's pick first and Recommended, prices in every label,
   stay-with-Claude last), and run generate.py once per chosen model. A
@@ -113,14 +114,43 @@ work when the plugin is installed and used in any folder, not only this one.
   and rounds used are under `--rounds` (default 2), the defects drive one
   more generation (the current file as `--reference` when
   `catalogue.reference_supported` allows it), written next to the original
-  as `<stem>.rN.<ext>` and judged in turn; the final file is the passing
-  one, else the lowest-scored (a fix can make things worse), ties to the
-  later file. Also importable as `from critique import run`, called by
-  `generate.py` after every raster/vector write; `run()` never prints or
-  exits. Exit 0 done (pass or not), 2 bad args/missing file/unsupported
-  type, 3 no key, 4 API or catalogue failure, 9 the critic reply is still
-  unparseable after one retry. Test: `tests/critique.test.sh` (stand-in
-  OpenRouter, fake `google-chrome`).
+  as `<stem>.rN.<ext>` — an original that is itself an `.rM` file (an
+  escalated run continuing an earlier critique) has that suffix stripped
+  and its number carried forward, so naming continues (`x.r1.png` ->
+  `x.r2.png`) instead of nesting (`x.r1.r1.png`); the final file is the
+  passing one, else the lowest-scored (a fix can make things worse), ties
+  to the later file. `--defects-file <path>` (a JSON list of defects, or
+  `{"defects": [...]}`) seeds the first judged result instead of calling
+  the critic, for a run continuing an earlier critique with a new
+  `--model`; `--tried <id,id,...>` lists model ids already attempted. When
+  the final result still has `pass` false, an `escalation` block is added:
+  up to 10 priced, reference-taking models of the same modality, not yet
+  tried and priced at or above the current model (`catalogue.models`,
+  `ranking.rank_models` for the ranking, shared with `route.py`'s own
+  model choice), cut to the 3 highest by Jev probability (ties by lower
+  price), Jev's recommended pick always first, plus a `command` holding a
+  literal `<MODEL>` placeholder — `--rounds` at least 1 even when the
+  failed run used `--rounds 0` (judge-only), so the escalated run actually
+  generates something — that writes the prompt and final defects to a
+  fresh temp dir and re-invokes this file with
+  `--defects-file`/`--tried`/`--model <MODEL>`. Any failure building
+  it (no key, Jev, catalogue, no candidates) never raises: `escalation_error`
+  instead, the same "must never fail" rule as a critic failure. Also
+  importable as `from critique import run`, called by `generate.py` after
+  every raster/vector write; `run()` never prints or exits. Exit 0 done
+  (pass or not), 2 bad args/missing file/unsupported type, 3 no key, 4 API
+  or catalogue failure, 9 the critic reply is still unparseable after one
+  retry. Test: `tests/critique.test.sh` (stand-in OpenRouter and Jev, fake
+  `google-chrome`).
+- `skills/visual/ranking.py`: `price_label(entry)`, `criterion(entry)` and
+  `rank_models(entries, state, question, floor, timeout)` — the one Jev
+  Choice pattern `route.py`'s per-modality model ranking and
+  `critique.py`'s escalation ranking both use: each catalogue entry gets a
+  `probability` field from Jev's answer, and the return is
+  `(ranked, recommended)`, `recommended` `None` when Jev's own confidence
+  is under `floor` (`ranked` then keeps cheapest-first order). Covered by
+  `tests/visual-route.test.sh` and `tests/critique.test.sh`; no test file
+  of its own.
 - `skills/visual/preview.py`: `<file>...` [`--out path.png`] writes a
   self-contained HTML contact sheet showing each file twice, on GitHub dark
   (`#0d1117`) and white (`#ffffff`), with name and dimensions when known

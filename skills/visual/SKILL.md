@@ -65,6 +65,21 @@ that choice.
    there. `--trim` runs before the critique, so the critic sees the
    trimmed file; a fix round's own output is not trimmed.
 
+   When `critique.pass` is still false after the fix rounds and
+   `critique.escalation` is present, ask ONE more `AskUserQuestion`
+   (header "Model", showing the remaining `defects` in the question text):
+   `escalation.recommended` first labelled "(Recommended)", up to two more
+   of `escalation.options`, each with its price and unit in the label, and
+   "Keep current result" last. On a model pick, run
+   `escalation.command` with `<MODEL>` replaced by the chosen id, again
+   with a Bash timeout of 600000 ms; the result has the same `critique`
+   shape, so repeat this same question while the user keeps escalating. On
+   "Keep current result" report the `final` file and its `defects` as
+   usual. When `critique.escalation_error` is present instead (no
+   candidates, no key, a Jev or catalogue failure), report the remaining
+   `defects` and that reason in one line — never a blocker, the paid file
+   is already there.
+
    `--trim` (raster PNG only) crops fully-transparent margins, leaving
    `--trim-margin` pixels (default 32); pairs well with `--transparent`.
 

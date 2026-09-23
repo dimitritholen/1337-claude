@@ -69,6 +69,9 @@ def critic_answer(model):
             return False, [{"type": "artifact", "where": "a smudge", "box": None,
                             "severity": 5, "fix": "remove the smudge"}]
         return True, []
+    if model == "acme/critic-always-fail":
+        return False, [{"type": "artifact", "where": "a smudge", "box": None,
+                        "severity": 5, "fix": "remove the smudge"}]
     return True, []
 
 class Handler(BaseHTTPRequestHandler):
@@ -109,8 +112,11 @@ class Handler(BaseHTTPRequestHandler):
                                           {"id": "acme/tts-mute", "supported_voices": []}]}); return
         if self.path == "/api/v1/models?output_modalities=image":
             self.send_json(200, {"data": [
-                {"id": "acme/paint", "architecture": {"input_modalities": ["text", "image"]}},
+                {"id": "acme/paint", "name": "Acme Paint", "description": "The default test model.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.00002"}},
                 {"id": "acme/paint-noref", "architecture": {"input_modalities": ["text"]}},
+                {"id": "acme/paint-hi", "name": "Acme Paint Hi", "description": "Pricier escalation candidate.",
+                 "architecture": {"input_modalities": ["text", "image"]}, "pricing": {"image_output": "0.00005"}},
             ]}); return
         if self.path.startswith("/api/v1/generation?id="):
             gen = self.path.split("=", 1)[1]
@@ -124,6 +130,16 @@ class Handler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         self.record(body)
         model = body.get("model", "")
+        if self.path == "/api/alpha/decisions":
+            criteria = body["questions"]["model"]["criteria"]
+            ids = list(criteria)
+            pick = ids[0]
+            conf = 0.7
+            probs = {i: round((1 - conf) / max(1, len(ids) - 1), 3) for i in ids}
+            probs[pick] = conf
+            self.send_json(200, {"model": "jev-stand-in", "id": "req-jev", "answers": {
+                "model": {"type": "choice", "choice": pick, "confidence": conf, "probabilities": probs}}})
+            return
         if "boom" in model:
             self.send_json(500, {"error": {"message": "stand-in exploded"}}); return
         if "forbidden" in model:
@@ -569,6 +585,11 @@ check_code "critique import failure: still exit 0 (paid file already written)" "
 check_eq "critique import failure: critique.error present" "$([ -n "$(field .critique.error)" ] && [ "$(field .critique.error)" != "null" ] && echo yes || echo no)" "yes"
 check_eq "critique import failure: stderr note" "$(grep -c 'generate: critique skipped:' "$work/stderr")" "1"
 check_eq "critique import failure: file still exists" "$([ -s "$(field .path)" ] && echo yes || echo no)" "yes"
+
+CLAUDE_1337_CRITIQUE=1 run --model acme/paint --modality raster_image --prompt "A fox, never passes" --critic acme/critic-always-fail --rounds 0
+check_code "critique escalation: still exit 0" "$code" 0
+check_eq "critique escalation: critique.pass false" "$(field .critique.pass)" "false"
+check_eq "critique escalation: critique.escalation present with a recommendation" "$(field .critique.escalation.recommended)" "acme/paint-hi"
 
 CLAUDE_1337_CRITIQUE=1 run --model acme/video --modality video --prompt "A fox, no critique for video" --duration 2
 check_code "video: still written, critique never applies" "$code" 0

@@ -47,6 +47,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, HERE)
 from lib import jev, keys  # noqa: E402
 import catalogue  # noqa: E402
+import ranking  # noqa: E402
 
 PREFILTER = re.compile(
     r"\b(image|images|picture|pictures|illustration|illustrations|logo|logos|icon|icons|"
@@ -82,24 +83,12 @@ def budget(started):
     return min(CALL_TIMEOUT, DEADLINE - (time.monotonic() - started))
 
 
-def price_label(entry):
-    price, unit = entry["price"], entry["unit"]
-    if unit in ("image token", "character", "video token"):
-        return f"${price * 1000:.4f} per 1K {unit}s"
-    return f"${price:.3f} per {unit}"
-
-
-def criterion(entry):
-    description = re.sub(r"\s+", " ", entry["description"])[:240]
-    return f"{entry['name']}: {description} Price {price_label(entry)}."
-
-
 def options(ranked, recommended):
     lines = []
     for i, entry in enumerate(ranked, 1):
         tag = " (Recommended)" if entry is recommended else ""
         lines.append(
-            f"{i}. {entry['id']}{tag} — {entry['name']}, {price_label(entry)}, "
+            f"{i}. {entry['id']}{tag} — {entry['name']}, {ranking.price_label(entry)}, "
             f"Jev {entry['probability']:.2f}"
         )
     lines.append(f"{len(ranked) + 1}. Stay with Claude — no OpenRouter call, Claude writes or "
@@ -193,22 +182,14 @@ def pick_models(prompt, modality, floor, started, transparent=False):
     entries = entries[:CANDIDATES]
     if not entries:
         return None
-    by_id = {e["id"]: e for e in entries}
-    answer = jev.decide(
+    ranked, recommended = ranking.rank_models(
+        entries,
         {"prompt": prompt, "modality": modality},
-        {"model": jev.choice(
-            "Which model should make what the prompt asks for? Weigh fit to the prompt "
-            "against price; the cheapest model that can do it well wins.",
-            {e["id"]: criterion(e) for e in entries})},
-        timeout=budget(started),
-    )["answers"]["model"]
-    probabilities = answer.get("probabilities") or {}
-    for e in entries:
-        e["probability"] = float(probabilities.get(e["id"], 0.0))
-    recommended = by_id.get(answer.get("choice"))
-    if recommended is None or float(answer.get("confidence") or 0.0) < floor:
-        recommended = None
-    ranked = ([recommended] if recommended else []) + [e for e in entries if e is not recommended]
+        "Which model should make what the prompt asks for? Weigh fit to the prompt "
+        "against price; the cheapest model that can do it well wins.",
+        floor,
+        budget(started),
+    )
     return modality, ranked[:SHOWN], recommended
 
 

@@ -5,6 +5,7 @@ fix what's wrong, for up to --rounds tries.
     critique.py <file> (--prompt <text> | --prompt-file <path>)
                 --model <generator model id>
                 [--rounds N] [--critic <model id>] [--aspect 16:9] [--transparent]
+                [--defects-file <path>] [--tried <id,id,...>]
 
 <file> is the image or SVG generate.py already wrote (video and speech
 files are refused: critique only judges images/svg). The critic (default
@@ -33,7 +34,8 @@ Also importable:
 
     from critique import run
     result = run(path, prompt, gen_model, rounds=2, critic=None,
-                 key=None, aspect=None, transparent=False)
+                 key=None, aspect=None, transparent=False,
+                 initial_defects=None, tried=None)
 
 run() never calls sys.exit or print (generate.py calls it in-process);
 only this file's CLI wrapper does. It returns:
@@ -42,7 +44,25 @@ only this file's CLI wrapper does. It returns:
      "files": [all paths judged, original first],
      "defects": [defects of the final file],
      "cost": total USD across every critic and generator call, or null
-             when none of them reported a cost, "critic": model id}
+             when none of them reported a cost, "critic": model id,
+     "escalation": {...} or absent, "escalation_error": "..." or absent}
+
+initial_defects seeds the first judged result (skipping the first critic
+call) for a run that continues an earlier critique with a new gen_model,
+e.g. path already an .rN file from a prior escalation; tried lists model
+ids already attempted, kept out of the next escalation's candidates.
+
+When the final result still has pass false, run() also tries to build an
+"escalation": up to 10 priced models (cheapest first, catalogue.models of
+the same modality) that take a reference image, cost at least as much as
+gen_model, and were not yet tried, ranked by Jev the way route.py ranks
+its own choices (skills/visual/ranking.py, shared with it), plus a
+ready-to-run "command" holding a literal `<MODEL>` placeholder: writes the
+prompt and the final defects to a fresh temp dir and calls this file again
+with --defects-file/--tried/--model <MODEL>, so the caller need only swap
+in a chosen model id. Any failure building it (no key, Jev, catalogue, no
+candidates) is never raised: it sets "escalation_error" instead, the same
+way a critic failure never fails generate.py.
 
 Every critic call is logged through generate.log_generation with
 modality "critique"; every fix generation is logged the same way
@@ -59,6 +79,7 @@ import base64
 import json
 import os
 import re
+import shlex
 import sys
 import tempfile
 
@@ -69,6 +90,7 @@ from lib import keys  # noqa: E402
 import catalogue  # noqa: E402
 import generate  # noqa: E402
 import preview  # noqa: E402
+import ranking  # noqa: E402
 
 DEFAULT_CRITIC = "google/gemini-3.1-pro-preview"  # verified live on openrouter.ai/api/v1/models, 2026-09-23
 
@@ -280,22 +302,119 @@ def build_fix_prompt(prompt, defects):
     return f"{prompt}\nKeep everything else identical. Fix these defects:\n{numbered}"
 
 
+_ROUND_SUFFIX = re.compile(r"\.r(\d+)(?:-\d+)?$")
+
+
 def next_round_path(original, n, ext):
+    """<stem>.r<n>.<ext>, never <stem>.rM.rN.<ext>: an original that is
+    already an .rM file (an escalated run continuing an earlier critique)
+    has that suffix stripped and its number added to n, so numbering
+    continues instead of restarting."""
     stem = os.path.splitext(original)[0]
-    candidate = f"{stem}.r{n}.{ext}"
+    match = _ROUND_SUFFIX.search(stem)
+    base = int(match.group(1)) if match else 0
+    if match:
+        stem = stem[:match.start()]
+    candidate = f"{stem}.r{base + n}.{ext}"
     i = 2
     while os.path.exists(candidate):
-        candidate = f"{stem}.r{n}-{i}.{ext}"
+        candidate = f"{stem}.r{base + n}-{i}.{ext}"
         i += 1
     return candidate
 
 
-def run(path, prompt, gen_model, rounds=2, critic=None, key=None, aspect=None, transparent=False):
+# --- escalation: candidate models to hand off to when the final result still fails --
+
+ESCALATION_QUESTION = (
+    "Which model is most likely to fix these defects in the image? Weigh capability for "
+    "these defect types (text rendering, layout precision, prompt adherence) above price."
+)
+ESCALATION_CANDIDATES = 10
+ESCALATION_TIMEOUT = 15.0
+
+
+def _defect_state(defects):
+    return [{"type": d.get("type"), "severity": d.get("severity"), "fix": d.get("fix")} for d in defects]
+
+
+def build_escalation(prompt, gen_model, modality, final_path, defects, tried, rounds,
+                      critic, aspect, transparent):
+    """Escalation options for a final result that still failed: up to
+    ESCALATION_CANDIDATES priced, reference-taking models not yet tried,
+    cheapest first, ranked by Jev (skills/visual/ranking.py, the helper
+    route.py's own model ranking shares), plus a ready-to-run command with
+    a literal <MODEL> placeholder. Raises on any failure (no key, Jev,
+    catalogue, no candidates); run() catches it and sets escalation_error
+    instead."""
+    floor = float(os.environ.get("CLAUDE_1337_VISUAL_FLOOR", "0.5"))
+    all_entries = catalogue.models(modality, timeout=ESCALATION_TIMEOUT)
+    by_id = {e["id"]: e for e in all_entries}
+    current = by_id.get(gen_model)
+    tried_ids = set(tried or []) | {gen_model}
+
+    entries = [e for e in all_entries
+               if e["reference_supported"] and e["price"] is not None and e["id"] not in tried_ids]
+    if current is not None and current.get("price") is not None:
+        entries = [e for e in entries if e["price"] >= current["price"]]
+    if transparent and modality == "raster_image":
+        alpha_entries = [e for e in entries if e.get("alpha")]
+        if alpha_entries:  # keep the fake-checkerboard models out only if a real one remains
+            entries = alpha_entries
+    entries = entries[:ESCALATION_CANDIDATES]
+    if not entries:
+        raise ValueError("no escalation candidates")
+
+    ranked, recommended = ranking.rank_models(
+        entries,
+        {"prompt": prompt, "modality": modality, "current_model": gen_model,
+         "defects": _defect_state(defects)},
+        ESCALATION_QUESTION,
+        floor,
+        ESCALATION_TIMEOUT,
+    )
+    recommended_id = recommended["id"] if recommended else None
+    by_probability = sorted(
+        ranked,
+        key=lambda e: (e["id"] != recommended_id, -e["probability"], e["price"]),
+    )[:3]
+    options_list = [{"id": e["id"], "name": e["name"], "price": e["price"], "unit": e["unit"],
+                      "probability": e["probability"]} for e in by_probability]
+
+    tmp_dir = tempfile.mkdtemp(prefix="1337-critique-")
+    prompt_path = os.path.join(tmp_dir, "prompt.txt")
+    defects_path = os.path.join(tmp_dir, "defects.json")
+    with open(prompt_path, "w", encoding="utf-8") as f:
+        f.write(prompt)
+    with open(defects_path, "w", encoding="utf-8") as f:
+        json.dump(defects, f)
+
+    parts = ["python3", shlex.quote(os.path.abspath(__file__)), shlex.quote(final_path),
+             "--prompt-file", shlex.quote(prompt_path),
+             "--defects-file", shlex.quote(defects_path),
+             "--tried", shlex.quote(",".join(sorted(tried_ids))),
+             "--rounds", str(max(rounds, 1)),
+             "--model", "<MODEL>"]
+    if aspect:
+        parts += ["--aspect", shlex.quote(aspect)]
+    if transparent:
+        parts.append("--transparent")
+    if critic:
+        parts += ["--critic", shlex.quote(critic)]
+
+    return {"options": options_list, "recommended": recommended["id"] if recommended else None,
+            "command": " ".join(parts)}
+
+
+def run(path, prompt, gen_model, rounds=2, critic=None, key=None, aspect=None, transparent=False,
+        initial_defects=None, tried=None):
     """Judge path against prompt, fixing through gen_model for up to
-    `rounds` tries. Never prints or exits: raises ValueError (bad args /
-    missing file / unsupported type), keys.MissingKey/UnsafeFile (no key),
-    generate.ApiError or catalogue.CatalogueError (API failure), or
-    CritiqueParseError (unparseable critic reply)."""
+    `rounds` tries. initial_defects seeds the first judged result instead
+    of calling the critic (continuing an earlier critique with a new
+    gen_model); tried lists model ids already attempted, excluded from a
+    fresh escalation's candidates. Never prints or exits: raises ValueError
+    (bad args / missing file / unsupported type), keys.MissingKey/
+    UnsafeFile (no key), generate.ApiError or catalogue.CatalogueError (API
+    failure), or CritiqueParseError (unparseable critic reply)."""
     if not os.path.isfile(path):
         raise ValueError(f"{path} not found")
     kind = ext_kind(path)
@@ -319,7 +438,13 @@ def run(path, prompt, gen_model, rounds=2, critic=None, key=None, aspect=None, t
             any_cost = True
 
     files = [path]
-    judged = [(path, judge(path, prompt, critic, key))]
+    if initial_defects is not None:
+        seeded_defects = [d for d in initial_defects if isinstance(d, dict)]
+        first_result = {"pass": not any((d.get("severity") or 0) >= 3 for d in seeded_defects),
+                        "defects": seeded_defects, "cost": None}
+    else:
+        first_result = judge(path, prompt, critic, key)
+    judged = [(path, first_result)]
     add_cost(judged[0][1]["cost"])
 
     rounds_used = 0
@@ -356,7 +481,7 @@ def run(path, prompt, gen_model, rounds=2, critic=None, key=None, aspect=None, t
             if score(candidate_result) <= score(final_result):
                 final_path, final_result = candidate_path, candidate_result
 
-    return {
+    result = {
         "final": final_path,
         "pass": final_result["pass"],
         "rounds": rounds_used,
@@ -365,6 +490,14 @@ def run(path, prompt, gen_model, rounds=2, critic=None, key=None, aspect=None, t
         "cost": round(total_cost, 6) if any_cost else None,
         "critic": critic,
     }
+    if not result["pass"]:
+        try:
+            result["escalation"] = build_escalation(
+                prompt, gen_model, kind, final_path, final_result["defects"],
+                tried, rounds, critic, aspect, transparent)
+        except Exception as e:  # noqa: BLE001 - escalation must never fail run()
+            result["escalation_error"] = f"{type(e).__name__}: {e}"
+    return result
 
 
 def main(argv):
@@ -379,6 +512,10 @@ def main(argv):
     parser.add_argument("--critic", help="critic model id (default CLAUDE_1337_CRITIC, else the built-in default)")
     parser.add_argument("--aspect", help="aspect ratio such as 16:9, for a fix regeneration")
     parser.add_argument("--transparent", action="store_true", help="raster only: keep --transparent on fix rounds")
+    parser.add_argument("--defects-file", help="JSON list of defects (or {\"defects\": [...]})"
+                        " to seed the first judged result, skipping the first critic call")
+    parser.add_argument("--tried", help="comma-separated model ids already tried, excluded from "
+                        "a fresh escalation's candidates")
     args = parser.parse_args(argv[1:])
     if not args.prompt and not args.prompt_file:
         parser.error("one of the arguments --prompt --prompt-file is required")
@@ -391,9 +528,25 @@ def main(argv):
     if not args.prompt.strip():
         parser.error("--prompt must not be empty")
 
+    initial_defects = None
+    if args.defects_file:
+        try:
+            with open(args.defects_file, "r", encoding="utf-8") as f:
+                raw_defects = json.load(f)
+        except (OSError, ValueError) as e:
+            parser.error(f"cannot read --defects-file {args.defects_file}: {e}")
+        if isinstance(raw_defects, dict):
+            raw_defects = raw_defects.get("defects")
+        if not isinstance(raw_defects, list):
+            parser.error(f"--defects-file {args.defects_file} must be a JSON list, "
+                         "or an object with a \"defects\" list")
+        initial_defects = raw_defects
+    tried = [t.strip() for t in args.tried.split(",") if t.strip()] if args.tried else None
+
     try:
         result = run(args.file, args.prompt, args.model, rounds=args.rounds, critic=args.critic,
-                     aspect=args.aspect, transparent=args.transparent)
+                     aspect=args.aspect, transparent=args.transparent,
+                     initial_defects=initial_defects, tried=tried)
     except ValueError as e:
         print(f"critique: {e}", file=sys.stderr)
         return 2
