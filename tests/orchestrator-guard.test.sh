@@ -49,7 +49,7 @@ check 2 "bash sed -i in main session" \
   '{"tool_name":"Bash","tool_input":{"command":"sed -i \"s/a/b/\" /repo/f.txt"}}'
 check 0 "bash redirect to /dev/null" \
   '{"tool_name":"Bash","tool_input":{"command":"echo todo 2>/dev/null"}}'
-check 0 "bash redirect into temp dir" \
+CLAUDE_1337_BASH_ALLOW=seq check 0 "bash redirect into temp dir (seq via CLAUDE_1337_BASH_ALLOW)" \
   '{"tool_name":"Bash","tool_input":{"command":"seq 1 40 > /tmp/claude-501/scratch/f.txt"}}'
 check 0 "bash read-only command" \
   '{"tool_name":"Bash","tool_input":{"command":"ls -la /repo"}}'
@@ -57,13 +57,15 @@ check 0 "bash from subagent" \
   '{"agent_id":"abc","tool_name":"Bash","tool_input":{"command":"printf \"a\" > /repo/big.txt"}}'
 check 2 "bash piped grep, no redirect, cat still dumps the file" \
   '{"tool_name":"Bash","tool_input":{"command":"cat /repo/f.txt | grep -c line"}}'
-check 0 "bash piped grep, filter only, no file operand" \
+CLAUDE_1337_BASH_ALLOW=ps check 0 "bash piped grep, filter only, no file operand" \
   '{"tool_name":"Bash","tool_input":{"command":"ps aux | grep foo"}}'
-check 0 "bash heredoc to stdin, no file redirect" \
+check 2 "python3 script outside the plugin, heredoc on stdin" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 /repo/route.py <<'EOF'\n{\\\"a\\\":1}\nEOF\"}}"
+check 0 "bash heredoc to stdin of the tier router, no file redirect" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 skills/tier/route.py <<'EOF'\n{\\\"a\\\":1}\nEOF\"}}"
 check 2 "bash redirect without a space" \
   '{"tool_name":"Bash","tool_input":{"command":"echo x >/repo/f.txt"}}'
-check 0 "bash stderr to stdout only" \
+CLAUDE_1337_BASH_ALLOW=make check 0 "bash stderr to stdout only (make via CLAUDE_1337_BASH_ALLOW)" \
   '{"tool_name":"Bash","tool_input":{"command":"make test 2>&1 | tail -5"}}'
 check 0 "bash redirect to stderr" \
   '{"tool_name":"Bash","tool_input":{"command":"echo warn >&2"}}'
@@ -75,7 +77,7 @@ check 2 "bash heredoc writes a script under a variable temp path" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"S=/tmp/claude-1000/scratch; cat > \$S/knock.py <<'EOF'\nprint(1)\nEOF\"}}"
 check 2 "bash tee writes a script under /tmp" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"tee /tmp/run.sh <<'EOF'\necho hi\nEOF\"}}"
-check 0 "bash heredoc to stdin under /tmp, no script file" \
+check 2 "python3 - fed a heredoc is an inline script, off the allowlist" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 - <<'EOF'\nprint(1)\nEOF\"}}"
 check 0 "bash redirect writes data under /tmp" \
   '{"tool_name":"Bash","tool_input":{"command":"printf x > /tmp/out.txt"}}'
@@ -83,7 +85,7 @@ check 2 "bash sed -i with an expression before the script file" \
   '{"tool_name":"Bash","tool_input":{"command":"sed -i s/a/b/ /tmp/fix.sh"}}'
 check 2 "bash sed -i.bak -e before the script file" \
   '{"tool_name":"Bash","tool_input":{"command":"sed -i.bak -e s/a/b/ /tmp/fix.sh"}}'
-check 0 "bash sed -i on a data file under /tmp" \
+check 2 "bash sed -i on a data file under /tmp: sed -i is off the allowlist" \
   '{"tool_name":"Bash","tool_input":{"command":"sed -i s/a/b/ /tmp/notes.txt"}}'
 check 2 "bash heredoc writes a quoted script path" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"S=/tmp/claude-1000/scratch; cat > \\\"\$S/x.py\\\" <<'EOF'\nprint(1)\nEOF\"}}"
@@ -94,7 +96,8 @@ check 2 "bash sed -i on a quoted script path" \
 check 0 "bash heredoc writes a quoted data path under /tmp" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cat > \\\"/tmp/data.json\\\" <<'EOF'\n{}\nEOF\"}}"
 
-# Inline scripts piped into an interpreter through a heredoc.
+# Inline scripts piped into an interpreter through a heredoc: every one is off
+# the allowlist, whatever its length. CLAUDE_1337_INLINE_LINES is gone.
 body30=$(printf 'line\n%.0s' $(seq 1 30))
 body5=$(printf 'line\n%.0s' $(seq 1 5))
 py30=$(printf "python3 - <<'EOF'\n%s\nEOF" "$body30")
@@ -110,17 +113,17 @@ two_heredocjson=$(jq -Rs . <<<"$two_heredoc")
 
 check 2 "inline 30-line python3 heredoc" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py30json}}"
-check 0 "inline 5-line python3 heredoc" \
+check 2 "inline 5-line python3 heredoc" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py5json}}"
 check 0 "git commit -F - heredoc, not an interpreter" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$commit30json}}"
 check 2 "inline 30-line node heredoc" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$node30json}}"
-CLAUDE_1337_INLINE_LINES=0 check 0 "inline check disabled via CLAUDE_1337_INLINE_LINES=0" \
+CLAUDE_1337_INLINE_LINES=0 check 2 "CLAUDE_1337_INLINE_LINES=0 no longer lets an inline script through" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py30json}}"
 check 2 "two heredocs, second one over the limit" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$two_heredocjson}}"
-CLAUDE_1337_INLINE_LINES=40 check 0 "inline check with a raised limit" \
+CLAUDE_1337_INLINE_LINES=40 check 2 "CLAUDE_1337_INLINE_LINES=40 no longer lets an inline script through" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py30json}}"
 
 # Heredoc bodies fed to a non-interpreter consumer are data, not commands:
@@ -160,7 +163,7 @@ check 2 "tee heredoc with a real target on the opener line" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$tee_openerjson}}"
 check 2 "bash heredoc body is scanned, interpreter consumer" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$bash_interp_bodyjson}}"
-check 0 "python3 heredoc body writes via open(), pinned to current behaviour" \
+check 2 "python3 heredoc body writes via open(): python3 - is off the allowlist" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_write_bodyjson}}"
 
 "$HOOK" --rules | grep -q '^# Orchestrator mode' && echo "ok   mode on: rules printed" || { echo "FAIL mode on: rules missing"; fail=1; }
@@ -289,7 +292,7 @@ check 2 "bash cat dumps a source file" \
   '{"tool_name":"Bash","tool_input":{"command":"cat src/foo.rs"}}'
 check 0 "bash cat under /tmp stays allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"cat /tmp/x.json"}}'
-check 0 "bash grep filters a pipe, no file operand" \
+CLAUDE_1337_BASH_ALLOW=ps check 0 "bash grep filters a pipe, no file operand" \
   '{"tool_name":"Bash","tool_input":{"command":"ps aux | grep foo"}}'
 check 2 "bash grep -r over a directory" \
   '{"tool_name":"Bash","tool_input":{"command":"grep -r pattern src/"}}'
@@ -358,7 +361,8 @@ check 0 "bash read-dump command from a subagent still passes" \
   '{"agent_id":"abc","tool_name":"Bash","tool_input":{"command":"cat /repo/f.txt"}}'
 
 # The mode of an inline open() is its own argument, after a comma: a filename
-# starting with w, a or x is still a read.
+# starting with w, a or x is still a read. A write-mode open is not a read, but
+# python3 -c is off the allowlist, so it is refused all the same.
 bash_json() { jq -Rs . <<<"$1"; }
 py_read_arg=$(bash_json 'python3 -c '"'"'print(open("app.py").read())'"'"'')
 py_write_arg=$(bash_json 'python3 -c '"'"'open("out.w","w").write(x)'"'"'')
@@ -366,11 +370,11 @@ py_pathlib=$(bash_json 'python3 -c '"'"'print(Path("app.py").read_text())'"'"'')
 py_mode_kw=$(bash_json 'python3 -c '"'"'open("notes.txt", mode="a").write(x)'"'"'')
 check 2 "python3 -c open() on a file whose name starts with a" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_read_arg}}"
-check 0 "python3 -c open() in write mode, filename starting with o" \
+check 2 "python3 -c open() in write mode: not a read, but off the allowlist" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_write_arg}}"
 check 2 "python3 -c pathlib read_text()" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_pathlib}}"
-check 0 "python3 -c open(mode=\"a\") keyword mode" \
+check 2 "python3 -c open(mode=\"a\") keyword mode: not a read, but off the allowlist" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_mode_kw}}"
 
 # The temp carve-out covers the write target, not the whole command: a source
@@ -389,7 +393,7 @@ check 2 "bash grep -rn with no path operand" \
   '{"tool_name":"Bash","tool_input":{"command":"grep -rn TODO"}}'
 check 0 "bash bare grep on stdin" \
   '{"tool_name":"Bash","tool_input":{"command":"grep TODO"}}'
-check 0 "bash grep as a pipeline filter" \
+CLAUDE_1337_BASH_ALLOW=ps check 0 "bash grep as a pipeline filter" \
   '{"tool_name":"Bash","tool_input":{"command":"ps aux | grep claude"}}'
 check 0 "bash grep filtering git output" \
   '{"tool_name":"Bash","tool_input":{"command":"git log | grep fix"}}'
@@ -411,7 +415,7 @@ check 2 "bash tree scanner after a semicolon" \
   '{"tool_name":"Bash","tool_input":{"command":"true; rg TODO"}}'
 # -r walks the tree from the working directory even in a pipeline stage, so
 # "it is piped, therefore it is only a filter" is not sound.
-check 2 "bash recursive grep as a pipeline stage" \
+CLAUDE_1337_BASH_ALLOW=ps check 2 "bash recursive grep as a pipeline stage" \
   '{"tool_name":"Bash","tool_input":{"command":"ps aux | grep -r TODO"}}'
 # A pipeline stage can still name a file operand of its own; the operand count
 # has to be per segment, not over the whole command.
@@ -425,7 +429,7 @@ check 2 "bash reader after a semicolon" \
 # The other direction, so none of the five above can be satisfied by refusing
 # every pipeline: a segment fed by `|` with no file operand of its own really
 # is just a filter on another command's stdout.
-check 0 "bash grep filtering ps output stays allowed" \
+CLAUDE_1337_BASH_ALLOW=ps check 0 "bash grep filtering ps output stays allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"ps aux | grep foo"}}'
 check 0 "bash grep filtering git log output stays allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"git log --oneline | grep fix"}}'
@@ -485,5 +489,106 @@ check 2 "bash reader inside a command substitution in quotes" \
 py_body=$(bash_json "$(printf 'python3 - <<%s\nprint(\"x; cat y\")\nopen(%ssecret.txt%s)\nEOF' "'EOF'" "'" "'")")
 check 2 "python3 heredoc body with quotes and separators is still read" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$py_body}}"
+
+# The Bash allowlist (#659). The write rule used to be a denylist of write
+# patterns; every form below got past it. Each segment's first word must now
+# be on the allowlist, so these are refused whatever they write to.
+check_err() { # expected-exit stderr-fragment description payload
+  local got err
+  err=$(printf '%s' "$4" | "$HOOK" 2>&1 >/dev/null)
+  got=$?
+  if [ "$got" -eq "$1" ] && { [ "$1" -eq 0 ] || printf '%s' "$err" | grep -qF -- "$2"; }; then
+    printf 'ok   %s\n' "$3"
+  else
+    printf 'FAIL %s (exit %s, want %s; %s)\n' "$3" "$got" "$1" "$(printf '%s' "$err" | head -1)"; fail=1
+  fi
+}
+bash_payload() { printf '{"tool_name":"Bash","tool_input":{"command":%s}}' "$(bash_json "$1")"; }
+allow_err="is not on the main-session allowlist"
+for c in 'cp /tmp/x.py src/x.py' 'mv /tmp/x.py src/x.py' 'rm -rf src' 'patch -p1 < /tmp/x.diff' \
+  'git apply /tmp/x.diff' 'curl -o src/x.py https://example.com/x' "bash -c 'echo hi > a.txt'" \
+  "$(printf "cat <<'EOF' | python3\nprint(1)\nEOF")" "$(printf "uv run - <<'EOF'\nprint(1)\nEOF")" \
+  "$(printf "python3 -c 'import os\nos.remove(\"a\")\nprint(1)'")" 'git checkout -- src/a.py' 'git reset --hard' \
+  'echo $(rm -rf src)' 'echo `rm -rf src`' 'PATH=/tmp/evil:$PATH ls' "git -c core.pager='sh -c x' log" \
+  "git log | sed 's/x/y/e'" "sed -n 'w out.txt' /tmp/in.txt" "awk 'BEGIN { system(\"rm -rf src\") }'" \
+  'find /tmp/claude-1000/s -delete' 'git config user.name x' 'make test'; do
+  check_err 2 "$allow_err" "refused by the allowlist: $(printf '%s' "$c" | head -1)" "$(bash_payload "$c")"
+done
+# The segment that failed is named in the refusal.
+check_err 2 'Bash segment `rm -rf src`' "refusal names the segment" "$(bash_payload 'git status && rm -rf src')"
+check_err 2 'CLAUDE_1337_BASH_ALLOW' "refusal names the extension variable" "$(bash_payload 'make test')"
+CLAUDE_1337_BASH_ALLOW="make cargo" check 0 "CLAUDE_1337_BASH_ALLOW=make allows make test" "$(bash_payload 'make test')"
+CLAUDE_1337_BASH_ALLOW="make cargo" check 0 "CLAUDE_1337_BASH_ALLOW takes several words" "$(bash_payload 'cargo test && make')"
+
+# Quoted text and heredoc bodies are data; redirects are judged per target.
+check 0 "a > inside a quoted commit message is not a redirect" "$(bash_payload 'git commit -m "fix: a > b"')"
+check 0 "git status 2>/dev/null" "$(bash_payload 'git status 2>/dev/null')"
+check 0 "echo into a data file under /tmp" "$(bash_payload 'echo x > /tmp/n.txt')"
+check_err 2 "writes a code file" "echo into a code file under /tmp" "$(bash_payload 'echo x > /tmp/n.py')"
+check_err 2 "Bash command writes files" "echo into the tree" "$(bash_payload 'echo x > src/a.txt')"
+check_err 2 "Bash command writes files" "tee into the tree" "$(bash_payload 'echo x | tee src/a.txt')"
+check_err 2 "Bash command writes files" "git diff --output into the tree" "$(bash_payload 'git diff --output=src/d.txt')"
+check_err 2 "Bash command writes files" "a variable target that is not a temp path" "$(bash_payload 'S=src; echo x > $S/a.txt')"
+check 0 "a heredoc body naming rm -rf is data for git commit -F -" \
+  "$(bash_payload "$(printf "git commit -q -F - <<'EOF'\nclean up: rm -rf build\nEOF")")"
+check 0 "a multi-line quoted commit message is one word" \
+  "$(bash_payload "$(printf 'git commit -m "line one\nline two; rm -rf x"')")"
+check_err 2 "unquoted heredoc body" "a command substitution in an unquoted heredoc body" \
+  "$(bash_payload "$(printf 'cat <<EOF\n$(rm -rf src)\nEOF')")"
+check 0 "arithmetic << is not a heredoc" "$(bash_payload 'echo $((1 << 2))')"
+check_err 2 "$allow_err" "arithmetic << does not swallow the next line" \
+  "$(bash_payload "$(printf 'echo $((1 << 2))\nrm -rf src')")"
+check_err 2 "reads a file's contents via cat" "an input redirect from a tree file is a read" "$(bash_payload 'cat < src/lib.rs')"
+
+# mktemp creates a file where -p/--tmpdir points: judged like any target.
+for c in 'mktemp -p src' 'mktemp -psrc' 'mktemp --tmpdir=src' 'mktemp --tmpdir src' 'mktemp src/x.XXXX' 'mktemp -p /tmp/../repo'; do
+  check_err 2 "Bash command writes files" "mktemp into the tree: $c" "$(bash_payload "$c")"
+done
+for c in 'mktemp -d' 'mktemp' 'mktemp -p /tmp' 'mktemp -d -p "$TMPDIR" x.XXXX' 'mktemp -t x.XXXX' 'mktemp --tmpdir=/tmp x.XXXX'; do
+  check 0 "mktemp into temp: $c" "$(bash_payload "$c")"
+done
+
+# The forms the orchestrator session itself runs stay allowed.
+check 0 "orchestrator commit-and-push chain" \
+  "$(bash_payload 'cd /home/x/repo && git add a b && git commit -q -F /tmp/claude-1000/s/msg.txt && git push -q origin main && git log --oneline -1')"
+check 0 "two git diffs in one chain" "$(bash_payload 'git diff --stat && git diff hooks/x.sh')"
+check 0 "the tier router, repo-relative" "$(bash_payload 'python3 skills/tier/route.py /tmp/claude-1000/s/steps.json')"
+check 0 "the tier router through CLAUDE_PLUGIN_ROOT" \
+  "$(bash_payload 'python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" /tmp/claude-1000/s/steps.json')"
+check 0 "the visual generator by its absolute path" \
+  "$(bash_payload "python3 $(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)/skills/visual/generate.py --model x")"
+check 2 "a route.py outside the plugin is not the tier router" "$(bash_payload 'python3 /tmp/skills/tier/route.py')"
+check 0 "git status --short" "$(bash_payload 'git status --short')"
+check 0 "the test runner" "$(bash_payload 'bash tests/run-all.sh 2>&1 | tail -5')"
+check 0 "the replay tool" "$(bash_payload 'bash tools/replay.sh /tmp/t.jsonl')"
+check 0 "a read-only pipeline" "$(bash_payload 'ls -la | grep x | wc -l')"
+check 0 "command -v looks a name up without running it" "$(bash_payload 'command -v rm')"
+
+# Edits count the larger of old and new text; a MultiEdit sums its edits.
+old400=$(jq -Rs . <<<"$(printf 'old %s\n' $(seq 1 400))")
+check 2 "an Edit replacing 400 lines with 2 counts the 400" \
+  "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"old_string\":$old400,\"new_string\":\"a\\nb\"}}"
+body12=$(jq -Rs . <<<"$(printf 'line\n%.0s' $(seq 1 12))")
+check 2 "a MultiEdit of two 12-line edits sums to 24" \
+  "{\"tool_name\":\"MultiEdit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"edits\":[{\"old_string\":\"a\",\"new_string\":$body12},{\"old_string\":\"b\",\"new_string\":$body12}]}}"
+CLAUDE_1337_MAX_LINES=40 CLAUDE_1337_EDIT_CAP=0 check 0 "CLAUDE_1337_MAX_LINES raises the edit limit" \
+  "{\"tool_name\":\"MultiEdit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"edits\":[{\"old_string\":\"a\",\"new_string\":$body12},{\"old_string\":\"b\",\"new_string\":$body12}]}}"
+check_err 2 "writes a code file" "Write of a code file under /tmp" \
+  '{"tool_name":"Write","tool_input":{"file_path":"/tmp/x.py","content":"print(1)"}}'
+check 0 "Write of a data file under /tmp" \
+  '{"tool_name":"Write","tool_input":{"file_path":"/tmp/x.json","content":"{}"}}'
+check 2 "Write through a .. step out of /tmp" \
+  '{"tool_name":"Write","tool_input":{"file_path":"/tmp/../repo/x.txt","content":"x"}}'
+
+# No jq: the guard cannot read the call, so it refuses instead of passing.
+nojq_bin="$edit_cap_tmpdir/nojq-bin"
+mkdir -p "$nojq_bin" && ln -s "$(command -v bash)" "$nojq_bin/bash"
+nojq_err=$(printf '%s' "$(bash_payload 'cat src/lib.rs')" | PATH="$nojq_bin" "$HOOK" 2>&1 >/dev/null)
+nojq_exit=$?
+if [ "$nojq_exit" -eq 2 ] && printf '%s' "$nojq_err" | grep -q 'jq is missing'; then
+  echo "ok   jq missing: refuses with a one-line message"
+else
+  echo "FAIL jq missing (exit $nojq_exit: $nojq_err)"; fail=1
+fi
 
 exit $fail

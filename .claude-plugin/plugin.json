@@ -6,7 +6,7 @@
     "orchestrator": {
       "type": "boolean",
       "title": "Orchestrator mode",
-      "description": "Keep the main session as a planner: lookups go to 1337:scout (Haiku), implementation to 1337:builder (model chosen per step), verification to 1337:checker (Haiku). Refuses main-session edits over 20 lines.",
+      "description": "Keep the main session as a planner: lookups go to 1337:scout (Haiku), implementation to 1337:builder (model chosen per step), verification to 1337:checker (Haiku). Refuses main-session edits over 20 lines, and main-session Bash outside an allowlist of read-only, git, test-runner and plugin commands (CLAUDE_1337_BASH_ALLOW adds first words).",
       "default": false
     },
     "tiered": {

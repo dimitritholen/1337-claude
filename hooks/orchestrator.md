@@ -32,11 +32,19 @@ reliably.
   diagnosis yourself.
 - Do it yourself when delegating costs more than doing: an edit of about 20 lines or
   fewer in a file already in context, and corrections faster to make than to
-  explain. The orchestrator guard refuses larger edits and new files from the main
-  session; a refusal means dispatch, never a workaround through Bash. Scripts
-  (`.py`, `.sh`, `.js` and the like) are refused even under temp directories; only
-  data files may be written there. Inline scripts piped into an interpreter
-  through a heredoc are refused over 20 lines (`CLAUDE_1337_INLINE_LINES`). The
+  explain. The orchestrator guard refuses larger edits (the larger of old and new
+  text counts, `CLAUDE_1337_MAX_LINES`) and new files from the main session; a
+  refusal means dispatch, never a workaround through Bash. Main-session Bash runs
+  from an allowlist of first words, checked in every segment: read-only
+  inspection (`ls`, `cat`, `grep`, `rg`, `jq`, `awk`, `sed` without `-i`, `find`
+  without `-delete`/`-exec`, `diff`, `wc`, `echo` and the like), git bookkeeping
+  (`status`, `log`, `diff`, `show`, `add`, `commit`, `push`, `pull`, `stash`,
+  `tag`, `branch`, ...), the plugin's own scripts, the test runners, `claude`,
+  `tasqx` and `ripwire`. Anything else (`cp`, `rm`, `patch`, `git apply`, `curl`,
+  any inline interpreter script) is a `1337:builder` or `1337:checker` dispatch;
+  `CLAUDE_1337_BASH_ALLOW="make cargo"` adds first words. Redirects and `tee` may
+  write only under ~/.claude and temp directories, and scripts (`.py`, `.sh`,
+  `.js` and the like) are refused even there; only data files may be written. The
   guard counts these small edits and refuses past 3 per session
   (`CLAUDE_1337_EDIT_CAP`). ripwire's symbol edit
   (`--replace-symbol-body`/`--insert-before-symbol`/`--insert-after-symbol`

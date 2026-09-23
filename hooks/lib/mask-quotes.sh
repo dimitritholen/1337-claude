@@ -1,4 +1,5 @@
-# Sourced by hooks/orchestrator-guard.sh and hooks/read-cap.sh. Masks the
+# Sourced by hooks/read-cap.sh (hooks/orchestrator-guard.sh has its own
+# lexer and no longer uses it). Masks the
 # characters a segment/first-word split keys on -- whitespace, `;`, `|`,
 # `&`, `<`, `>` -- while inside a single- or double-quoted span, so text
 # like `git commit -m "x; head first"` or `echo "run; cat file"` is not

@@ -104,10 +104,15 @@ work when the plugin is installed and used in any folder, not only this one.
   for eval cases): `agents/` holds `scout`,
   `builder` and `checker`; `hooks/orchestrator-guard.sh` injects
   `hooks/orchestrator.md` at SessionStart and refuses large main-session
-  edits and Bash file writes (redirects, `tee`, `sed -i`; a bare heredoc
-  passes), with code files refused even under temp dirs, and inline heredoc
-  scripts piped into an interpreter refused past `CLAUDE_1337_INLINE_LINES`
-  lines (default 20). It also refuses Bash that dumps a file's contents
+  edits (max of old and new lines, `CLAUDE_1337_MAX_LINES`, default 20) and
+  any main-session Bash segment whose first word is off an allowlist
+  (read-only inspection, git bookkeeping subcommands, `sed` without `-i`,
+  the plugin's own scripts, the test runners, `claude`, `tasqx`, `ripwire`;
+  `CLAUDE_1337_BASH_ALLOW` adds words). A small shell lexer in the hook
+  splits the command, keeps quoted text and heredoc bodies as data, and
+  judges every redirect/`tee` target: only ~/.claude and temp dirs, with
+  code files refused even under temp dirs (Write too). jq missing refuses.
+  It also refuses Bash that dumps a file's contents
   (`cat`, `head`, `sed -n`, a pathless `rg` or `grep -r`, `cp`/`mv` out of
   the tree, an inline interpreter opening a file, and, inside the git
   allowlist, `git show <rev>:<path>`, `git cat-file`, `git grep` or a
@@ -171,10 +176,10 @@ work when the plugin is installed and used in any folder, not only this one.
   `|`, `&`, `<`, `>`) inside single- or double-quoted spans, so a quoted
   `;` or `|` (a commit message, an echo argument) is not mistaken for a real
   segment split. `$( )` and backticks stay live even inside double quotes,
-  since the shell executes them there. Both `hooks/orchestrator-guard.sh`
-  and `hooks/read-cap.sh` mask a command this way before splitting it into
-  segments or picking out its first word. Covered by
-  `tests/orchestrator-guard.test.sh` and `tests/read-cap.test.sh`.
+  since the shell executes them there. `hooks/read-cap.sh` masks a command
+  this way before splitting it into segments or picking out its first word
+  (`hooks/orchestrator-guard.sh` has its own lexer). Covered by
+  `tests/read-cap.test.sh`.
 
 All shell suites run together with `tests/run-all.sh`; a change to `hooks/` or
 `skills/` is not done until it is green.

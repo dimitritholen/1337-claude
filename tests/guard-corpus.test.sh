@@ -23,9 +23,15 @@ trap 'rm -rf "$scratch_tmpdir"' EXIT
 
 # A row may override PATH (the jq-missing row does); the runner itself needs
 # jq and grep, so the original PATH comes back as soon as the hook returns.
+# PATH=NOJQ is a directory holding bash and nothing else, so the hook's
+# shebang still resolves while jq does not.
 base_path="$PATH"
+nojq_bin="$scratch_tmpdir/nojq-bin"
+mkdir -p "$nojq_bin" && ln -s "$(command -v bash)" "$nojq_bin/bash"
 
-mode_vars="CLAUDE_PLUGIN_OPTION_ORCHESTRATOR CLAUDE_1337_ORCHESTRATOR EVAL_CLAUDE_1337_ORCHESTRATOR CLAUDE_1337_EDIT_CAP CLAUDE_1337_INLINE_LINES TMPDIR"
+# CLAUDE_1337_INLINE_LINES is no longer read by the hook; it stays in the
+# reset list so the rows that set it prove it changes nothing.
+mode_vars="CLAUDE_PLUGIN_OPTION_ORCHESTRATOR CLAUDE_1337_ORCHESTRATOR EVAL_CLAUDE_1337_ORCHESTRATOR CLAUDE_1337_EDIT_CAP CLAUDE_1337_INLINE_LINES CLAUDE_1337_BASH_ALLOW CLAUDE_1337_MAX_LINES TMPDIR"
 
 n=0
 while IFS= read -r line; do
@@ -66,6 +72,9 @@ while IFS= read -r line; do
         ;;
       TMPDIR)
         if [ "$val" = "SCRATCH" ]; then export TMPDIR="$scratch_tmpdir"; else export TMPDIR="$val"; fi
+        ;;
+      PATH)
+        if [ "$val" = "NOJQ" ]; then export PATH="$nojq_bin"; else export PATH="$val"; fi
         ;;
       *)
         export "$key=$val"
