@@ -3,7 +3,7 @@
 
     generate.py --model <id> --modality raster_image|vector_svg|video|speech
                 --prompt <text> [--out <path>] [--aspect 16:9] [--duration 8]
-                [--voice alloy]
+                [--voice alloy] [--transparent]
 
 Raster and vector go through POST /api/v1/chat/completions with
 modalities ["image"]; the first message.images entry is a data
@@ -13,13 +13,23 @@ completed or failed, then downloads the first content URL. Speech posts
 /api/v1/audio/speech (mp3) and writes the bytes; the voice is --voice,
 else the model's first supported voice from the model list.
 
+--transparent (raster only) posts background: "transparent" and
+output_format: "png" to /api/v1/images, for models verified to give a
+real alpha channel there (2026-09-22: openai/gpt-5-image-mini, a real
+RGBA PNG). catalogue.has_alpha decides which models qualify; a model
+without native alpha is refused before any request is sent, since a
+diffusion model such as FLUX.2 Klein, Krea or Muse would only spend
+credit on a fake checkerboard.
+
 The file goes to --out, else assets/<slug of the prompt>.<ext> under the
 current directory, never overwriting (a -2, -3 suffix instead). Stdout
 is one JSON line: path, model, modality, media_type, cost (USD from the
-API's usage, or null when it reports none). Exit: 0 written, 2 usage, 3
-no key, 4 API failure, 5 the video job failed, 6 the model is unusable
-for this account (upstream said why). OPENROUTER_BASE_URL redirects the
-API; CLAUDE_1337_POLL_SECONDS sets the poll interval (5).
+API's usage, or null when it reports none). Exit: 0 written, 2 usage
+(including --transparent on a non-raster modality), 3 no key, 4 API
+failure, 5 the video job failed, 6 the model is unusable for this
+account (upstream said why), 7 --transparent on a model with no native
+alpha channel. OPENROUTER_BASE_URL redirects the API;
+CLAUDE_1337_POLL_SECONDS sets the poll interval (5).
 Stdlib only.
 """
 
@@ -36,7 +46,9 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
+sys.path.insert(0, HERE)
 from lib import keys  # noqa: E402
+import catalogue  # noqa: E402
 
 MODALITIES = ("raster_image", "vector_svg", "video", "speech")
 EXTENSIONS = {
@@ -121,7 +133,10 @@ def cost_of(usage):
 
 # --- the three producers: each returns (bytes, media_type, ext, cost) ---------
 
-def make_image(model, prompt, aspect, key, endpoint):
+def make_image(model, prompt, aspect, key, endpoint, transparent=False):
+    if transparent:
+        # alpha only exists on /api/v1/images; --endpoint chat/auto do not apply.
+        return make_image_via_images(model, prompt, aspect, key, transparent=True)
     if endpoint == "images":
         return make_image_via_images(model, prompt, aspect, key)
     try:
@@ -166,10 +181,13 @@ def make_image_via_chat(model, prompt, aspect, key):
     return raw, media_type, ext, cost_of(answer.get("usage"))
 
 
-def make_image_via_images(model, prompt, aspect, key):
+def make_image_via_images(model, prompt, aspect, key, transparent=False):
     body = {"model": model, "prompt": prompt}
     if aspect:
         body["image_config"] = {"aspect_ratio": aspect}
+    if transparent:
+        body["background"] = "transparent"
+        body["output_format"] = "png"
     answer = request_json("POST", "/api/v1/images", key, body)
     data = ((answer.get("data") or [{}])[0])
     b64 = data.get("b64_json")
@@ -281,9 +299,17 @@ def main(argv):
     parser.add_argument("--voice", help="voice id (speech)")
     parser.add_argument("--endpoint", choices=("auto", "chat", "images"), default="auto",
                         help="image endpoint to use (raster and vector only, default auto)")
+    parser.add_argument("--transparent", action="store_true",
+                        help="raster only: a real alpha channel through /api/v1/images")
     args = parser.parse_args(argv[1:])
     if not args.prompt.strip():
         parser.error("--prompt must not be empty")
+    if args.transparent and args.modality != "raster_image":
+        parser.error("--transparent only applies to --modality raster_image")
+    if args.transparent and not catalogue.has_alpha(args.model):
+        print(f"generate: {args.model} has no native alpha channel; --transparent on it would "
+              "only spend credit on a fake checkerboard", file=sys.stderr)
+        return 7
 
     try:
         key = keys.get("OPENROUTER_API_KEY")
@@ -293,7 +319,8 @@ def main(argv):
 
     try:
         if args.modality in ("raster_image", "vector_svg"):
-            raw, media_type, ext, cost = make_image(args.model, args.prompt, args.aspect, key, args.endpoint)
+            raw, media_type, ext, cost = make_image(args.model, args.prompt, args.aspect, key,
+                                                     args.endpoint, args.transparent)
         elif args.modality == "video":
             raw, media_type, ext, cost = make_video(args.model, args.prompt, args.aspect, args.duration, key)
         else:

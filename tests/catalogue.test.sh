@@ -27,7 +27,11 @@ cat > "$work/image.json" <<'EOF_JSON'
   "pricing": {"prompt": "0", "completion": "0", "image_output": "0.00001"}},
  {"id": "openrouter/auto", "name": "Auto Router", "description": "Picks a model.", "pricing": {"prompt": "-1", "completion": "-1"}},
  {"id": "x-ai/grok-imagine-image-2.0", "name": "xAI: Grok Imagine", "description": "Image model with a per-input-image price too.",
-  "pricing": {"prompt": "0", "completion": "0", "image": "0.01", "image_output": "0.00000958083832335329"}}
+  "pricing": {"prompt": "0", "completion": "0", "image": "0.01", "image_output": "0.00000958083832335329"}},
+ {"id": "acme/alpha-native", "name": "Acme Alpha Native", "description": "Publishes background support.",
+  "pricing": {"prompt": "-1", "completion": "-1"}, "supported_parameters": ["background", "seed"]},
+ {"id": "openai/gpt-5-image-mini", "name": "OpenAI: GPT-5 Image Mini", "description": "Raster image model.",
+  "pricing": {"prompt": "0", "completion": "0", "image_output": "0.00005"}, "supported_parameters": ["seed", "size"]}
 ]}
 EOF_JSON
 cat > "$work/video.json" <<'EOF_JSON'
@@ -90,11 +94,13 @@ run() { out=$("$SCRIPT" "$@" 2>"$work/stderr"); code=$?; }
 
 run raster_image
 check_code "raster_image: listed" "$code" 0
-check_eq "raster sorted cheap to expensive, unpriced last" "$(printf '%s' "$out" | jq -c '[.[].id]')" '["recraft/recraft-v4.1","x-ai/grok-imagine-image-2.0","openai/gpt-image-1","openrouter/auto"]'
+check_eq "raster sorted cheap to expensive, unpriced last" "$(printf '%s' "$out" | jq -c '[.[].id]')" '["recraft/recraft-v4.1","x-ai/grok-imagine-image-2.0","openai/gpt-image-1","openai/gpt-5-image-mini","acme/alpha-native","openrouter/auto"]'
 check_eq "raster price is image_output per image token (nano-USD)" "$(printf '%s' "$out" | jq -c '.[0] | [(.price*1e9|round), .unit, .vector]')" '[8383,"image token",false]'
 check_eq "per-input-image price ignored" "$(printf '%s' "$out" | jq -r '.[] | select(.id=="x-ai/grok-imagine-image-2.0") | (.price*1e9|round)')" "9581"
 check_eq "negative price means unpriced" "$(printf '%s' "$out" | jq -c '.[] | select(.id=="openrouter/auto") | .price')" "null"
 check_eq "no vector model in the raster list" "$(printf '%s' "$out" | jq '[.[] | select(.vector)] | length')" "0"
+check_eq "alpha: openai id allowlist, declared supported_parameters, and the rest false" "$(printf '%s' "$out" | jq -c '[.[] | {id, alpha}]')" '[{"id":"recraft/recraft-v4.1","alpha":false},{"id":"x-ai/grok-imagine-image-2.0","alpha":false},{"id":"openai/gpt-image-1","alpha":true},{"id":"openai/gpt-5-image-mini","alpha":true},{"id":"acme/alpha-native","alpha":true},{"id":"openrouter/auto","alpha":false}]'
+check_eq "alpha: allowlist wins even when supported_parameters lacks background" "$(printf '%s' "$out" | jq -c '.[] | select(.id=="openai/gpt-5-image-mini") | .alpha')" "true"
 
 run vector_svg
 check_code "vector_svg: listed" "$code" 0

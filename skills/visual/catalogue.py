@@ -4,7 +4,8 @@
     from skills.visual import catalogue   # or import catalogue next to it
     for m in catalogue.models("vector_svg"):
         m["id"], m["name"], m["description"], m["price"], m["unit"], m["vector"],
-        m["reference_required"]   # needs a reference image, useless for a bare prompt
+        m["reference_required"],  # needs a reference image, useless for a bare prompt
+        m["alpha"]   # raster only: --transparent gives a real alpha channel on this model
 
 Modalities: raster_image, vector_svg (both from GET /api/v1/models
 ?output_modalities=image, split on the vector flag), video (GET
@@ -37,6 +38,25 @@ VECTOR = re.compile(r"\b(vector|svg)\b", re.IGNORECASE)
 # Models that cannot work from a bare prompt (Recraft "Styles" need a style
 # reference image on every request); the router skips them.
 REFERENCE_REQUIRED = re.compile(r"requires at least one (style|reference)", re.IGNORECASE)
+# Models that accept /api/v1/images' background: "transparent" and return a
+# real alpha channel. OpenRouter's own listing wins when a model publishes
+# "background" in supported_parameters; most raster models don't publish
+# that field yet, so an explicit allowlist backs the ones verified live
+# (2026-09-22: openai/gpt-5-image-mini gave a real RGBA PNG). Diffusion
+# models such as FLUX.2 Klein, Krea and Muse only paint a fake checkerboard
+# and are deliberately left out.
+ALPHA_ALLOWLIST = re.compile(r"^openai/gpt-.*image", re.IGNORECASE)
+
+
+def has_alpha(model_id, supported_parameters=None):
+    """Whether a raster model's images endpoint gives a real alpha channel.
+
+    supported_parameters naming "background" is a positive signal, never a
+    negative one: most models don't publish it yet, so its absence must not
+    override a model the allowlist already verified live."""
+    if isinstance(supported_parameters, list) and "background" in supported_parameters:
+        return True
+    return bool(ALPHA_ALLOWLIST.search(model_id or ""))
 
 
 class CatalogueError(Exception):
@@ -71,7 +91,7 @@ def _number(value):
     return n if n >= 0 else None
 
 
-def _entry(model, price, unit):
+def _entry(model, price, unit, alpha=None):
     text = f"{model.get('id', '')} {model.get('name', '')} {model.get('description', '')}"
     return {
         "id": model.get("id"),
@@ -81,12 +101,14 @@ def _entry(model, price, unit):
         "unit": unit,
         "vector": bool(VECTOR.search(text)),
         "reference_required": bool(REFERENCE_REQUIRED.search(model.get("description") or "")),
+        **({"alpha": alpha} if alpha is not None else {}),
     }
 
 
 def _image_entry(model):
     pricing = model.get("pricing") or {}
-    return _entry(model, _number(pricing.get("image_output")), "image token")
+    alpha = has_alpha(model.get("id"), model.get("supported_parameters"))
+    return _entry(model, _number(pricing.get("image_output")), "image token", alpha=alpha)
 
 
 def _speech_entry(model):

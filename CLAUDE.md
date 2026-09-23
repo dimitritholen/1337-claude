@@ -38,20 +38,33 @@ work when the plugin is installed and used in any folder, not only this one.
   six cheapest catalogue models, and one additionalContext block telling
   Claude to ask with a single AskUserQuestion call, one question per
   modality (Jev's pick first and Recommended, prices in every label,
-  stay-with-Claude last), and run generate.py once per chosen model. `CLAUDE_1337_VISUAL=0` disables. Test:
+  stay-with-Claude last), and run generate.py once per chosen model. A
+  prompt saying transparent, transparency, alpha or "dark and light" keeps
+  only `catalogue.py`'s alpha-capable raster models (when at least one
+  remains) and adds `--transparent` to the raster generate.py command.
+  `CLAUDE_1337_VISUAL=0` disables. Test:
   `tests/visual-route.test.sh` (stand-in Jev and catalogue).
 - `skills/visual/generate.py`: makes the file once a model is chosen:
   raster and vector through chat completions with the image modality
   (extension from the data URL's media type, so Recraft vector gives
   `.svg`), video through the async videos job, speech through the audio
   endpoint. Writes `--out` or `assets/<slug>.<ext>`, never overwrites,
-  prints path and cost. Exit 3 no key, 4 API failure, 5 failed video job.
-  Test: `tests/generate.test.sh` (stand-in OpenRouter).
+  prints path and cost. `--transparent` (raster only) posts `background:
+  "transparent"`, `output_format: "png"` to `/api/v1/images` instead,
+  refusing before any request when `catalogue.has_alpha` says the model has
+  no real alpha channel (most diffusion models only paint a fake
+  checkerboard). Exit 3 no key, 4 API failure, 5 failed video job, 6 model
+  unusable for this account, 7 `--transparent` on a non-alpha model. Test:
+  `tests/generate.test.sh` (stand-in OpenRouter).
 - `skills/visual/catalogue.py`: `models(modality)` lists OpenRouter's
   generation models for `raster_image`, `vector_svg`, `video` or `speech`
   with one price and unit each (image token, second or video token,
-  character), cheapest first, live on every call. Test:
-  `tests/catalogue.test.sh` (fixture JSON shaped like the live lists).
+  character), cheapest first, live on every call. Raster (and vector)
+  entries also carry `alpha` (`has_alpha`): true when the listing's
+  `supported_parameters` names `background`, else a small id-prefix
+  allowlist (`openai/gpt-*image*`), the one source `generate.py` imports
+  for its `--transparent` refusal. Test: `tests/catalogue.test.sh` (fixture
+  JSON shaped like the live lists).
 - `skills/tier/route.py`: python3 script that asks Jev, TypeSafe's decision
   model, for the model tier per plan step through `lib/jev.py`. Needs a
   stored OpenRouter or TypeSafe key. Test: `tests/tier-route.test.sh`

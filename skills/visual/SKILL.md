@@ -17,8 +17,11 @@ that choice.
    image, vector SVG, video, speech) and, for a visual answer, ranks the six
    cheapest models of that kind. A prompt can carry more than one modality
    ("an SVG and a transparent PNG"): every visual modality Jev gives 0.3 or
-   more counts, and each gets its own ranking. It injects one `[1337 visual]`
-   block.
+   more counts, and each gets its own ranking. A prompt that says
+   transparent, transparency, alpha or "dark and light" ranks only the
+   raster models `catalogue.py` marks `alpha: true` when at least one such
+   model exists, and adds `--transparent` to the raster `generate.py`
+   command. It injects one `[1337 visual]` block.
 2. **The user picks.** On that block, before anything else, ask with
    `AskUserQuestion` exactly as the block says: header "Model" (or one
    question per modality in a single call, headers "SVG model", "Image
@@ -32,7 +35,8 @@ that choice.
    python3 "${CLAUDE_PLUGIN_ROOT}/skills/visual/generate.py" \
      --model <chosen id> --modality raster_image|vector_svg|video|speech \
      --prompt "<the user's prompt, verbatim>" [--out <path>] \
-     [--endpoint auto|chat|images] [--aspect 16:9] [--duration 8] [--voice alloy]
+     [--endpoint auto|chat|images] [--aspect 16:9] [--duration 8] [--voice alloy] \
+     [--transparent]
    ```
 
    It prints one JSON line with `path`, `media_type`, `bytes` and `cost`.
@@ -80,6 +84,11 @@ line, drops that model from the ranked choice, and asks once more with the
 remaining models; if none remain, say so and stop. This is the one exception
 to "do not ask twice for the same prompt", because the first answer turned
 out impossible, not declined.
+
+Exit 7 (`--transparent` on a model without a real alpha channel) refuses
+before any request is sent — most diffusion models only paint a fake
+checkerboard for "transparent". Never pass `--transparent` for a model
+`catalogue.py` did not mark `alpha: true`.
 
 # Prices
 

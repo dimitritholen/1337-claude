@@ -19,7 +19,10 @@ additionalContext telling Claude to ask with one AskUserQuestion call,
 one question per modality, before anything else (Jev's pick first and
 marked Recommended, then cheap to expensive, a price in every label,
 plus a stay-with-Claude option) and then run generate.py once per chosen
-model.
+model. A prompt that says transparent, transparency, alpha or "dark and
+light" prefers catalogue.py's alpha-capable raster models (dropping the
+rest when at least one alpha model remains) and adds --transparent to
+the raster generate.py command.
 
 Budget: the hook runs under a 10-second timeout, so every network call
 gets what is left of an internal 9-second deadline, at most 2.5 seconds
@@ -52,6 +55,10 @@ PREFILTER = re.compile(
     re.IGNORECASE,
 )
 SYSTEM_EVENT = re.compile(r"^\s*<(task-notification|system-reminder)\b")
+# A prompt that asks for a real alpha channel: prefer catalogue.has_alpha
+# raster models over ones that only paint a fake checkerboard, and tell
+# Claude to run generate.py with --transparent.
+TRANSPARENT = re.compile(r"\btransparen(t|cy)\b|\balpha\b|dark and light", re.IGNORECASE)
 MODALITIES = {
     "text_or_code": "Prose, code, data, a diagram in text, or anything Claude writes itself; "
                     "also questions about images or videos that need no new file made.",
@@ -100,11 +107,15 @@ def options(ranked, recommended):
     return lines
 
 
-def context(prompt, picks):
+def context(prompt, picks, transparent=False):
     """picks: [(modality, ranked, recommended)], likeliest modality first."""
     generate = os.path.join(HERE, "generate.py")
-    command = (f"python3 \"{generate}\" --model <chosen id> --modality {{modality}} --prompt "
-               "<the user's prompt, verbatim> [--out <path named in the prompt>]")
+
+    def command(modality):
+        extra = " --transparent" if transparent and modality == "raster_image" else ""
+        return (f"python3 \"{generate}\" --model <chosen id> --modality {modality} --prompt "
+                f"<the user's prompt, verbatim>{extra} [--out <path named in the prompt>]")
+
     if len(picks) == 1:
         modality, ranked, recommended = picks[0]
         lines = [
@@ -115,7 +126,7 @@ def context(prompt, picks):
         ]
         lines += options(ranked, recommended)
         lines.append(
-            f"On a model choice run: {command.format(modality=modality)}, then report the path "
+            f"On a model choice run: {command(modality)}, then report the path "
             "and cost it prints. On \"Stay with Claude\" carry on as usual. "
             "Do not ask twice for the same prompt."
         )
@@ -130,8 +141,10 @@ def context(prompt, picks):
     for modality, ranked, recommended in picks:
         lines.append(f"Question with header \"{HEADERS[modality]}\" (--modality {modality}):")
         lines += options(ranked, recommended)
+    raster_hint = (" (--transparent on the raster_image run)"
+                   if transparent and any(m == "raster_image" for m, _, _ in picks) else "")
     lines.append(
-        f"For every question answered with a model run: {command.format(modality='<its --modality>')}"
+        f"For every question answered with a model run: {command('<its --modality>')}{raster_hint}"
         ", one run per format, each with its own --out when the prompt names paths; then "
         "report every path and cost printed. A question answered \"Stay with Claude\" means "
         "Claude makes that format by hand. Do not ask twice for the same prompt."
@@ -160,10 +173,15 @@ def requested(answer, floor, multi):
     return [modality]
 
 
-def pick_models(prompt, modality, floor, started):
+def pick_models(prompt, modality, floor, started, transparent=False):
     """(modality, ranked, recommended) for one modality, or None without candidates."""
     entries = [e for e in catalogue.models(modality, timeout=budget(started))
-               if e["price"] is not None and not e["reference_required"]][:CANDIDATES]
+               if e["price"] is not None and not e["reference_required"]]
+    if transparent and modality == "raster_image":
+        alpha_entries = [e for e in entries if e.get("alpha")]
+        if alpha_entries:  # keep the fake-checkerboard models out only if a real one remains
+            entries = alpha_entries
+    entries = entries[:CANDIDATES]
     if not entries:
         return None
     by_id = {e["id"]: e for e in entries}
@@ -199,12 +217,13 @@ def route(prompt, started):
     modalities = requested(answer, floor, multi)
     if not modalities:
         return None
+    transparent = bool(TRANSPARENT.search(prompt))
 
     # One thread per modality, each call still capped by budget(); a modality
     # whose catalogue or Jev call fails drops out, the others still get asked.
     picks = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(modalities)) as pool:
-        futures = [pool.submit(pick_models, prompt, m, floor, started) for m in modalities]
+        futures = [pool.submit(pick_models, prompt, m, floor, started, transparent) for m in modalities]
         for modality, future in zip(modalities, futures):
             try:
                 pick = future.result()
@@ -213,7 +232,7 @@ def route(prompt, started):
                 continue
             if pick:
                 picks.append(pick)
-    return context(prompt, picks) if picks else None
+    return context(prompt, picks, transparent) if picks else None
 
 
 def main():

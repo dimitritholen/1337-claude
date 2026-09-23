@@ -175,16 +175,24 @@ check_code "svg and png prompt: exit 0" "$code" 0
 check_eq "svg and png prompt: one block naming both" "$(ctx | grep -c '^\[1337 visual\] This prompt asks for a vector svg and a raster image')" "1"
 check_eq "svg and png prompt: one AskUserQuestion call, two questions" "$(ctx | grep -c 'one AskUserQuestion call holding 2 questions')" "1"
 check_eq "svg and png prompt: headers differ, svg first" "$(ctx | grep -o '^Question with header "[^"]*"' | tr '\n' ';')" 'Question with header "SVG model";Question with header "Image model";'
-check_eq "svg and png prompt: each question has Jev's pick first and Recommended" "$(ctx | grep '^1\. ' | tr '\n' ';' | grep -o '^1\. [^ ]* (Recommended)\|;1\. [^ ]* (Recommended)' | tr -d ';' | tr '\n' ' ')" "1. recraft/recraft-v4.1-vector (Recommended) 1. recraft/recraft-v4.1 (Recommended) "
-check_eq "svg and png prompt: Stay with Claude closes both questions" "$(ctx | grep -c '^4\. Stay with Claude\|^3\. Stay with Claude')" "2"
+check_eq "svg and png prompt: each question has Jev's pick first and Recommended" "$(ctx | grep '^1\. ' | tr '\n' ';' | grep -o '^1\. [^ ]* (Recommended)\|;1\. [^ ]* (Recommended)' | tr -d ';' | tr '\n' ' ')" "1. recraft/recraft-v4.1-vector (Recommended) 1. openai/gpt-image-1 (Recommended) "
+check_eq "svg and png prompt: transparent drops the non-alpha raster model, one alpha model left" "$(ctx | grep -c 'recraft/recraft-v4\.1[^-]')" "0"
+check_eq "svg and png prompt: Stay with Claude closes both questions" "$(ctx | grep -c '^4\. Stay with Claude\|^3\. Stay with Claude\|^2\. Stay with Claude')" "2"
 check_eq "svg and png prompt: prices in every model label" "$(ctx | grep -c '^[123]\. .*per 1K image tokens')" "$(ctx | grep -c '^[123]\. [a-z]*/')"
 check_eq "svg and png prompt: one generate.py run per format" "$(ctx | grep -c 'one run per format')" "1"
+check_eq "svg and png prompt: raster run carries --transparent" "$(ctx | grep -c -- '--transparent on the raster_image run')" "1"
 check_eq "svg and png prompt: one modality call, then two catalogue fetches and two model calls" "$(jq -r '.method + " " + (if .body.questions.model then "model" elif .body then "modality" else .path end)' "$work/requests.jsonl" | sort | tr '\n' ';')" "GET /api/v1/models?output_modalities=image;GET /api/v1/models?output_modalities=image;POST modality;POST model;POST model;"
 check_eq "svg and png prompt: a model question per modality" "$(jq -r 'select(.body.questions.model) | .body.state.modality' "$work/requests.jsonl" | sort | tr '\n' ' ')" "raster_image vector_svg "
 
 CLAUDE_1337_VISUAL_MULTI=0.5 run "Split: a logo as an SVG and a transparent PNG"
 check_eq "CLAUDE_1337_VISUAL_MULTI=0.5: only the likeliest, single question" "$(ctx | grep -c 'asks for a vector svg, which\|header \"Model\"')" "1"
 check_eq "CLAUDE_1337_VISUAL_MULTI=0.5: one model call" "$(jq -c 'select(.body.questions.model)' "$work/requests.jsonl" | wc -l | tr -d ' ')" "1"
+
+run "Give me a transparent PNG picture of a logo"
+check_code "transparent PNG prompt: exit 0" "$code" 0
+check_eq "transparent PNG prompt: single raster question" "$(ctx | grep -c 'asks for a raster image')" "1"
+check_eq "transparent PNG prompt: only the alpha model listed" "$(ctx | grep -o '^[0-9]\. [a-z]*/[^ ]*' | tr '\n' ' ')" "1. openai/gpt-image-1 "
+check_eq "transparent PNG prompt: command carries --transparent" "$(ctx | grep -c -- '--modality raster_image --prompt <the user'\''s prompt, verbatim> --transparent')" "1"
 
 run "Wordy: explain which logo image format suits a letterhead"
 check_code "text_or_code majority: exit 0" "$code" 0

@@ -89,6 +89,9 @@ class Handler(BaseHTTPRequestHandler):
                                  "images": [{"type": "image_url", "image_url": {"url": url}}]}}],
                                  "usage": {"prompt_tokens": 10, "completion_tokens": 1000, "cost": 0.0192}}); return
         if self.path == "/api/v1/images":
+            if body.get("background") == "transparent":
+                self.send_json(200, {"data": [{"b64_json": base64.b64encode(PNG).decode(), "media_type": "image/png"}],
+                                     "usage": {"cost": 0.013}}); return
             if "images-only" in model:
                 self.send_json(200, {"data": [{"b64_json": base64.b64encode(PNG).decode(), "media_type": "image/png"}],
                                      "usage": {"cost": 0.0042}}); return
@@ -228,5 +231,22 @@ check_code "--endpoint with bad value: usage exit 2" "$code" 2
 run --model acme/paint --modality raster_image --prompt "A ceramic pot"
 check_code "existing model without --endpoint: written" "$code" 0
 check_eq "existing model: uses chat only, no images call" "$(jq -c 'select(.method=="POST") | .path' "$work/requests.jsonl" | sort -u | tr '\n' ';')" '"/api/v1/chat/completions";'
+
+# --- --transparent (#640) ---
+run --model openai/gpt-5-image-mini --modality raster_image --prompt "A fox on a transparent background" --transparent
+check_code "--transparent on an alpha model: written" "$code" 0
+check_eq "--transparent: cost from the images response" "$(field .cost)" "0.013"
+check_eq "--transparent: request goes to /api/v1/images with background and output_format" "$(jq -c 'select(.method=="POST") | [.path, .body.background, .body.output_format]' "$work/requests.jsonl")" '["/api/v1/images","transparent","png"]'
+check_eq "--transparent: chat/completions never called" "$(jq -r '.path' "$work/requests.jsonl" | tr '\n' ';')" "/api/v1/images;"
+
+run --model black-forest-labs/flux-2-klein --modality raster_image --prompt "A fox, no background" --transparent
+check_code "--transparent on a non-alpha model: new exit code 7" "$code" 7
+check_eq "--transparent refusal: reason on stderr" "$(grep -c 'no native alpha channel' "$work/stderr")" "1"
+check_eq "--transparent refusal: no request at all" "$([ -f "$work/requests.jsonl" ] && wc -l < "$work/requests.jsonl" || echo 0)" "0"
+[ ! -e assets/a-fox-no-background.png ] && printf 'ok   --transparent refusal: nothing written\n' || { printf 'FAIL --transparent refusal wrote a file\n'; fail=1; }
+
+run --model recraft/recraft-v4.1-vector --modality vector_svg --prompt "A fox logo" --transparent
+check_code "--transparent on a non-raster modality: usage exit 2" "$code" 2
+check_eq "--transparent, non-raster: no request at all" "$([ -f "$work/requests.jsonl" ] && wc -l < "$work/requests.jsonl" || echo 0)" "0"
 
 exit $fail
