@@ -1,11 +1,11 @@
 ---
 max_turns: 8
-allowed_tools: [Write, Read, Glob, Grep, Bash]
+allowed_tools: [Write, Read, Glob, Grep]
 ---
 
 /1337:plan Add a `--json` flag so `list` prints machine-readable output that
 a script can pipe into jq. The whole CLI is this one file, `todo.py`, and
-there is no tasqx here — record the plan as a file:
+there is no tasqx here — record the plan as `plans/list-json.md`:
 
 ```python
 import argparse, json, pathlib
