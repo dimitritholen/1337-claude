@@ -383,5 +383,38 @@ fi
 # read kind, not the grep kind).
 CLAUDE_1337_READ_CAP=0 CLAUDE_1337_GREP_CAP=off check_grep 2 'Read #1' "READ_CAP=0, GREP_CAP=off: Bash cat refused" "$(bashcall "$sid" p40 'cat src/lib.rs')"
 
+# --- tasqx #682: quoted text inside a Bash command must not be split on as
+# if it were a real |, ;, &&, || separator, and an unprotected glob in the
+# unquoted word-split must not be expanded against the hook's own cwd.
+
+bash_json() { jq -Rs . <<<"$1"; }
+bashcall_json() { # session prompt_id command-json
+  printf '{"session_id":"%s","prompt_id":"%s","tool_name":"Bash","tool_input":{"command":%s}}' "$1" "$2" "$3"
+}
+
+# A `;`/`|` quoted inside a string is data, not a real separator: neither
+# example below is a read (the file-reader name only appears inside quotes).
+CLAUDE_1337_READ_CAP=0 check 0 'gap 682: echo "run; cat file" is not a read' "$(bashcall_json "$sid" p41 "$(bash_json 'echo "run; cat file"')")"
+CLAUDE_1337_READ_CAP=0 check 0 'gap 682: git commit -m "x; head first" is not a read' "$(bashcall_json "$sid" p42 "$(bash_json 'git commit -m "x; head first"')")"
+
+# `$( )` runs even inside a double-quoted string, so a `;` there still
+# separates real commands and `cat f` inside it still counts.
+CLAUDE_1337_READ_CAP=0 check 2 'gap 682: echo "$(true; cat f)" IS a read' "$(bashcall_json "$sid" p43 "$(bash_json 'echo "$(true; cat f)"')")"
+
+# `cat *.rs` counts as a read, and the glob must not be expanded against the
+# hook's cwd: a directory whose only match is a dash-led filename proves it
+# — expanded, that filename would parse as a flag and be dropped, undercounting
+# to zero non-flag operands and wrongly passing as not-a-read.
+GLOBDIR="$STATEDIR/globdir"
+mkdir -p "$GLOBDIR"
+touch -- "$GLOBDIR/-x.rs"
+out=$(cd "$GLOBDIR" && printf '%s' "$(bashcall "$sid" p44 'cat *.rs')" | CLAUDE_1337_READ_CAP=0 "$HOOK" 2>&1 >/dev/null)
+got=$?
+if [ "$got" -eq 2 ]; then
+  printf 'ok   gap 682: cat *.rs counts as a read, not glob-expanded against the hook cwd\n'; ok_count=$((ok_count + 1))
+else
+  printf 'FAIL gap 682: cat *.rs counts as a read, not glob-expanded against the hook cwd (exit %s; stderr: %s)\n' "$got" "$out"; fail=1; fail_count=$((fail_count + 1))
+fi
+
 printf 'summary: %d ok, %d FAIL, %d todo\n' "$ok_count" "$fail_count" "$todo_count"
 exit $fail

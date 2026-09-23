@@ -155,6 +155,15 @@ work when the plugin is installed and used in any folder, not only this one.
   back as `git_sub` starting with `-`, which `hooks/orchestrator-guard.sh`
   refuses and `hooks/read-cap.sh` counts as a read. Test:
   `tests/git-subcommand.test.sh`.
+- `hooks/lib/mask-quotes.sh`: sourced helper; `mask_quotes` reads a Bash
+  command on stdin and blunts the separator characters (whitespace, `;`,
+  `|`, `&`, `<`, `>`) inside single- or double-quoted spans, so a quoted
+  `;` or `|` (a commit message, an echo argument) is not mistaken for a real
+  segment split. `$( )` and backticks stay live even inside double quotes,
+  since the shell executes them there. Both `hooks/orchestrator-guard.sh`
+  and `hooks/read-cap.sh` mask a command this way before splitting it into
+  segments or picking out its first word. Covered by
+  `tests/orchestrator-guard.test.sh` and `tests/read-cap.test.sh`.
 
 All shell suites run together with `tests/run-all.sh`; a change to `hooks/` or
 `skills/` is not done until it is green.

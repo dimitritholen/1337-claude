@@ -49,6 +49,7 @@ set -u
 command -v jq >/dev/null 2>&1 || exit 0
 
 . "$(dirname "$0")/lib/git-subcommand.sh"
+. "$(dirname "$0")/lib/mask-quotes.sh"
 
 # A Bash call counts as a read only when it has a segment (split on |, ;,
 # &&, ||; not a full shell parse) whose first word is a plain file-reader
@@ -62,12 +63,24 @@ command -v jq >/dev/null 2>&1 || exit 0
 # the command/builtin/exec/env prefixes; git behind a global option it
 # cannot parse, or behind a `-c alias.*` config, counts too. Any other Bash
 # command passes uncounted.
+#
+# The split and the first-word check run on $cmd after hooks/lib/mask-
+# quotes.sh has blunted the separator characters inside quoted spans, so
+# `echo "run; cat file"` or `git commit -m "x; head first"` is one segment,
+# not two — the quoted `;` runs no command. `$( )` and backticks stay live
+# even inside double quotes, so `echo "$(true; cat f)"` still counts.
 bash_is_read() {
-  local cmd="$1" seg first second nonflag arg
+  local cmd first second nonflag arg
+  cmd="$(mask_quotes <<<"$1")"
   while IFS= read -r seg; do
     seg="$(printf '%s' "$seg" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
     [ -n "$seg" ] || continue
+    # The unquoted split above can still leave a glob (`cat *.rs`): disable
+    # expansion for the word-split so it is seen as a literal operand, not
+    # expanded against this hook's own cwd.
+    set -f
     set -- $seg
+    set +f
     # VAR=val assignments and the command/builtin/exec/env prefixes (with
     # their flags, and env's VAR=val arguments) run the next word; skip them
     # so `command git cat-file -p X` is seen as git.
