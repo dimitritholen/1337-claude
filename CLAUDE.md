@@ -115,7 +115,8 @@ work when the plugin is installed and used in any folder, not only this one.
   finds. The critic answers strict JSON (`pass`, a list of defects each
   with a type, where, a normalised bounding box, a 1-5 severity and a fix
   instruction); `pass` is computed locally, severity >= 3 fails it, never
-  trusted from the model's own claim. `request` (CLI `--request`/
+  trusted from the model's own claim. The critic is called at temperature 0
+  so the same image scores consistently. `request` (CLI `--request`/
   `--request-file`, mutually exclusive), when given, is the user's own
   verbatim message: the critic sees it as a second, clearly labelled
   section alongside the prompt ("The user's original request, verbatim:"

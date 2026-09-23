@@ -311,6 +311,7 @@ def judge(path, prompt, critic, key, request=None):
             {"role": "user", "content": build_content(path, prompt, request)},
         ],
         "response_format": {"type": "json_object"},
+        "temperature": 0,
         "usage": {"include": True},
     }
     for attempt in range(2):

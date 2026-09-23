@@ -186,6 +186,8 @@ check_eq "pass first try: pass true" "$(field .pass)" "true"
 check_eq "pass first try: files has only the original" "$(field '.files | length')" "1"
 check_eq "pass first try: critic id echoed" "$(field .critic)" "acme/critic-pass"
 check_eq "pass first try: no generator request" "$(jq -c 'select(.body.model=="acme/gen")' "$work/requests.jsonl" | wc -l | tr -d ' ')" "0"
+critic_body="$(jq -c 'select(.body.model=="acme/critic-pass")' "$work/requests.jsonl")"
+check_eq "pass first try: critic request has temperature 0" "$(printf '%s' "$critic_body" | jq '.body.temperature')" "0"
 
 # --- fail, then fix, then pass; reference sent on the fix round ----------------
 run original.png --prompt "A red fox" --model acme/gen --critic acme/critic-then-pass
@@ -201,6 +203,7 @@ ref_url="$(printf '%s' "$fix_body" | jq -r '.body.messages[0].content[1].image_u
 check_eq "fix round: reference sent as a second image_url part" "$(printf '%s' "$ref_url" | cut -c1-22)" "data:image/png;base64,"
 check_eq "fix round: reference decodes to the original's bytes" \
   "$(printf '%s' "$ref_url" | sed 's/^data:image\/png;base64,//' | base64 -d | cmp -s - original.png && echo same || echo different)" "same"
+check_eq "fix round: generator request has no temperature key" "$(printf '%s' "$fix_body" | jq 'has("body") and (.body | has("temperature"))')" "false"
 
 # --- still failing after N rounds: lowest score wins, not the last ------------
 run original.png --prompt "A blue jay" --model acme/gen --critic acme/critic-worsening --rounds 2
