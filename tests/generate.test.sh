@@ -435,4 +435,72 @@ check_code "--prompt-file empty: usage exit 2" "$code" 2
 run --model acme/paint --modality raster_image --prompt-file "$work/no-such-prompt.txt"
 check_code "--prompt-file missing: usage exit 2" "$code" 2
 
+# --- cost log and --cost (#647) ---
+# a directory of its own: keys.path()'s default fallback dir ($work, since
+# CLAUDE_1337_CREDENTIALS above is $work/no-such-file) already collected a
+# visual.jsonl of its own from every generation run above.
+log="$work/costs/visual.jsonl"
+export CLAUDE_1337_VISUAL_LOG="$log"
+
+run --model acme/paint --modality raster_image --prompt "Log me once"
+check_code "cost log: generation still written" "$code" 0
+check_eq "cost log: one line appended" "$(wc -l < "$log")" "1"
+logged="$(tail -n1 "$log")"
+check_eq "cost log: model/modality/cost recorded" "$(printf '%s' "$logged" | jq -c '[.model, .modality, .cost]')" '["acme/paint","raster_image",0.0192]'
+check_eq "cost log: path is absolute and matches the written file" "$(printf '%s' "$logged" | jq -r '.path')" "$(cd "$(dirname "$(field .path)")" && pwd)/$(basename "$(field .path)")"
+check_eq "cost log: ts looks like ISO-8601 UTC" "$(printf '%s' "$logged" | jq -r '.ts' | grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')" "1"
+check_eq "cost log: mode 0600" "$(stat -c%a "$log" 2>/dev/null || stat -f%Lp "$log")" "600"
+
+run --model acme/video --modality video --prompt "Log me twice" --duration 2
+check_code "cost log: second generation written" "$code" 0
+check_eq "cost log: two lines now" "$(wc -l < "$log")" "2"
+
+cost_out="$("$SCRIPT" --cost 2>"$work/stderr")"; cost_code=$?
+check_code "--cost: exit 0, no --model/--modality/--prompt needed" "$cost_code" 0
+check_eq "--cost: total and call count on stdout" "$(printf '%s' "$cost_out" | sed -n 1p)" '$0.2692 over 2 calls'
+check_eq "--cost: JSON line on stdout" "$(printf '%s' "$cost_out" | sed -n 2p | jq -c '[.total, .calls, .since]')" '[0.2692,2,null]'
+
+# an old line, written by hand, to test --since filtering
+old_log="$work/visual-since.jsonl"
+cat > "$old_log" <<EOF
+{"ts": "2020-01-01T00:00:00Z", "model": "acme/old", "modality": "raster_image", "path": "/x/old.png", "cost": 1.0}
+{"ts": "$(date -u +%Y-%m-%dT%H:%M:%SZ)", "model": "acme/new", "modality": "raster_image", "path": "/x/new.png", "cost": 0.5}
+EOF
+since_out="$(CLAUDE_1337_VISUAL_LOG="$old_log" "$SCRIPT" --cost --since 1h 2>"$work/stderr")"; since_code=$?
+check_code "--cost --since: exit 0" "$since_code" 0
+check_eq "--cost --since 1h: only the recent line counted" "$(printf '%s' "$since_out" | sed -n 2p | jq -c '[.total, .calls]')" '[0.5,1]'
+check_eq "--cost --since: resolved ISO date on stdout" "$(printf '%s' "$since_out" | sed -n 1p | grep -Ec 'since [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')" "1"
+
+# an unknown-cost line is counted separately
+unknown_log="$work/visual-unknown.jsonl"
+printf '{"ts": "%s", "model": "acme/nocost", "modality": "speech", "path": "/x/a.mp3", "cost": null}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$unknown_log"
+unknown_out="$(CLAUDE_1337_VISUAL_LOG="$unknown_log" "$SCRIPT" --cost 2>"$work/stderr")"
+check_eq "--cost: unknown cost reported separately" "$(printf '%s' "$unknown_out" | sed -n 1p)" '$0.0000 over 1 call (1 without a price)'
+
+# a malformed line is skipped with a stderr count
+malformed_log="$work/visual-malformed.jsonl"
+printf 'not json at all\n{"ts": "%s", "model": "acme/ok", "modality": "speech", "path": "/x/b.mp3", "cost": 0.1}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$malformed_log"
+malformed_out="$(CLAUDE_1337_VISUAL_LOG="$malformed_log" "$SCRIPT" --cost 2>"$work/stderr")"
+check_eq "--cost: malformed line skipped, good line still counted" "$(printf '%s' "$malformed_out" | sed -n 1p)" '$0.1000 over 1 call'
+check_eq "--cost: malformed line noted on stderr" "$(grep -c 'skipped 1 malformed log line' "$work/stderr")" "1"
+
+# no log file at all
+no_log="$work/no-such-visual.jsonl"
+empty_out="$(CLAUDE_1337_VISUAL_LOG="$no_log" "$SCRIPT" --cost 2>"$work/stderr")"; empty_code=$?
+check_code "--cost with no log file: exit 0" "$empty_code" 0
+check_eq "--cost with no log file: total 0" "$(printf '%s' "$empty_out" | sed -n 1p)" '$0.0000 over 0 calls'
+
+# an unwritable log path still exits 0, with a stderr note, and the generation still happened
+unwritable_dir="$work/unwritable"
+mkdir -p "$unwritable_dir"
+chmod 000 "$unwritable_dir"
+run_unwritable() { rm -f "$work/requests.jsonl"; out=$(CLAUDE_1337_VISUAL_LOG="$unwritable_dir/nope/visual.jsonl" "$SCRIPT" "$@" 2>"$work/stderr"); code=$?; }
+run_unwritable --model acme/paint --modality raster_image --prompt "Log path is unwritable"
+check_code "unwritable log path: generation still exits 0" "$code" 0
+check_eq "unwritable log path: written file still exists" "$([ -s "$(printf '%s' "$out" | jq -r .path)" ] && echo yes || echo no)" "yes"
+check_eq "unwritable log path: stderr note" "$(grep -c 'generate: cost log skipped:' "$work/stderr")" "1"
+chmod 700 "$unwritable_dir"
+
+unset CLAUDE_1337_VISUAL_LOG
+
 exit $fail

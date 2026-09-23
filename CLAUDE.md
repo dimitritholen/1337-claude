@@ -79,6 +79,11 @@ work when the plugin is installed and used in any folder, not only this one.
   input. `--preview` calls `preview.py`'s `make_preview()` in-process on the
   written file and adds a `preview` path to the JSON line; a preview
   failure never fails the command, since the paid file is already written.
+  Every successful generation appends a line to a cost log (`CLAUDE_1337_VISUAL_LOG`,
+  else `visual.jsonl` next to the credentials file; a logging failure is a
+  stderr note, never a non-zero exit). `generate.py --cost [--since 24h|7d|30m|<ISO
+  date>]` sums that log and prints the total, call count and calls without
+  a known price, no key or network needed.
   Exit 3 no key, 4 API failure, 5 failed video job, 6 model unusable
   for this account, 7 `--transparent` on a non-alpha model, 8 `--reference`
   on a model with no image input. Test: `tests/generate.test.sh` (stand-in

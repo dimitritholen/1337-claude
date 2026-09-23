@@ -126,6 +126,8 @@ Labels show what OpenRouter bills: image models per 1K image output tokens
 per-picture guess), video per second, speech per 1K characters. The
 generator reports the real cost after the fact. Models that need a
 reference image on every request (Recraft "Styles") are never offered.
+Every generation is logged; `generate.py --cost --since 24h` for a spend
+summary.
 
 # Knobs
 
@@ -138,6 +140,8 @@ reference image on every request (Recraft "Styles") are never offered.
 - `OPENROUTER_BASE_URL`, `CLAUDE_1337_CREDENTIALS` — API and key file
   overrides, for tests.
 - `CLAUDE_1337_POLL_SECONDS` — video job poll interval (5).
+- `CLAUDE_1337_VISUAL_LOG` — cost log path override (default
+  `visual.jsonl` next to the credentials file).
 
 Rules: never call generate.py before the user chose; never print or echo a
 key; a hook or API failure means silence and the normal reply, not an

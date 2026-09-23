@@ -67,6 +67,21 @@ this account (upstream said why), 7 --transparent on a model with no
 native alpha channel, 8 --reference on a model catalogue.reference_supported
 marks as not taking an image input. OPENROUTER_BASE_URL redirects the API;
 CLAUDE_1337_POLL_SECONDS sets the poll interval (5).
+
+Every successful generation appends one JSON line to a cost log:
+{"ts", "model", "modality", "path" (absolute), "cost"}. The log path is
+CLAUDE_1337_VISUAL_LOG, else visual.jsonl next to the credentials file
+(lib/keys.path()'s directory). A logging failure is a stderr note only,
+the generation's exit code is never affected by it.
+
+    generate.py --cost [--since 24h|7d|30m|<ISO date>]
+
+prints the total spend and call count from that log (all time without
+--since), e.g. `$0.2210 over 6 calls since 2026-09-22T02:00Z`, plus one
+JSON line on stdout: {"total", "calls", "since"}. Calls with no known
+cost are counted and reported as "N without a price". --cost needs
+neither --model/--modality/--prompt nor a key or network; every other
+flag above requires --model, --modality and one of --prompt/--prompt-file.
 Stdlib only.
 """
 
@@ -80,6 +95,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
@@ -431,13 +447,109 @@ def target_path(out, prompt, ext):
     return candidate
 
 
+# --- cost log (--cost, and the line appended after every generation) ------------
+
+def log_path():
+    override = os.environ.get("CLAUDE_1337_VISUAL_LOG")
+    if override:
+        return override
+    return os.path.join(os.path.dirname(keys.path()), "visual.jsonl")
+
+
+def log_generation(path, model, modality, cost):
+    """Append one line to the cost log. Never raises: a logging failure is
+    a stderr note, the generation the user already paid for stays exit 0."""
+    try:
+        file_path = log_path()
+        directory = os.path.dirname(file_path)
+        if directory:
+            os.makedirs(directory, mode=0o700, exist_ok=True)
+        entry = {
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "model": model,
+            "modality": modality,
+            "path": os.path.abspath(path),
+            "cost": cost,
+        }
+        fd = os.open(file_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            os.chmod(file_path, 0o600)  # os.open's mode is masked by umask; pin it
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+        except BaseException:
+            os.close(fd)
+            raise
+    except Exception as e:  # noqa: BLE001 - logging must never cost the user their file
+        print(f"generate: cost log skipped: {type(e).__name__}: {e}", file=sys.stderr)
+
+
+def parse_since(value):
+    """24h/7d/30m relative to now, or an ISO-8601 date. Raises ValueError."""
+    match = re.match(r"^(\d+)([hdm])$", value)
+    if match:
+        amount, unit = int(match.group(1)), match.group(2)
+        seconds = {"h": 3600, "d": 86400, "m": 60}[unit]
+        return datetime.now(timezone.utc) - timedelta(seconds=amount * seconds)
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def cmd_cost(since):
+    """--cost: total and count from the log, filtered by --since. No network."""
+    since_dt = None
+    if since:
+        try:
+            since_dt = parse_since(since)
+        except ValueError:
+            print(f"generate: cannot parse --since {since}", file=sys.stderr)
+            return 2
+
+    total, calls, unknown, malformed = 0.0, 0, 0, 0
+    file_path = log_path()
+    if os.path.isfile(file_path):
+        with open(file_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    ts = datetime.fromisoformat(entry["ts"].replace("Z", "+00:00"))
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    malformed += 1
+                    continue
+                if since_dt and ts < since_dt:
+                    continue
+                calls += 1
+                cost = entry.get("cost")
+                if isinstance(cost, (int, float)):
+                    total += cost
+                else:
+                    unknown += 1
+    if malformed:
+        print(f"generate: skipped {malformed} malformed log line(s)", file=sys.stderr)
+
+    since_label = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ") if since_dt else None
+    line = f"${total:.4f} over {calls} call{'s' if calls != 1 else ''}"
+    if unknown:
+        line += f" ({unknown} without a price)"
+    if since_label:
+        line += f" since {since_label}"
+    print(line)
+    print(json.dumps({"total": round(total, 4), "calls": calls, "since": since_label}))
+    return 0
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description="Make an image, SVG, video or speech file through OpenRouter.")
-    parser.add_argument("--model", required=True)
-    parser.add_argument("--modality", required=True, choices=MODALITIES)
-    prompt_group = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument("--model")
+    parser.add_argument("--modality", choices=MODALITIES)
+    prompt_group = parser.add_mutually_exclusive_group()
     prompt_group.add_argument("--prompt", help="the prompt text")
     prompt_group.add_argument("--prompt-file", help="path to a file holding the prompt text")
+    parser.add_argument("--cost", action="store_true",
+                        help="print total spend and call count from the cost log, and exit")
+    parser.add_argument("--since", help="with --cost: 24h, 7d, 30m, or an ISO date")
     parser.add_argument("--out", help="output path (default assets/<slug>.<ext>)")
     parser.add_argument("--aspect", help="aspect ratio such as 16:9 (image and video)")
     parser.add_argument("--duration", type=int, help="seconds (video)")
@@ -454,6 +566,14 @@ def main(argv):
     parser.add_argument("--preview", action="store_true",
                         help="also write a GitHub dark/light contact sheet through preview.py")
     args = parser.parse_args(argv[1:])
+    if args.cost:
+        return cmd_cost(args.since)
+    if not args.model:
+        parser.error("--model is required")
+    if not args.modality:
+        parser.error("--modality is required")
+    if not args.prompt and not args.prompt_file:
+        parser.error("one of the arguments --prompt --prompt-file is required")
     if args.prompt_file:
         try:
             with open(args.prompt_file, "r", encoding="utf-8") as f:
@@ -535,6 +655,7 @@ def main(argv):
         os.makedirs(directory, exist_ok=True)
     with open(path, "wb") as f:
         f.write(raw)
+    log_generation(path, args.model, args.modality, cost)
 
     result = {"path": path, "model": args.model, "modality": args.modality,
               "media_type": media_type, "bytes": len(raw), "cost": cost}
