@@ -6,6 +6,7 @@ fix what's wrong, for up to --rounds tries.
                 --model <generator model id>
                 [--rounds N] [--critic <model id>] [--aspect 16:9] [--transparent]
                 [--defects-file <path>] [--tried <id,id,...>]
+                [--request <text> | --request-file <path>]
 
 <file> is the image or SVG generate.py already wrote (video and speech
 files are refused: critique only judges images/svg). The critic (default
@@ -17,6 +18,13 @@ severity and an imperative fix instruction. An SVG file is rasterised to
 PNG through preview.py's headless-Chrome machinery when a browser is on
 PATH; without one, the SVG source goes as a text part instead, noted as
 markup so the critic doesn't mistake it for prose.
+
+--request/--request-file, when given, is the user's own message
+verbatim, sent to the critic as a second, clearly labelled section
+alongside the prompt: the critic judges prompt_adherence against both,
+and where they differ the user's request wins, so a detail the user
+asked for but Claude's generator prompt dropped still counts as a
+defect. Without it, nothing changes.
 
 pass is computed locally (no defect with severity >= 3), never trusted
 from the model's own claim. While not pass and rounds used < --rounds,
@@ -35,7 +43,7 @@ Also importable:
     from critique import run
     result = run(path, prompt, gen_model, rounds=2, critic=None,
                  key=None, aspect=None, transparent=False,
-                 initial_defects=None, tried=None)
+                 initial_defects=None, tried=None, request=None)
 
 run() never calls sys.exit or print (generate.py calls it in-process);
 only this file's CLI wrapper does. It returns:
@@ -58,11 +66,12 @@ the same modality) that take a reference image, cost at least as much as
 gen_model, and were not yet tried, ranked by Jev the way route.py ranks
 its own choices (skills/visual/ranking.py, shared with it), plus a
 ready-to-run "command" holding a literal `<MODEL>` placeholder: writes the
-prompt and the final defects to a fresh temp dir and calls this file again
-with --defects-file/--tried/--model <MODEL>, so the caller need only swap
-in a chosen model id. Any failure building it (no key, Jev, catalogue, no
-candidates) is never raised: it sets "escalation_error" instead, the same
-way a critic failure never fails generate.py.
+prompt, the final defects, and (when set) the request to a fresh temp dir
+and calls this file again with --defects-file/--tried/--model <MODEL>
+(plus --request-file when a request was given), so the caller need only
+swap in a chosen model id. Any failure building it (no key, Jev,
+catalogue, no candidates) is never raised: it sets "escalation_error"
+instead, the same way a critic failure never fails generate.py.
 
 Every critic call is logged through generate.log_generation with
 modality "critique"; every fix generation is logged the same way
@@ -129,6 +138,23 @@ CRITIC_USER_TEMPLATE = (
     "The image below was generated from this prompt:\n\n{prompt}\n\n"
     "Judge it against the prompt and the checklist in your instructions. "
     "Reply with the JSON object described there, and nothing else."
+)
+
+REQUEST_LABEL = "The user's original request, verbatim:"
+PROMPT_LABEL = "The prompt sent to the image generator:"
+REQUEST_USER_TEMPLATE = (
+    f"{PROMPT_LABEL}\n\n{{prompt}}\n\n{REQUEST_LABEL}\n\n{{request}}\n\n"
+    "Judge the image below against both and the checklist in your instructions. "
+    "Where the request and the prompt differ, the request wins. "
+    "Reply with the JSON object described there, and nothing else."
+)
+REQUEST_SYSTEM_ADDENDUM = (
+    "\n\nYou are also given the user's original request, verbatim, alongside the prompt "
+    "sent to the image generator. Judge prompt_adherence against both: where they differ, "
+    "the user's request wins. A detail the user asked for that is missing is a "
+    "prompt_adherence defect even if the generator prompt omitted it. Parts of the request "
+    "that are not about the visual result itself — thanks, unrelated asks such as \"also fix "
+    "the tests\", meta-commentary about the conversation — are ignored and never reported."
 )
 
 _FENCE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```$", re.DOTALL)
@@ -237,11 +263,17 @@ def rasterize_svg(svg_path):
     return None
 
 
-def build_content(path, prompt):
+def build_content(path, prompt, request=None):
     """The user message content list: a text part plus either an image_url
     data URL (raster, or SVG rasterised when a browser is available) or,
-    for an SVG with no browser, the SVG source as a second text part."""
-    text = CRITIC_USER_TEMPLATE.format(prompt=prompt)
+    for an SVG with no browser, the SVG source as a second text part.
+    request, when given, labels the prompt and the user's verbatim
+    request as separate sections of that text part, kept apart so the
+    critic can tell what Claude wrote from what the user actually said."""
+    if request:
+        text = REQUEST_USER_TEMPLATE.format(prompt=prompt, request=request)
+    else:
+        text = CRITIC_USER_TEMPLATE.format(prompt=prompt)
     content = [{"type": "text", "text": text}]
     if ext_kind(path) == "vector_svg":
         png_bytes = rasterize_svg(path)
@@ -266,14 +298,17 @@ def build_content(path, prompt):
 
 # --- one critic call ---------------------------------------------------------------
 
-def judge(path, prompt, critic, key):
+def judge(path, prompt, critic, key, request=None):
     """One judged round: {"pass": bool, "defects": [...], "cost": float|None}.
+    request, when given, is the user's verbatim message: the critic sees
+    it alongside prompt and is told the request wins where they differ.
     Raises CritiqueParseError after a second unparseable reply."""
+    system = CRITIC_SYSTEM + (REQUEST_SYSTEM_ADDENDUM if request else "")
     body = {
         "model": critic,
         "messages": [
-            {"role": "system", "content": CRITIC_SYSTEM},
-            {"role": "user", "content": build_content(path, prompt)},
+            {"role": "system", "content": system},
+            {"role": "user", "content": build_content(path, prompt, request)},
         ],
         "response_format": {"type": "json_object"},
         "usage": {"include": True},
@@ -338,14 +373,16 @@ def _defect_state(defects):
 
 
 def build_escalation(prompt, gen_model, modality, final_path, defects, tried, rounds,
-                      critic, aspect, transparent):
+                      critic, aspect, transparent, request=None):
     """Escalation options for a final result that still failed: up to
     ESCALATION_CANDIDATES priced, reference-taking models not yet tried,
     cheapest first, ranked by Jev (skills/visual/ranking.py, the helper
     route.py's own model ranking shares), plus a ready-to-run command with
-    a literal <MODEL> placeholder. Raises on any failure (no key, Jev,
-    catalogue, no candidates); run() catches it and sets escalation_error
-    instead."""
+    a literal <MODEL> placeholder. request, when given, is also written to
+    the escalation's temp dir and cited with --request-file, so the retry
+    keeps seeing the user's verbatim message. Raises on any failure (no
+    key, Jev, catalogue, no candidates); run() catches it and sets
+    escalation_error instead."""
     floor = float(os.environ.get("CLAUDE_1337_VISUAL_FLOOR", "0.5"))
     all_entries = catalogue.models(modality, timeout=ESCALATION_TIMEOUT)
     by_id = {e["id"]: e for e in all_entries}
@@ -400,18 +437,26 @@ def build_escalation(prompt, gen_model, modality, final_path, defects, tried, ro
         parts.append("--transparent")
     if critic:
         parts += ["--critic", shlex.quote(critic)]
+    if request:
+        request_path = os.path.join(tmp_dir, "request.txt")
+        with open(request_path, "w", encoding="utf-8") as f:
+            f.write(request)
+        parts += ["--request-file", shlex.quote(request_path)]
 
     return {"options": options_list, "recommended": recommended["id"] if recommended else None,
             "command": " ".join(parts)}
 
 
 def run(path, prompt, gen_model, rounds=2, critic=None, key=None, aspect=None, transparent=False,
-        initial_defects=None, tried=None):
+        initial_defects=None, tried=None, request=None):
     """Judge path against prompt, fixing through gen_model for up to
     `rounds` tries. initial_defects seeds the first judged result instead
     of calling the critic (continuing an earlier critique with a new
     gen_model); tried lists model ids already attempted, excluded from a
-    fresh escalation's candidates. Never prints or exits: raises ValueError
+    fresh escalation's candidates. request, when given, is the user's own
+    verbatim message: every critic call sees it alongside prompt, told it
+    wins where the two differ, and it is carried into any escalation
+    command too. Never prints or exits: raises ValueError
     (bad args / missing file / unsupported type), keys.MissingKey/
     UnsafeFile (no key), generate.ApiError or catalogue.CatalogueError (API
     failure), or CritiqueParseError (unparseable critic reply)."""
@@ -443,7 +488,7 @@ def run(path, prompt, gen_model, rounds=2, critic=None, key=None, aspect=None, t
         first_result = {"pass": not any((d.get("severity") or 0) >= 3 for d in seeded_defects),
                         "defects": seeded_defects, "cost": None}
     else:
-        first_result = judge(path, prompt, critic, key)
+        first_result = judge(path, prompt, critic, key, request)
     judged = [(path, first_result)]
     add_cost(judged[0][1]["cost"])
 
@@ -468,7 +513,7 @@ def run(path, prompt, gen_model, rounds=2, critic=None, key=None, aspect=None, t
         generate.log_generation(new_path, gen_model, modality, gen_cost)
         files.append(new_path)
 
-        current_result = judge(new_path, prompt, critic, key)
+        current_result = judge(new_path, prompt, critic, key, request)
         add_cost(current_result["cost"])
         current_path = new_path
         judged.append((current_path, current_result))
@@ -494,7 +539,7 @@ def run(path, prompt, gen_model, rounds=2, critic=None, key=None, aspect=None, t
         try:
             result["escalation"] = build_escalation(
                 prompt, gen_model, kind, final_path, final_result["defects"],
-                tried, rounds, critic, aspect, transparent)
+                tried, rounds, critic, aspect, transparent, request)
         except Exception as e:  # noqa: BLE001 - escalation must never fail run()
             result["escalation_error"] = f"{type(e).__name__}: {e}"
     return result
@@ -516,17 +561,19 @@ def main(argv):
                         " to seed the first judged result, skipping the first critic call")
     parser.add_argument("--tried", help="comma-separated model ids already tried, excluded from "
                         "a fresh escalation's candidates")
+    request_group = parser.add_mutually_exclusive_group()
+    request_group.add_argument("--request", help="the user's original request, verbatim")
+    request_group.add_argument("--request-file", help="path to a file holding the user's original "
+                                "request, verbatim")
     args = parser.parse_args(argv[1:])
     if not args.prompt and not args.prompt_file:
         parser.error("one of the arguments --prompt --prompt-file is required")
     if args.prompt_file:
-        try:
-            with open(args.prompt_file, "r", encoding="utf-8") as f:
-                args.prompt = f.read().rstrip()
-        except OSError as e:
-            parser.error(f"cannot read --prompt-file {args.prompt_file}: {e}")
+        args.prompt = generate.read_text_arg(args.prompt_file, parser, "prompt-file")
     if not args.prompt.strip():
         parser.error("--prompt must not be empty")
+    if args.request_file:
+        args.request = generate.read_text_arg(args.request_file, parser, "request-file")
 
     initial_defects = None
     if args.defects_file:
@@ -546,7 +593,7 @@ def main(argv):
     try:
         result = run(args.file, args.prompt, args.model, rounds=args.rounds, critic=args.critic,
                      aspect=args.aspect, transparent=args.transparent,
-                     initial_defects=initial_defects, tried=tried)
+                     initial_defects=initial_defects, tried=tried, request=args.request)
     except ValueError as e:
         print(f"critique: {e}", file=sys.stderr)
         return 2

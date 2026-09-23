@@ -53,7 +53,12 @@ work when the plugin is installed and used in any folder, not only this one.
   stay-with-Claude last), and run generate.py once per chosen model. A
   prompt saying transparent, transparency, alpha or "dark and light" keeps
   only `catalogue.py`'s alpha-capable raster models (when at least one
-  remains) and adds `--transparent` to the raster generate.py command.
+  remains) and adds `--transparent` to the raster generate.py command. The
+  raw user prompt is also written verbatim to a
+  `tempfile.mkdtemp(prefix="1337-request-")` file and every suggested
+  command carries `--request-file <path>` (a write failure drops the flag
+  silently, never the hook), so the critique pass sees the user's own
+  words even when the brief Claude writes drops a detail.
   `CLAUDE_1337_VISUAL=0` disables. Test:
   `tests/visual-route.test.sh` (stand-in Jev and catalogue).
 - `skills/visual/generate.py`: makes the file once a model is chosen:
@@ -93,7 +98,10 @@ work when the plugin is installed and used in any folder, not only this one.
   JSON line gains the critique result under `critique` and a top-level
   `final`; `path` and `cost` stay the original generation's, so `cost` plus
   `critique.cost` is the total spend. `--trim` runs before the critique, so
-  the critic judges the trimmed file. Same as `--preview`: a critique
+  the critic judges the trimmed file. `--request`/`--request-file`
+  (mutually exclusive, never sent to the generator) pass the user's own
+  verbatim message through to `critique.run(request=...)`, so the critic
+  weighs it alongside the generator prompt. Same as `--preview`: a critique
   failure (no key, API error, unparseable reply) is never fatal, only a
   stderr note and `{"error": ...}` under `critique`, since the paid file is
   already written.
@@ -107,7 +115,14 @@ work when the plugin is installed and used in any folder, not only this one.
   finds. The critic answers strict JSON (`pass`, a list of defects each
   with a type, where, a normalised bounding box, a 1-5 severity and a fix
   instruction); `pass` is computed locally, severity >= 3 fails it, never
-  trusted from the model's own claim. An SVG is rasterised through
+  trusted from the model's own claim. `request` (CLI `--request`/
+  `--request-file`, mutually exclusive), when given, is the user's own
+  verbatim message: the critic sees it as a second, clearly labelled
+  section alongside the prompt ("The user's original request, verbatim:"
+  vs. "The prompt sent to the image generator:"), told to judge
+  `prompt_adherence` against both and, where they differ, that the request
+  wins — so a detail the user asked for but the generator prompt dropped
+  still counts as a defect. Without it, the payload is unchanged. An SVG is rasterised through
   `preview.py`'s headless-Chrome machinery, its window sized from the
   SVG's own `viewBox` aspect ratio (long edge 1024px, `preview.dims_svg`),
   or sent as SVG source text when no browser is on PATH. While not passing
@@ -131,9 +146,10 @@ work when the plugin is installed and used in any folder, not only this one.
   price), Jev's recommended pick always first, plus a `command` holding a
   literal `<MODEL>` placeholder — `--rounds` at least 1 even when the
   failed run used `--rounds 0` (judge-only), so the escalated run actually
-  generates something — that writes the prompt and final defects to a
-  fresh temp dir and re-invokes this file with
-  `--defects-file`/`--tried`/`--model <MODEL>`. Any failure building
+  generates something — that writes the prompt, final defects and
+  (when set) the request to a fresh temp dir and re-invokes this file with
+  `--defects-file`/`--tried`/`--model <MODEL>` (plus `--request-file` when a
+  request was given). Any failure building
   it (no key, Jev, catalogue, no candidates) never raises: `escalation_error`
   instead, the same "must never fail" rule as a critic failure. Also
   importable as `from critique import run`, called by `generate.py` after

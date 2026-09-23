@@ -5,6 +5,7 @@
                 (--prompt <text> | --prompt-file <path>) [--out <path>]
                 [--aspect 16:9] [--duration 8] [--voice alloy] [--transparent]
                 [--reference <file>] [--preview]
+                [--request <text> | --request-file <path>]
 
 --prompt-file reads the prompt from a UTF-8 file instead of the command
 line (trailing whitespace stripped), for a prompt too long or too full
@@ -60,8 +61,12 @@ enabled, --preview previews the critique's final file instead.
 Every raster or vector generation (not video, not speech) is followed by
 a critique.py pass in-process: the written file is judged against the
 prompt and, if it fails, fixed for up to --rounds tries (default 2,
---critic overrides the critic model). --trim runs before the critique,
-so the critic sees the trimmed file; a fix-round output is not trimmed.
+--critic overrides the critic model). --request/--request-file (mutually
+exclusive, never sent to the generator) pass the user's own verbatim
+message through to critique.run(), so the critic sees it alongside the
+generator prompt and weighs it higher where the two differ. --trim runs
+before the critique, so the critic sees the trimmed file; a fix-round
+output is not trimmed.
 The stdout JSON gains a "critique" key (critique.run()'s result) and a
 top-level "final" (the critique's final path); "path" and "cost" stay
 the original generation's, so "cost" plus "critique.cost" is the total
@@ -195,6 +200,17 @@ def request_json(method, url, key, body=None):
 def media_ext(media_type, fallback):
     media_type = (media_type or "").split(";")[0].strip().lower()
     return EXTENSIONS.get(media_type, fallback), media_type or None
+
+
+def read_text_arg(path, parser, flag):
+    """Read a UTF-8 file for a `--<flag>-file` argument, rstripped, erroring
+    through `parser.error` (same message and exit code as the inline reads
+    it replaces) on a missing or unreadable file."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read().rstrip()
+    except OSError as e:
+        parser.error(f"cannot read --{flag} {path}: {e}")
 
 
 def cost_of(usage):
@@ -583,6 +599,11 @@ def main(argv):
     parser.add_argument("--critic", help="critique.py critic model id (default its own built-in default)")
     parser.add_argument("--no-critique", action="store_true",
                         help="skip the critique pass that otherwise always follows raster/vector generation")
+    request_group = parser.add_mutually_exclusive_group()
+    request_group.add_argument("--request", help="the user's original request, verbatim, "
+                                "passed to the critique pass (never sent to the generator)")
+    request_group.add_argument("--request-file", help="path to a file holding the user's "
+                                "original request, verbatim")
     args = parser.parse_args(argv[1:])
     if args.rounds < 0:
         parser.error("--rounds must be >= 0")
@@ -595,13 +616,11 @@ def main(argv):
     if not args.prompt and not args.prompt_file:
         parser.error("one of the arguments --prompt --prompt-file is required")
     if args.prompt_file:
-        try:
-            with open(args.prompt_file, "r", encoding="utf-8") as f:
-                args.prompt = f.read().rstrip()
-        except OSError as e:
-            parser.error(f"cannot read --prompt-file {args.prompt_file}: {e}")
+        args.prompt = read_text_arg(args.prompt_file, parser, "prompt-file")
     if not args.prompt.strip():
         parser.error("--prompt must not be empty")
+    if args.request_file:
+        args.request = read_text_arg(args.request_file, parser, "request-file")
     if args.transparent and args.modality != "raster_image":
         parser.error("--transparent only applies to --modality raster_image")
     if args.transparent and not catalogue.has_alpha(args.model):
@@ -691,7 +710,7 @@ def main(argv):
             import critique
             critique_result = critique.run(path, args.prompt, args.model, rounds=args.rounds,
                                             critic=args.critic, key=key, aspect=args.aspect,
-                                            transparent=args.transparent)
+                                            transparent=args.transparent, request=args.request)
             result["critique"] = critique_result
             result["final"] = critique_result["final"]
             preview_target = critique_result["files"]

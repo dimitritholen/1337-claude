@@ -404,4 +404,44 @@ check_code "naming: exit 0" "$code" 0
 check_eq "naming: continues the round count instead of restarting" "$(field .final)" "escnaming.r2.png"
 [ -s escnaming.r2.png ] && printf 'ok   naming: escnaming.r2.png written\n' || { printf 'FAIL naming: escnaming.r2.png missing\n'; fail=1; }
 
+# --- --request: a second, labelled input to the critic, and to any escalation ------
+REQUEST_TEXT='make it café-style, with a "cozy" awning'
+
+run original.png --prompt "A red fox" --model acme/gen --critic acme/critic-pass --request "$REQUEST_TEXT"
+check_code "--request: exit 0" "$code" 0
+req_body="$(jq -c 'select(.body.model=="acme/critic-pass")' "$work/requests.jsonl")"
+req_text="$(printf '%s' "$req_body" | jq -r '.body.messages[1].content[0].text')"
+check_eq "--request: prompt part labelled and present" "$(printf '%s' "$req_text" | grep -c "The prompt sent to the image generator:")" "1"
+check_eq "--request: request part labelled and holds the verbatim text" \
+  "$(printf '%s' "$req_text" | grep -c "The user's original request, verbatim:")" "1"
+check_eq "--request: the request text itself is present" "$(printf '%s' "$req_text" | grep -Fc "$REQUEST_TEXT")" "1"
+check_eq "--request: system message mentions the user's request" \
+  "$(printf '%s' "$req_body" | jq -r '.body.messages[0].content' | grep -c "user's original request")" "1"
+check_eq "--request: system message excludes non-visual parts of the request" \
+  "$(printf '%s' "$req_body" | jq -r '.body.messages[0].content' | grep -c "are ignored and never reported")" "1"
+
+run original.png --prompt "A red fox" --model acme/gen --critic acme/critic-pass
+check_code "no --request: exit 0" "$code" 0
+noreq_body="$(jq -c 'select(.body.model=="acme/critic-pass")' "$work/requests.jsonl")"
+check_eq "no --request: content is unchanged (one text part, the plain template)" \
+  "$(printf '%s' "$noreq_body" | jq -r '.body.messages[1].content[0].text')" \
+  "The image below was generated from this prompt:
+
+A red fox
+
+Judge it against the prompt and the checklist in your instructions. Reply with the JSON object described there, and nothing else."
+check_eq "no --request: system message is the built-in default, no request addendum" \
+  "$(printf '%s' "$noreq_body" | jq -r '.body.messages[0].content' | grep -c "user's original request")" "0"
+
+run original.png --prompt "A red fox" --model acme/gen --critic acme/critic-fail-simple --rounds 0 --request "$REQUEST_TEXT"
+check_code "--request escalation: exit 0" "$code" 0
+req_command="$(field .escalation.command)"
+check_eq "--request escalation: command carries --request-file" "$(printf '%s' "$req_command" | grep -c -- '--request-file')" "1"
+req_file="$(printf '%s' "$req_command" | grep -o -- '--request-file [^ ]*' | cut -d' ' -f2)"
+check_eq "--request escalation: request file holds the exact request text" "$(cat "$req_file")" "$REQUEST_TEXT"
+
+printf '%s' "$REQUEST_TEXT" > "$work/request.txt"
+run original.png --prompt "A red fox" --model acme/gen --critic acme/critic-pass --request "$REQUEST_TEXT" --request-file "$work/request.txt"
+check_code "--request and --request-file together: exit 2" "$code" 2
+
 exit $fail

@@ -143,6 +143,9 @@ check_eq "svg prompt: Jev probabilities in the labels" "$(ctx | grep -c 'Jev 0\.
 check_eq "svg prompt: stay-with-Claude option is fourth" "$(ctx | grep -c '^4\. Stay with Claude')" "1"
 check_eq "svg prompt: asks with AskUserQuestion" "$(ctx | grep -c 'AskUserQuestion')" "1"
 check_eq "svg prompt: names generate.py with modality" "$(ctx | grep -c 'generate.py" --model <chosen id> --modality vector_svg')" "1"
+check_eq "svg prompt: command carries --request-file" "$(ctx | grep -c -- '--request-file')" "1"
+req_file="$(ctx | grep -o -- '--request-file [^ ]*' | head -n1 | cut -d' ' -f2)"
+check_eq "svg prompt: request file holds the prompt verbatim" "$(cat "$req_file")" "make me an SVG illustration of a fox"
 check_eq "two Jev calls and one catalogue fetch" "$(jq -r '.method + " " + .path' "$work/requests.jsonl" | tr '\n' ';')" "POST /api/alpha/decisions;GET /api/v1/models?output_modalities=image;POST /api/alpha/decisions;"
 check_eq "modality question offers the five labels" "$(jq -c 'select(.method=="POST" and .body.questions.modality) | .body.questions.modality.criteria | keys' "$work/requests.jsonl" | head -n 1)" '["raster_image","speech","text_or_code","vector_svg","video"]'
 check_eq "model question: priced vector models only, no raster, no unpriced, no reference-only" "$(jq -c 'select(.body.questions.model) | .body.questions.model.criteria | keys' "$work/requests.jsonl")" '["acme/svg-cheap","acme/svg-dear","acme/svg-mid","recraft/recraft-v4.1-vector"]'

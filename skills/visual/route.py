@@ -22,7 +22,11 @@ plus a stay-with-Claude option) and then run generate.py once per chosen
 model. A prompt that says transparent, transparency, alpha or "dark and
 light" prefers catalogue.py's alpha-capable raster models (dropping the
 rest when at least one alpha model remains) and adds --transparent to
-the raster generate.py command.
+the raster generate.py command. The raw user prompt is also written
+verbatim to a temp file and every suggested command carries
+--request-file <path>, so the critic sees it even when the design
+brief Claude writes drops a detail; a write failure drops the flag
+silently, never the hook.
 
 Budget: the hook runs under a 10-second timeout, so every network call
 gets what is left of an internal 9-second deadline, at most 2.5 seconds
@@ -39,7 +43,9 @@ import concurrent.futures
 import json
 import os
 import re
+import shlex
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -96,14 +102,31 @@ def options(ranked, recommended):
     return lines
 
 
-def context(prompt, picks, transparent=False):
+def write_request_file(prompt):
+    """The raw user prompt written verbatim to a fresh temp file, so a
+    suggested generate.py command can carry --request-file. None on any
+    write failure: the flag is then dropped silently, never blocking the
+    hook."""
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="1337-request-")
+        path = os.path.join(tmp_dir, "request.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(prompt)
+        return path
+    except OSError:
+        return None
+
+
+def context(prompt, picks, transparent=False, request_path=None):
     """picks: [(modality, ranked, recommended)], likeliest modality first."""
     generate = os.path.join(HERE, "generate.py")
+    request_flag = f" --request-file {shlex.quote(request_path)}" if request_path else ""
 
     def command(modality):
         extra = " --transparent" if transparent and modality == "raster_image" else ""
         return (f"python3 \"{generate}\" --model <chosen id> --modality {modality} "
-                f"--prompt-file <path to the design brief>{extra} [--out <path named in the prompt>] "
+                f"--prompt-file <path to the design brief>{extra}{request_flag} "
+                "[--out <path named in the prompt>] "
                 "(raster/vector: always followed by a critique pass, can take several minutes)")
 
     brief_instruction = (
@@ -222,7 +245,9 @@ def route(prompt, started):
                 continue
             if pick:
                 picks.append(pick)
-    return context(prompt, picks, transparent) if picks else None
+    if not picks:
+        return None
+    return context(prompt, picks, transparent, write_request_file(prompt))
 
 
 def main():

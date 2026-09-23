@@ -600,4 +600,23 @@ CLAUDE_1337_CRITIQUE=1 run --model acme/tts --modality speech --prompt "A fox, n
 check_code "speech: still written, critique never applies" "$code" 0
 check_eq "speech: no critique key" "$(field 'has("critique")')" "false"
 
+# --- --request/--request-file: pass through to the critique pass, never the generator ---
+REQUEST_TEXT="a café fox with a red awning"
+
+CLAUDE_1337_CRITIQUE=1 run --model acme/paint --modality raster_image --prompt "A fox, with request" --request "$REQUEST_TEXT"
+check_code "--request: still written and exit 0" "$code" 0
+req_critic_body="$(jq -c 'select(.body.messages[0].role=="system")' "$work/requests.jsonl")"
+check_eq "--request: critic call carries the request text" "$(printf '%s' "$req_critic_body" | jq -r '.body.messages[1].content[0].text' | grep -Fc "$REQUEST_TEXT")" "1"
+gen_body="$(jq -c 'select(.method=="POST" and .body.model=="acme/paint")' "$work/requests.jsonl")"
+check_eq "--request: generator body does not carry the request text" "$(printf '%s' "$gen_body" | grep -Fc "$REQUEST_TEXT")" "0"
+
+printf '%s' "$REQUEST_TEXT" > "$work/request.txt"
+CLAUDE_1337_CRITIQUE=1 run --model acme/paint --modality raster_image --prompt "A fox, with request-file" --request-file "$work/request.txt"
+check_code "--request-file: still written and exit 0" "$code" 0
+reqfile_critic_body="$(jq -c 'select(.body.messages[0].role=="system")' "$work/requests.jsonl")"
+check_eq "--request-file: critic call carries the request text" "$(printf '%s' "$reqfile_critic_body" | jq -r '.body.messages[1].content[0].text' | grep -Fc "$REQUEST_TEXT")" "1"
+
+run --model acme/paint --modality raster_image --prompt "A fox, both request flags" --request "$REQUEST_TEXT" --request-file "$work/request.txt"
+check_code "--request and --request-file together: exit 2" "$code" 2
+
 exit $fail

@@ -43,7 +43,8 @@ that choice.
      --prompt-file <path to the design brief> [--out <path>] \
      [--endpoint auto|chat|images] [--aspect 16:9] [--duration 8] [--voice alloy] \
      [--transparent] [--trim [--trim-margin 32]] [--reference <file>] [--preview] \
-     [--rounds 2] [--critic <model id>] [--no-critique]
+     [--rounds 2] [--critic <model id>] [--no-critique] \
+     [--request-file <path to the user's own message, verbatim>]
    ```
 
    Print the brief in the report too, so the user can correct it. Run it with
@@ -64,6 +65,14 @@ that choice.
    `{"error": ...}` instead, on stderr too, and the paid file is still
    there. `--trim` runs before the critique, so the critic sees the
    trimmed file; a fix round's own output is not trimmed.
+
+   The hook's own command already carries `--request-file`, written from
+   the user's raw prompt. On a direct `/1337:visual <request>` (no hook
+   block), write the user's message verbatim to a temp file yourself and
+   pass it the same way — never paraphrase it into the brief only. The
+   critic then sees both: where the request and the brief-derived prompt
+   disagree, the request wins, so a detail you dropped while writing the
+   brief still gets caught as a defect.
 
    When `critique.pass` is still false after the fix rounds and
    `critique.escalation` is present, ask ONE more `AskUserQuestion`
@@ -104,7 +113,8 @@ that choice.
 
 Without the hook block (a direct `/1337:visual <request>`), do the same by
 hand: run `skills/visual/catalogue.py <modality> 6` for the list, ask the
-question, then generate.
+question, then generate — with `--request-file` pointing at the user's own
+message, written verbatim to a temp file, as described above.
 
 # Where the file goes
 
