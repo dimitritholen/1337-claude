@@ -12,13 +12,14 @@
 # the subagent carve-out in hooks/read-cap.sh.
 #
 # Evidence: the session transcript (JSONL, at .transcript_path) is scanned
-# for the LAST line matching the marker `1337-tier-route: `, printed by
-# skills/tier/route.py on stdout (so it lands inside a tool_result of a Bash
-# call). What follows the prefix is JSON: {"model":..., "floor":...,
+# for the LAST line whose tool_result carries the marker `1337-tier-route: `,
+# printed by skills/tier/route.py on stdout (so it lands inside a tool_result
+# of a Bash call); a line that only quotes the marker elsewhere is skipped
+# (task #692). What follows the prefix is JSON: {"model":..., "floor":...,
 # "steps":[{"id":..,"tier":"sonnet","confidence":..,"escalated":bool}, ...]}.
 # Each transcript line is one JSONL entry, so a `grep -n` line number IS
-# that entry's position: only the tail after the last marker line is ever
-# parsed with jq (task #674 — a 22MB transcript slurped whole into one jq -s
+# that entry's position: only grep's candidate lines and the tail after the
+# last marker line are ever parsed with jq (task #674 — a 22MB transcript slurped whole into one jq -s
 # array cost 0.56s/147MB; grep -n streams the search instead).
 #
 # No marker anywhere in the transcript means the router never ran this
@@ -106,20 +107,17 @@ transcript=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/n
 MARKER_PREFIX='1337-tier-route: '
 FAIL_PREFIX='1337-tier-failed: '
 
-# Last file line that could hold a marker, last file line that could hold a
-# failure marker, and last file line that could be a route.py invocation.
-# `grep -n -F` streams the file; it does not load it.
-marker_ln=$(grep -n -F -- "$MARKER_PREFIX" "$transcript" 2>/dev/null | tail -1 | cut -d: -f1)
-fail_ln=$(grep -n -F -- "$FAIL_PREFIX" "$transcript" 2>/dev/null | tail -1 | cut -d: -f1)
-route_ln=$(grep -n -F -- 'skills/tier/route.py' "$transcript" 2>/dev/null | tail -1 | cut -d: -f1)
-
-# The evidence: if the last failure marker is newer than the last success
-# marker, read its exit code from the tool_result that carries it — same
-# extraction the success marker gets a few lines down, so prose that merely
-# quotes the marker text (not inside a tool_result) grants nothing.
-fail_exit=""
-if [ -n "$fail_ln" ] && { [ -z "$marker_ln" ] || [ "$fail_ln" -gt "$marker_ln" ]; }; then
-  fail_json=$(sed -n "${fail_ln}p" "$transcript" | jq -r --arg mp "$FAIL_PREFIX" '
+# Last line that REALLY carries a marker: `grep -n -F` streams the file for
+# candidate lines (it does not load it), then jq keeps only a candidate whose
+# marker line sits inside a tool_result, and the last survivor wins. Prints
+# "<line>\t<text after the prefix>", or nothing. The raw grep hit alone is
+# not evidence (task #692): a later entry that merely quotes the marker text
+# (an assistant tool_use whose input mentions `1337-tier-route: `, e.g. a
+# tracker note or commit message) used to become "the last marker", its
+# extraction came back empty, and a routed session was refused as if the
+# router had never run.
+last_marker() { # prefix
+  grep -n -F -- "$1" "$transcript" 2>/dev/null | jq -R -r --arg mp "$1" '
     def texts_of(entry):
       (entry.message.content? // [])
       | if type == "array" then
@@ -129,9 +127,40 @@ if [ -n "$fail_ln" ] && { [ -z "$marker_ln" ] || [ "$fail_ln" -gt "$marker_ln" ]
                   elif type == "array" then ([.[]? | select(.type == "text") | .text] | join("\n"))
                   else empty end)]
         else [] end;
-    ([texts_of(.)[]? | split("\n")[] | select(startswith($mp))] | last // empty)
-  ' 2>/dev/null)
-  fail_json="${fail_json#"$FAIL_PREFIX"}"
+    (index(":")) as $i
+    | (.[$i+1:] | fromjson?) as $entry
+    | ([texts_of($entry)[]? | split("\n")[] | select(startswith($mp))] | last // empty) as $line
+    | "\(.[:$i])\t\($line[($mp | length):])"
+  ' 2>/dev/null | tail -1
+}
+
+# Last line holding a Bash tool_use that invokes the router — same reason:
+# prose naming skills/tier/route.py after a real marker must not trip the
+# deadlock guard below and wave any dispatch through.
+last_route_call() {
+  grep -n -F -- 'skills/tier/route.py' "$transcript" 2>/dev/null | jq -R -r '
+    (index(":")) as $i
+    | (.[$i+1:] | fromjson?) as $entry
+    | select([($entry.message.content? // []) | if type == "array" then .[] else empty end
+        | select(.type == "tool_use" and .name == "Bash")
+        | (.input.command? // "") | select(type == "string" and contains("skills/tier/route.py"))]
+        | length > 0)
+    | .[:$i]
+  ' 2>/dev/null | tail -1
+}
+
+marker_hit=$(last_marker "$MARKER_PREFIX")
+fail_hit=$(last_marker "$FAIL_PREFIX")
+marker_ln="${marker_hit%%$'\t'*}"
+fail_ln="${fail_hit%%$'\t'*}"
+route_ln=$(last_route_call)
+
+# The evidence: if the last failure marker is newer than the last success
+# marker, read its exit code — prose that merely quotes the marker text
+# (not inside a tool_result) grants nothing, last_marker already skipped it.
+fail_exit=""
+if [ -n "$fail_ln" ] && { [ -z "$marker_ln" ] || [ "$fail_ln" -gt "$marker_ln" ]; }; then
+  fail_json="${fail_hit#*$'\t'}"
   if [ -n "$fail_json" ]; then
     fail_exit=$(printf '%s' "$fail_json" | jq -r 'if type == "object" and (.exit | type) == "number" then (.exit | tostring) else empty end' 2>/dev/null)
   fi
@@ -161,21 +190,8 @@ if [ -z "$marker_ln" ]; then
   exit 2
 fi
 
-# Extract the marker's JSON payload from just that one line: same
-# tool_result/text-splitting shape as before, applied to a single entry.
-marker_json=$(sed -n "${marker_ln}p" "$transcript" | jq -r --arg mp "$MARKER_PREFIX" '
-  def texts_of(entry):
-    (entry.message.content? // [])
-    | if type == "array" then
-        [.[] | select(.type == "tool_result")
-          | (.content
-              | if type == "string" then .
-                elif type == "array" then ([.[]? | select(.type == "text") | .text] | join("\n"))
-                else empty end)]
-      else [] end;
-  ([texts_of(.)[]? | split("\n")[] | select(startswith($mp))] | last // empty)
-' 2>/dev/null)
-marker_json="${marker_json#"$MARKER_PREFIX"}"
+# The marker's JSON payload, already cut out of its tool_result by last_marker.
+marker_json="${marker_hit#*$'\t'}"
 
 if [ -z "$marker_json" ] || ! printf '%s' "$marker_json" | jq -e 'type == "object"' >/dev/null 2>&1; then
   printf 'blocked (1337 tiered mode): 1337:builder dispatched with no tier routing this session. Write the steps to a JSON file and run `python3 "${CLAUDE_PLUGIN_ROOT}/skills/tier/route.py" <file>` once for all of them, then dispatch at the tier it assigns.\n' >&2

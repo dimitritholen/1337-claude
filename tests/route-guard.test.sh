@@ -334,4 +334,30 @@ check 0 "two steps both spent: sonnet retry (for haiku) allowed" \
 check 0 "two steps both spent: opus retry (for sonnet) allowed" \
   "$MODE_TIERED" "$(payload 1337:builder opus "$tr29" "$sid29")"
 
+# --- case 30: a later entry that only QUOTES the marker text (an assistant
+# tool_use whose input mentions `1337-tier-route: `, e.g. a tracker note)
+# must not hide the real marker before it (task #692) ---
+quote_line() { # tool-name text
+  jq -c -n --arg t "$1" --arg body "$2" \
+    '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",id:"toolu_note",name:$t,input:{evidence:$body}}]}}'
+}
+sid30="rg-30"; tr30="$TMPDIR/tr30.jsonl"
+t_tool "$(marker_line "$STEPS2_HS")" "$tr30"
+t_tool "$(agent_line Agent 1337:builder haiku)" "$tr30"
+t_tool "$(quote_line mcp__tasqx__tasqx_complete_task "guard reads the 1337-tier-route: marker (abc1234)")" "$tr30"
+check 0 "quoted marker text after the real marker: routed sonnet still allowed" \
+  "$MODE_TIERED" "$(payload 1337:builder sonnet "$tr30" "$sid30")"
+check_grep 2 'still owes this step (sonnet)' "quoted marker text: budget still counts from the real marker" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr30" "$sid30")"
+
+# --- case 31: prose naming skills/tier/route.py after a real marker is not
+# a router invocation: the deadlock guard must not wave a spent budget
+# through ---
+sid31="rg-31"; tr31="$TMPDIR/tr31.jsonl"
+t_tool "$(marker_line "$STEPS1_OPUS")" "$tr31"
+t_tool "$(agent_line Agent 1337:builder opus)" "$tr31"
+t_tool "$(quote_line mcp__tasqx__tasqx_annotate_task "ran skills/tier/route.py for the plan")" "$tr31"
+check_grep 2 'still owes this step (none)' "prose naming route.py after a marker: not a router call, spent budget refused" \
+  "$MODE_TIERED" "$(payload 1337:builder opus "$tr31" "$sid31")"
+
 exit $fail
