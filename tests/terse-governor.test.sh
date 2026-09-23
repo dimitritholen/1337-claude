@@ -51,6 +51,37 @@ rm -rf build/
 fences do not count' "$tr"
 check 0 "code fences excluded from count" "$tr"
 
+# Newly waived words/phrases.
+tr="$work/tr11"; t_user "review this" "$tr"; t_reply "$verbose" "$tr"
+check 0 "user asked for review: exempt" "$tr"
+
+tr="$work/tr12"; t_user "give me recommendations" "$tr"; t_reply "$verbose" "$tr"
+check 0 "user asked for recommendations: exempt" "$tr"
+
+tr="$work/tr13"; t_user "recommend changes" "$tr"; t_reply "$verbose" "$tr"
+check 0 "user asked for recommend: exempt" "$tr"
+
+tr="$work/tr14"; t_user "list the items" "$tr"; t_reply "$verbose" "$tr"
+check 0 "user asked for list: exempt" "$tr"
+
+tr="$work/tr15"; t_user "summarize this" "$tr"; t_reply "$verbose" "$tr"
+check 0 "user asked for summarize: exempt" "$tr"
+
+tr="$work/tr16"; t_user "summarise this" "$tr"; t_reply "$verbose" "$tr"
+check 0 "user asked for summarise: exempt" "$tr"
+
+tr="$work/tr17"; t_user "can you compare options" "$tr"; t_reply "$verbose" "$tr"
+check 0 "user asked for comparison: exempt" "$tr"
+
+tr="$work/tr18"; t_user "what should I do" "$tr"; t_reply "$verbose" "$tr"
+check 0 "user asked what should: exempt" "$tr"
+
+tr="$work/tr19"; t_user "listen to this" "$tr"; t_reply "$verbose" "$tr"
+check 2 "listen (not a waived word): blocked" "$tr"
+
+tr="$work/tr20"; t_user "from my playlist" "$tr"; t_reply "$verbose" "$tr"
+check 2 "playlist (not a waived word): blocked" "$tr"
+
 # Mode file controls.
 printf 'off\n' > "$mode_file"
 tr="$work/tr6"; t_user "fix the login bug" "$tr"; t_reply "$verbose" "$tr"

@@ -55,7 +55,7 @@ last_user=$(text_of user "$transcript")
 [ -n "$last_user" ] || exit 0
 
 # The user asked for an explanation: no budget this turn.
-if printf '%s' "$last_user" | grep -iqE '(^|[^a-z])(why|how|explain|tell me|because|reason|difference|trade.?offs?|what (is|are|does))([^a-z]|$)'; then
+if printf '%s' "$last_user" | grep -iqE '(^|[^a-z])(why|how|explain|tell me|because|reason|difference|trade.?offs?|what (is|are|does)|review|recommend(ation)?s?|list|summari[sz]e|summary|compar(e|ison)|options|what should)([^a-z]|$)'; then
   exit 0
 fi
 
