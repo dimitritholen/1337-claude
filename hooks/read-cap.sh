@@ -80,12 +80,28 @@ command -v jq >/dev/null 2>&1 || exit 0
 # expansion, so `cat *.rs` is one literal operand, not globbed against this
 # hook's cwd.
 bash_is_read() {
-  local lex rec first nonflag arg skip_next inputs op prev alias_cfg
+  local lex rec first nonflag arg skip_next inputs op prev alias_cfg ri
   lex=$(printf '%s\n' "$1" | tokenize) || return 1
   while IFS= read -r rec; do
     case "$rec" in "S$TOK_US"*) ;; *) continue ;; esac
     tok_parse "$rec"
-    [ "$tok_lookup" = 0 ] && [ "$tok_at" -lt "$tok_nw" ] || continue
+    if [ "$tok_at" -ge "$tok_nw" ]; then
+      # No command word: a bare input-redirect segment ($(< file), a
+      # backtick equivalent, or a variable assigned from one) still reads
+      # the file's contents into the substitution result. /dev/null and
+      # friends stay uncounted, same as everywhere else.
+      for ((ri = 0; ri < tok_nr; ri++)); do
+        op="${tok_rops[$ri]}"
+        while [[ $op == [0-9]* ]]; do op="${op#?}"; done
+        [ "$op" = "<" ] || continue
+        case "${tok_rtgs[$ri]}" in
+          /dev/null|/dev/stdin) ;;
+          *) return 0 ;;
+        esac
+      done
+      continue
+    fi
+    [ "$tok_lookup" = 0 ] || continue
     set -- "${tok_words[@]:$tok_at}"
     first="$1"
     shift

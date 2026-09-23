@@ -74,6 +74,20 @@ CLAUDE_1337_BASH_ALLOW=seq check 0 "bash redirect into temp dir (seq via CLAUDE_
   '{"tool_name":"Bash","tool_input":{"command":"seq 1 40 > /tmp/claude-501/scratch/f.txt"}}'
 check 0 "bash read-only command" \
   '{"tool_name":"Bash","tool_input":{"command":"ls -la /repo"}}'
+
+# #704: a redirect target that still carries an unexpanded variable after
+# resolution (a loop variable, here) is refused with a message naming the
+# unexpanded variable, not the generic write message; a literal temp target
+# inside a loop stays allowed.
+out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"for i in 1 2 3; do claude plugin eval . --case x --json > /tmp/claude-1000/scratch/eval-$i.json 2>&1; done"}}' | CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=true ./hooks/orchestrator-guard.sh 2>&1)
+got=$?
+if [ "$got" -eq 2 ] && printf '%s' "$out" | grep -q "unexpanded variable"; then
+  echo "ok   bash redirect target with unexpanded loop variable is refused, naming the variable"
+else
+  echo "FAIL bash redirect target with unexpanded loop variable is refused, naming the variable (exit $got, output: $out)"; fail=1
+fi
+check 0 "bash redirect into a temp dir with a literal target inside a loop" \
+  '{"tool_name":"Bash","tool_input":{"command":"for i in 1 2; do echo x > /tmp/claude-1000/scratch/out.json; done"}}'
 check 0 "bash from subagent" \
   '{"agent_id":"abc","tool_name":"Bash","tool_input":{"command":"printf \"a\" > /repo/big.txt"}}'
 check 2 "bash piped grep, no redirect, cat still dumps the file" \
@@ -549,11 +563,22 @@ check_err 2 "writes a code file" "echo into a code file under /tmp" "$(bash_payl
 check_err 2 "Bash command writes files" "echo into the tree" "$(bash_payload 'echo x > src/a.txt')"
 check_err 2 "Bash command writes files" "tee into the tree" "$(bash_payload 'echo x | tee src/a.txt')"
 check_err 2 "Bash command writes files" "git diff --output into the tree" "$(bash_payload 'git diff --output=src/d.txt')"
-check_err 2 "Bash command writes files" "a variable target that is not a temp path" "$(bash_payload 'S=src; echo x > $S/a.txt')"
+check_err 2 "unexpanded variable" "a variable target that is not a temp path" "$(bash_payload 'S=src; echo x > $S/a.txt')"
 check 0 "a heredoc body naming rm -rf is data for git commit -F -" \
   "$(bash_payload "$(printf "git commit -q -F - <<'EOF'\nclean up: rm -rf build\nEOF")")"
 check 0 "a multi-line quoted commit message is one word" \
   "$(bash_payload "$(printf 'git commit -m "line one\nline two; rm -rf x"')")"
+
+# #704: `$(< file)` (and its backtick/assignment equivalents) is a
+# command-substitution segment with no command word at all, so it slipped
+# past the reader detection above, which only runs when there is one.
+check_err 2 "reads a file's contents via \$(< file)" '$(< file) dumps the file' \
+  "$(bash_payload 'echo $(< hooks/evaluate.md)')"
+check_err 2 "reads a file's contents via \$(< file)" 'backtick < file) dumps the file' \
+  "$(bash_payload 'echo `< hooks/evaluate.md`')"
+check_err 2 "reads a file's contents via \$(< file)" 'a variable assigned from $(< file) dumps the file' \
+  "$(bash_payload 'x=$(< hooks/evaluate.md); echo $x')"
+check 0 "\$(< /dev/null) stays allowed" "$(bash_payload 'echo $(< /dev/null)')"
 check_err 2 "unquoted heredoc body" "a command substitution in an unquoted heredoc body" \
   "$(bash_payload "$(printf 'cat <<EOF\n$(rm -rf src)\nEOF')")"
 check 0 "arithmetic << is not a heredoc" "$(bash_payload 'echo $((1 << 2))')"
@@ -602,6 +627,41 @@ check 0 "Write of a data file under /tmp" \
   '{"tool_name":"Write","tool_input":{"file_path":"/tmp/x.json","content":"{}"}}'
 check 2 "Write through a .. step out of /tmp" \
   '{"tool_name":"Write","tool_input":{"file_path":"/tmp/../repo/x.txt","content":"x"}}'
+
+# No-op shell builtins as a segment's first word neither read nor write (#704).
+check 0 "for/continue over eval dirs" \
+  "$(bash_payload 'for d in evals/*/; do n=$(basename $d); [ $n = results ] && continue; printf "%s\n" "$n"; done')"
+check 0 "for/break" "$(bash_payload 'for i in 1 2; do break; done')"
+check 0 "true" "$(bash_payload 'true')"
+check 0 ": (colon no-op)" "$(bash_payload ':')"
+check_err 2 "$allow_err" "while read loop over a file is refused (content dump)" \
+  "$(bash_payload 'while read l; do echo "$l"; done < hooks/evaluate.md')"
+check_err 2 "$allow_err" "read from a file is refused (content dump)" \
+  "$(bash_payload 'read l < hooks/evaluate.md; echo "$l"')"
+check_err 2 "$allow_err" "continue does not launder a refused segment after it" \
+  "$(bash_payload 'continue; rm -rf x')"
+
+# Read-only git subcommands that print metadata, not file contents (#704).
+for c in 'git check-ignore -v x' 'git check-attr text x' 'git rev-parse HEAD' 'git merge-base main HEAD' \
+  'git for-each-ref' 'git name-rev HEAD' 'git ls-files'; do
+  check 0 "read-only git subcommand: $c" "$(bash_payload "$c")"
+done
+
+# Branch creation only: `git switch -c`/`--create` and `git checkout -b`,
+# never a bare switch/checkout of an existing branch or a force-create.
+check 0 "git switch -c" "$(bash_payload 'git switch -c fix/x')"
+check 0 "git switch --create" "$(bash_payload 'git switch --create fix/x')"
+check 0 "git checkout -b with a start point" "$(bash_payload 'git checkout -b fix/x main')"
+check 0 "git switch -c behind git -C" "$(bash_payload 'git -C /some/dir switch -c fix/x')"
+check_err 2 "$allow_err" "git switch to an existing branch is refused" "$(bash_payload 'git switch main')"
+check_err 2 "$allow_err" "git checkout of an existing branch is refused" "$(bash_payload 'git checkout main')"
+check_err 2 "$allow_err" "git checkout -- path is refused" "$(bash_payload 'git checkout -- file.txt')"
+check_err 2 "$allow_err" "git switch -C force-create is refused" "$(bash_payload 'git switch -C fix/x')"
+check_err 2 "$allow_err" "git checkout -B force-create is refused" "$(bash_payload 'git checkout -B fix/x')"
+check_err 2 "$allow_err" "git checkout -f -b is refused" "$(bash_payload 'git checkout -f -b fix/x')"
+check_err 2 "$allow_err" "git switch -c --discard-changes is refused" "$(bash_payload 'git switch -c fix/x --discard-changes')"
+check_err 2 "$allow_err" "git checkout -b -m is refused" "$(bash_payload 'git checkout -b fix/x -m')"
+check_err 2 "$allow_err" "git switch --force-create is refused" "$(bash_payload 'git switch --force-create fix/x')"
 
 # No jq: the guard cannot read the call, so it refuses instead of passing.
 nojq_bin="$edit_cap_tmpdir/nojq-bin"

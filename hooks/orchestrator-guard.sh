@@ -187,6 +187,13 @@ refuse_write() { # command
   exit 2
 }
 
+# A write target still holding an unexpanded variable is refused: it could
+# expand to `../` and leave the temp dir. Own message, so it names the fix.
+refuse_var_target() { # command
+  printf 'blocked (1337 orchestrator mode): Bash command writes to a redirect target that contains an unexpanded variable (%.80s). A variable in a write target could hold `../` and escape the temp dir at runtime, so it cannot be judged safe even under a temp path; use a literal path instead (e.g. a fixed filename, not one built from a loop variable).\n' "$1" >&2
+  exit 2
+}
+
 # ~/.claude config (settings.json, settings.local.json, CLAUDE.md), hooks,
 # agents, skills, commands and the installed plugin under ~/.claude/plugins
 # (this plugin's own hooks and skills/tier/route.py, which the main session
@@ -343,7 +350,8 @@ case "$tool" in
     # including anything still dynamic.
     target_class() { # resolved target
       case "$1" in
-        *"$PH"* | *'$'* | *'`'* | */../* | */.. | ../* | ..) tc=tree; return ;;
+        *"$PH"* | *'$'* | *'`'*) tc=var; return ;;
+        */../* | */.. | ../* | ..) tc=tree; return ;;
         /dev/null | /dev/stdout | /dev/stderr | /dev/tty | /dev/fd/*) tc=dev; return ;;
       esac
       if is_claude_data "$1"; then
@@ -359,6 +367,7 @@ case "$tool" in
       resolve_target "$1"
       target_class "$rt"
       case "$tc" in dev | claude) return 0 ;; esac
+      [ "$tc" = var ] && refuse_var_target "$bash_cmd"
       case "$rt" in "${HOME:-/nonexistent}"/.claude/*) refuse_claude_config "$bash_cmd" ;; esac
       if [ -z "${2:-}" ] && is_code "$rt"; then refuse_code_write "$bash_cmd"; fi
       [ "$tc" = temp ] && return 0
@@ -370,7 +379,8 @@ case "$tool" in
       case "$1" in *.claude/*) return 0 ;; esac
       resolve_target "$1"
       target_class "$rt"
-      [ "$tc" != tree ]
+      case "$tc" in temp | claude | dev) return 0 ;; esac
+      return 1
     }
     # Variables that choose which program an allowed command runs, or what it
     # loads: an assignment to one turns `ls` or `git log` into anything.
@@ -486,8 +496,24 @@ case "$tool" in
       done
       case "$git_sub" in
         '' | status | log | diff | show | branch | blame | ls-files | add | commit | tag | stash | push | fetch | pull \
-          | rev-parse | rev-list | describe | remote | version | help)
+          | rev-parse | rev-list | describe | remote | version | help \
+          | check-ignore | check-attr | merge-base | for-each-ref | name-rev)
           return 0 ;;
+        switch | checkout)
+          # Branch creation only (`switch -c`/`--create`, `checkout -b`):
+          # never a bare switch to an existing branch, never overwrite one
+          # (`-C`/`--force-create`/`-B`), never discard local changes
+          # (`-f`/`--force`/`--discard-changes`/`-m`/`--merge`).
+          local br_create=0 br_force=0
+          for a in "${@:$((git_sub_at + 1))}"; do
+            case "$a" in
+              -c | --create | -b) br_create=1 ;;
+              -C | --force-create | -B | -f | --force | --discard-changes | -m | --merge) br_force=1 ;;
+            esac
+          done
+          [ "$br_create" = 1 ] && [ "$br_force" = 0 ]
+          return
+          ;;
         reset)
           # Bookkeeping only: --soft and --mixed (the default) touch HEAD
           # and the index, not the working tree; --hard, --merge and --keep
@@ -592,6 +618,23 @@ case "$tool" in
       [ $((i + 1)) -lt "$nw" ] && args=("${words[@]:$((i + 1))}")
       base="${cmd##*/}"
 
+      # A segment with no command word at all, but an input redirect, is
+      # `$(< file)` (or the backtick/`x=$(< file)` equivalents): bash
+      # expands that to the file's contents with no reader program in
+      # sight. A `for`/`select`/`case` header (also cmd-less) never carries
+      # a redirect of its own, so this cannot mistake one for a read.
+      if [ -z "$cmd" ]; then
+        for ((j = 0; j < nr; j++)); do
+          op="${rops[$j]}"
+          while [[ $op == [0-9]* ]]; do op="${op#?}"; done
+          [ "$op" = "<" ] || continue
+          case "${rtgs[$j]}" in
+            /dev/null | /dev/stdin) ;;
+            *) ! is_scratch_operand "${rtgs[$j]}" && refuse_read 'reads a file'"'"'s contents via $(< file)' "$bash_cmd" ;;
+          esac
+        done
+      fi
+
       if [ -n "$cmd" ] && [ "$lookup" = 0 ]; then
         # 1. Reads: git's file-dumping subcommands, then the generic readers.
         # cp and mv read their sources, not their destination (the last
@@ -671,7 +714,7 @@ case "$tool" in
               */*) is_runner "$cmd" || is_plugin_script "$cmd" || refuse_segment "$seg_text" ;;
               ls | cat | head | tail | wc | grep | egrep | fgrep | jq | cut | tr | diff | stat | file | which | type \
                 | echo | printf | true | false | test | '[' | cd | pwd | date | basename | dirname | realpath | sleep \
-                | claude | tasqx) ;;
+                | claude | tasqx | continue | break | ':') ;;
               tee)
                 for t in "${args[@]+"${args[@]}"}"; do [[ $t == -* ]] || cmd_targets+=("$t"); done ;;
               mkdir)

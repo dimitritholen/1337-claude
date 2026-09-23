@@ -512,5 +512,13 @@ CLAUDE_1337_READ_CAP=0 check 2 '699: jq -n -f prog.jq (-f FILE alone still reads
 CLAUDE_1337_READ_CAP=0 check 0 '699: echo {} | jq --arg a b (piped, no file operand) is not a read' "$(bashcall_json "$sid" p89 "$(bash_json "echo '{}' | jq --arg a b '.x=\$a'")")"
 CLAUDE_1337_READ_CAP=0 check 0 '699: jq -n --args (positional args after --args are not files) is not a read' "$(bashcall_json "$sid" p90 "$(bash_json "jq -n --args '\$ARGS' a b")")"
 
+# --- #704: `$(< file)` (and the backtick/assignment equivalents) is a
+# command-substitution segment with no command word at all, so it slipped
+# past bash_is_read, which only looked at segments that had one.
+CLAUDE_1337_READ_CAP=0 check 2 '704: echo $(< f) is a read' "$(bashcall_json "$sid" p91 "$(bash_json 'echo $(< hooks/evaluate.md)')")"
+CLAUDE_1337_READ_CAP=0 check 2 '704: echo `< f` is a read' "$(bashcall_json "$sid" p92 "$(bash_json 'echo `< hooks/evaluate.md`')")"
+CLAUDE_1337_READ_CAP=0 check 2 '704: x=$(< f); echo $x is a read' "$(bashcall_json "$sid" p93 "$(bash_json 'x=$(< hooks/evaluate.md); echo $x')")"
+CLAUDE_1337_READ_CAP=0 check 0 '704: echo $(< /dev/null) is not a read' "$(bashcall_json "$sid" p94 "$(bash_json 'echo $(< /dev/null)')")"
+
 printf 'summary: %d ok, %d FAIL, %d todo\n' "$ok_count" "$fail_count" "$todo_count"
 exit $fail
