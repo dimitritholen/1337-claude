@@ -49,68 +49,51 @@ set -u
 command -v jq >/dev/null 2>&1 || exit 0
 
 . "$(dirname "$0")/lib/git-subcommand.sh"
-. "$(dirname "$0")/lib/mask-quotes.sh"
+. "$(dirname "$0")/lib/tokenize.sh"
 
-# A Bash call counts as a read only when it has a segment (split on |, ;,
-# &&, ||; not a full shell parse) whose first word is a plain file-reader
-# (cat, head, tail, less, more, nl, od, xxd, strings, rg, ag, ack — these
-# always count), `sed -n`, `grep`/`egrep`/`fgrep`/`awk`/`jq` WITH a path
-# operand (a second non-flag argument, so a pure stdin filter like
-# `ps aux | grep x` or `git log | grep fix` does not count), or `git
-# cat-file`/`git grep`/`git show <rev>:<path>` (a `git show` operand
-# containing a colon; plain `git show HEAD` or `--stat` is metadata, same
-# as `git diff`, and does not count), also behind git global options and
-# the command/builtin/exec/env prefixes; git behind a global option it
-# cannot parse, or behind a `-c alias.*` config, counts too. Any other Bash
-# command passes uncounted.
+# A Bash call counts as a read only when it has a segment whose command word
+# is a plain file-reader with a file operand (cat, head, tail, less, more,
+# nl, od, xxd, strings), rg/ag/ack (these always count), `sed`/`grep`/
+# `egrep`/`fgrep`/`awk`/`jq` WITH a path operand (a second non-flag
+# argument, so a pure stdin filter like `ps aux | grep x` or `git log | grep
+# fix` does not count), or `git cat-file`/`git grep`/`git show <rev>:<path>`
+# (a `git show` operand containing a colon; plain `git show HEAD` or
+# `--stat` is metadata, same as `git diff`, and does not count), also
+# behind git global options; git behind a global option it cannot parse, or
+# behind a `-c alias.*` config, counts too. An input redirect (`< file`)
+# counts as one operand. Any other Bash command passes uncounted.
 #
-# The split and the first-word check run on $cmd after hooks/lib/mask-
-# quotes.sh has blunted the separator characters inside quoted spans, so
-# `echo "run; cat file"` or `git commit -m "x; head first"` is one segment,
-# not two — the quoted `;` runs no command. `$( )` and backticks stay live
-# even inside double quotes, so `echo "$(true; cat f)"` still counts.
+# Segments and words come from hooks/lib/tokenize.sh, the lexer
+# orchestrator-guard.sh judges with, so both hooks split a command the same
+# way: quoted text and heredoc bodies are data (`echo "run; cat file"` or a
+# heredoc line reading `cat file` is no read), the inside of $( ), backticks
+# and <( ) is a segment of its own (`x=$(cat f)` is), and the
+# VAR=val/command/builtin/exec/env prefixes and the shell keywords (if, do,
+# !, { ...) are skipped before the command word. A `command -v`/`-V` lookup
+# runs nothing. Words come out of the tokenizer, never an unquoted
+# expansion, so `cat *.rs` is one literal operand, not globbed against this
+# hook's cwd.
 bash_is_read() {
-  local cmd first second nonflag arg
-  cmd="$(mask_quotes <<<"$1")"
-  while IFS= read -r seg; do
-    seg="$(printf '%s' "$seg" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
-    [ -n "$seg" ] || continue
-    # The unquoted split above can still leave a glob (`cat *.rs`): disable
-    # expansion for the word-split so it is seen as a literal operand, not
-    # expanded against this hook's own cwd.
-    set -f
-    set -- $seg
-    set +f
-    # VAR=val assignments and the command/builtin/exec/env prefixes (with
-    # their flags, and env's VAR=val arguments) run the next word; skip them
-    # so `command git cat-file -p X` is seen as git.
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        [A-Za-z_]*=*) shift ;;
-        command|builtin)
-          shift
-          while [ "$#" -gt 0 ] && [ "${1#-}" != "$1" ]; do shift; done
-          ;;
-        exec|env)
-          first="$1"; shift
-          while [ "$#" -gt 0 ] && [ "${1#-}" != "$1" ]; do
-            case "$first $1" in
-              "exec -a"|"env -u"|"env -C"|"env --unset"|"env --chdir") shift ;;
-            esac
-            [ "$#" -gt 0 ] && shift
-          done
-          ;;
-        *) break ;;
-      esac
+  local lex rec first nonflag arg skip_next inputs op prev alias_cfg
+  lex=$(printf '%s\n' "$1" | tokenize) || return 1
+  while IFS= read -r rec; do
+    case "$rec" in "S$TOK_US"*) ;; *) continue ;; esac
+    tok_parse "$rec"
+    [ "$tok_lookup" = 0 ] && [ "$tok_at" -lt "$tok_nw" ] || continue
+    set -- "${tok_words[@]:$tok_at}"
+    first="$1"
+    shift
+    inputs=0
+    for op in "${tok_rops[@]+"${tok_rops[@]}"}"; do
+      while [[ $op == [0-9]* ]]; do op="${op#?}"; done
+      [ "$op" = "<" ] && inputs=$((inputs + 1))
     done
-    first="${1:-}"
-    second="${2:-}"
     case "$first" in
       head|tail)
-        # head and tail: -n/-c/--lines/--bytes take separate arguments.
-        # For head/tail, `-n 5` means "5 lines", `-c 100` means "100 bytes".
-        shift
-        nonflag=0
+        # head and tail: -n/-c/--lines/--bytes take a separate argument
+        # (`-n 5` is 5 lines, `-c 100` is 100 bytes), which is skipped;
+        # attached forms (-n5, --lines=5) are one flag word.
+        nonflag=$inputs
         skip_next=0
         for arg in "$@"; do
           if [ "$skip_next" -eq 1 ]; then
@@ -118,65 +101,27 @@ bash_is_read() {
             continue
           fi
           case "$arg" in
-            -[nc]|-[nc]*[0-9]|--lines|--bytes)
-              # Flags that take separate arguments for head/tail.
-              # If attached (-n5), it's already a single token (skip it as flag).
-              # If separate (-n 5 or --lines 5), skip the flag and mark to skip the next token.
-              # --lines=N and --bytes=N are single tokens, not two.
-              case "$arg" in
-                -[nc]|--lines|--bytes) skip_next=1 ;;
-              esac
-              ;;
-            -*)
-              # Other flags: skip them
-              ;;
-            *)
-              # Non-flag operand: count it as a potential file
-              nonflag=$((nonflag + 1))
-              ;;
+            -[nc]|--lines|--bytes) skip_next=1 ;;
+            -*) ;;
+            *) nonflag=$((nonflag + 1)) ;;
           esac
         done
         [ "$nonflag" -ge 1 ] && return 0
         ;;
       cat|less|more|nl|od|xxd|strings)
-        # For these readers, all flags are boolean (no separate arguments).
-        # cat -n (number lines), od -c (character format), etc. are flags with no args.
-        # Safe to over-count by treating all tokens that don't start with - as files.
-        shift
-        nonflag=0
+        # All flags of these readers are boolean (cat -n numbers lines, od
+        # -c picks a format): every word not starting with - is a file.
+        nonflag=$inputs
         for arg in "$@"; do
-          case "$arg" in
-            -*)
-              # All flags: skip them (they don't take arguments)
-              ;;
-            *)
-              # Non-flag operand: count it as a potential file
-              nonflag=$((nonflag + 1))
-              ;;
-          esac
+          case "$arg" in -*) ;; *) nonflag=$((nonflag + 1)) ;; esac
         done
         [ "$nonflag" -ge 1 ] && return 0
         ;;
       rg|ag|ack) return 0 ;;
-      sed)
-        shift
-        nonflag=0
+      sed|grep|egrep|fgrep|awk|jq)
+        nonflag=$inputs
         for arg in "$@"; do
-          case "$arg" in
-            -*) ;;
-            *) nonflag=$((nonflag + 1)) ;;
-          esac
-        done
-        [ "$nonflag" -ge 2 ] && return 0
-        ;;
-      grep|egrep|fgrep|awk|jq)
-        shift
-        nonflag=0
-        for arg in "$@"; do
-          case "$arg" in
-            -*) ;;
-            *) nonflag=$((nonflag + 1)) ;;
-          esac
+          case "$arg" in -*) ;; *) nonflag=$((nonflag + 1)) ;; esac
         done
         [ "$nonflag" -ge 2 ] && return 0
         ;;
@@ -184,14 +129,17 @@ bash_is_read() {
         # Global options in front (`git -C /repo show ...`) are skipped by
         # hooks/lib/git-subcommand.sh; one it cannot parse (git_sub
         # starting with -) counts as a possible read.
-        shift
         git_subcommand "$@"
         # A -c alias.* config can rename any subcommand into a read; an
         # alias cannot shadow a builtin, so `git diff` stays uncounted.
-        if [ "$git_sub" != diff ] \
-          && printf ' %s' "${@:1:$git_sub_at}" | grep -qiE -- " -c ['\"]?alias\."; then
-          return 0
-        fi
+        prev="" alias_cfg=0
+        for arg in "${@:1:$git_sub_at}"; do
+          if [ "$prev" = "-c" ]; then
+            case "$arg" in [aA][lL][iI][aA][sS].*) alias_cfg=1 ;; esac
+          fi
+          prev="$arg"
+        done
+        [ "$alias_cfg" = 1 ] && [ "$git_sub" != diff ] && return 0
         case "$git_sub" in
           cat-file|grep|-*) return 0 ;;
           show)
@@ -209,9 +157,7 @@ bash_is_read() {
         esac
         ;;
     esac
-  done <<EOF
-$(printf '%s' "$cmd" | sed -E 's/(\|\||&&|[|;])/\n/g')
-EOF
+  done <<<"$lex"
   return 1
 }
 

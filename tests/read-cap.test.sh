@@ -453,5 +453,49 @@ CLAUDE_1337_READ_CAP=0 check 0 "git log | head --lines 3 (no file operand, piped
 CLAUDE_1337_READ_CAP=0 check 2 "cat -n src/x.py (-n as number-lines flag, file follows) refused" "$(bashcall "$sid" p55 'cat -n src/x.py')"
 CLAUDE_1337_READ_CAP=0 check 2 "od -c src/x.py (-c as character-format flag, file follows) refused" "$(bashcall "$sid" p56 'od -c src/x.py')"
 
+# --- tasqx #696: bash_is_read runs on hooks/lib/tokenize.sh, the lexer
+# orchestrator-guard.sh judges with. Each case below is a command the old
+# mask-quotes + sed split judged wrong; the shared tokenizer judges it the
+# way the shell runs it.
+
+# A heredoc body is data, not commands, and the heredoc marker, an output
+# redirect, a here-string and an fd duplication are not file operands.
+CLAUDE_1337_READ_CAP=0 check 0 '696: cat > /tmp/x.json <<EOF (heredoc write) is not a read' "$(bashcall_json "$sid" p60 "$(bash_json $'cat > /tmp/x.json <<\'EOF\'\n{}\nEOF')")"
+CLAUDE_1337_READ_CAP=0 check 0 '696: a heredoc body line `cat src/x.py` is not a read' "$(bashcall_json "$sid" p61 "$(bash_json $'python3 - <<\'EOF\'\ncat src/x.py\nhead -1 src/y.py\nEOF')")"
+CLAUDE_1337_READ_CAP=0 check 0 '696: grep x 2>/dev/null (stderr redirect) is not a path operand' "$(bashcall_json "$sid" p62 "$(bash_json 'ps aux | grep x 2>/dev/null')")"
+CLAUDE_1337_READ_CAP=0 check 0 '696: jq . 2>&1 (fd duplication) is not a path operand' "$(bashcall_json "$sid" p63 "$(bash_json 'echo {} | jq . 2>&1')")"
+CLAUDE_1337_READ_CAP=0 check 0 '696: grep x > out.txt (output redirect) is not a path operand' "$(bashcall_json "$sid" p64 "$(bash_json 'ps aux | grep x > /tmp/out.txt')")"
+CLAUDE_1337_READ_CAP=0 check 0 '696: od -c <<< "$v" (here-string) is not a read' "$(bashcall_json "$sid" p65 "$(bash_json 'od -c <<< "$v"')")"
+# An input redirect still feeds a file to the reader: one operand, as before.
+CLAUDE_1337_READ_CAP=0 check 2 '696: cat < src/x.py (input redirect) is still a read' "$(bashcall_json "$sid" p66 "$(bash_json 'cat < src/x.py')")"
+CLAUDE_1337_READ_CAP=0 check 2 '696: jq . < data.json (input redirect as the path operand) is still a read' "$(bashcall_json "$sid" p67 "$(bash_json 'jq . < data.json')")"
+
+# The inside of $( ), backticks and <( ) runs, as a segment of its own.
+CLAUDE_1337_READ_CAP=0 check 2 '696: x=$(cat src/x.py) is a read' "$(bashcall_json "$sid" p68 "$(bash_json 'x=$(cat src/x.py)')")"
+CLAUDE_1337_READ_CAP=0 check 2 '696: echo "$(head -1 src/x.py)" is a read' "$(bashcall_json "$sid" p69 "$(bash_json 'echo "$(head -1 src/x.py)"')")"
+CLAUDE_1337_READ_CAP=0 check 2 '696: a backtick `cat src/x.py` is a read' "$(bashcall_json "$sid" p70 "$(bash_json 'echo `cat src/x.py`')")"
+CLAUDE_1337_READ_CAP=0 check 2 '696: diff <(cat a.py) b.py is a read' "$(bashcall_json "$sid" p71 "$(bash_json 'diff <(cat a.py) b.py')")"
+# ...and a pipe that closes inside <( ) does not hand the next word to it.
+CLAUDE_1337_READ_CAP=0 check 0 '696: diff <(git log | grep -v x) <(git log) is not a read' "$(bashcall_json "$sid" p72 "$(bash_json 'diff <(git log | grep -v x) <(git log)')")"
+
+# Shell keywords and group openers introduce a command; they are not it.
+CLAUDE_1337_READ_CAP=0 check 2 '696: for f in a b; do cat $f; done is a read' "$(bashcall_json "$sid" p73 "$(bash_json 'for f in a b; do cat $f; done')")"
+CLAUDE_1337_READ_CAP=0 check 2 '696: if grep -q x src/x.py; then echo y; fi is a read' "$(bashcall_json "$sid" p74 "$(bash_json 'if grep -q x src/x.py; then echo y; fi')")"
+CLAUDE_1337_READ_CAP=0 check 2 '696: { cat src/x.py; } is a read' "$(bashcall_json "$sid" p75 "$(bash_json '{ cat src/x.py; }')")"
+CLAUDE_1337_READ_CAP=0 check 2 '696: (cat src/x.py) in a subshell is a read' "$(bashcall_json "$sid" p76 "$(bash_json '(cat src/x.py)')")"
+CLAUDE_1337_READ_CAP=0 check 2 '696: ! grep -q x src/x.py is a read' "$(bashcall_json "$sid" p77 "$(bash_json '! grep -q x src/x.py')")"
+
+# A lone & separates commands; a comment runs nothing.
+CLAUDE_1337_READ_CAP=0 check 2 '696: sleep 1 & cat src/x.py is a read' "$(bashcall_json "$sid" p78 "$(bash_json 'sleep 1 & cat src/x.py')")"
+CLAUDE_1337_READ_CAP=0 check 0 '696: ls # ; cat src/x.py (a comment) is not a read' "$(bashcall_json "$sid" p79 "$(bash_json 'ls # ; cat src/x.py')")"
+
+# A quoted span runs across lines: a multi-line jq program is one word, and
+# a multi-line commit message naming a reader stays data.
+CLAUDE_1337_READ_CAP=0 check 2 '696: jq with a multi-line program and a file is a read' "$(bashcall_json "$sid" p80 "$(bash_json $'jq -r \'\n  .a\n  | .b\' data.json')")"
+CLAUDE_1337_READ_CAP=0 check 0 '696: a multi-line commit message naming `; cat f` is not a read' "$(bashcall_json "$sid" p81 "$(bash_json $'git commit -m "first\nsecond; cat src/x.py"')")"
+
+# command -v / -V looks a name up and runs nothing.
+CLAUDE_1337_READ_CAP=0 check 0 '696: command -v cat src/x.py (a lookup) is not a read' "$(bashcall_json "$sid" p82 "$(bash_json 'command -v cat src/x.py')")"
+
 printf 'summary: %d ok, %d FAIL, %d todo\n' "$ok_count" "$fail_count" "$todo_count"
 exit $fail

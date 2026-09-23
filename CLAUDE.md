@@ -236,14 +236,18 @@ work when the plugin is installed and used in any folder, not only this one.
   back as `git_sub` starting with `-`, which `hooks/orchestrator-guard.sh`
   refuses and `hooks/read-cap.sh` counts as a read. Test:
   `tests/git-subcommand.test.sh`.
-- `hooks/lib/mask-quotes.sh`: sourced helper; `mask_quotes` reads a Bash
-  command on stdin and blunts the separator characters (whitespace, `;`,
-  `|`, `&`, `<`, `>`) inside single- or double-quoted spans, so a quoted
-  `;` or `|` (a commit message, an echo argument) is not mistaken for a real
-  segment split. `$( )` and backticks stay live even inside double quotes,
-  since the shell executes them there. `hooks/read-cap.sh` masks a command
-  this way before splitting it into segments or picking out its first word
-  (`hooks/orchestrator-guard.sh` has its own lexer). Covered by
+- `hooks/lib/tokenize.sh`: sourced helper, the one Bash lexer both
+  `hooks/orchestrator-guard.sh` and `hooks/read-cap.sh` judge a command with.
+  `tokenize` reads a command on stdin (portable awk) and prints one `S`
+  record per segment (split on `|` `;` `&` `&&` `||` newlines and `( )`,
+  with the inside of every `$( )`, backtick and `<( )` a segment of its
+  own), fields separated by `\037`: segment id, piped flag, the index of
+  the command word after the `VAR=val`, command/builtin/exec/env and
+  keyword prefixes, a `command -v` lookup flag, the assignment indices,
+  the words (quotes removed) and the redirects with their targets; plus
+  `B` heredoc bodies and `X` constructs it does not judge. Quoted text and
+  heredoc bodies are data. `tok_parse` splits one `S` record into
+  `tok_*` variables. Covered by `tests/orchestrator-guard.test.sh` and
   `tests/read-cap.test.sh`.
 - `.claude/skills/seed-corpus/`: repo-local skill (not shipped) for turning a
   shell test suite into a JSONL corpus of captured checks, one row per

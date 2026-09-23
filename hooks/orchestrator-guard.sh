@@ -25,8 +25,9 @@
 # cp, rm, patch, git apply, curl -o and every interpreter that writes from
 # inside its own script, and an allowlist has no such gaps to find.
 #
-# Quoted text and heredoc bodies are data, not commands: the lexer below keeps
-# a quoted span inside its word and drops a heredoc body before any segment is
+# Quoted text and heredoc bodies are data, not commands: the lexer
+# (hooks/lib/tokenize.sh, shared with read-cap.sh) keeps a quoted span
+# inside its word and drops a heredoc body before any segment is
 # judged, so a commit message that mentions `rm -rf` or `a > b` runs nothing.
 # `$( )` and backticks are executed even inside double quotes and in an
 # unquoted heredoc body; the first become segments of their own, the second
@@ -231,168 +232,17 @@ case "$file" in
     ;;
 esac
 
-# The Bash lexer: a small shell tokenizer in awk that reads the whole command
-# and prints one record per segment, fields separated by \037:
-#   S id piped nwords word... nredirects op target ... E
-# plus `B id body` for the heredoc bodies a segment opened (only the inline-
-# interpreter read check looks at them) and `X reason` for a construct the
-# guard refuses to judge. Quotes are removed from words the way the shell
-# removes them; a $( ), backtick or <( ) in a word leaves \002 in its place
-# and its contents come out as segments of their own. Newlines inside a
-# quoted word, and tabs, turn into spaces.
-lexer='
-function newctx(   id) { id = ++NC; nw[id] = 0; nr[id] = 0; cw[id] = ""; inw[id] = 0; cq[id] = 0; pend[id] = ""; pip[id] = 0; cur[id] = ++SID; return id }
-function addc(c, ch) { cw[c] = cw[c] ch; inw[c] = 1 }
-function clean(x) { gsub(/[\n\r\t]/, " ", x); gsub(US, " ", x); return x }
-function flushword(c) {
-  if (!inw[c]) return
-  if (pend[c] != "") {
-    nr[c]++; rop[c, nr[c]] = pend[c]; rtg[c, nr[c]] = cw[c]
-    if (pend[c] ~ /^[0-9]*<<-?$/) { nh++; hmark[nh] = cw[c]; hdash[nh] = (pend[c] ~ /-$/); hquoted[nh] = cq[c]; hseg[nh] = cur[c] }
-    pend[c] = ""
-  } else { nw[c]++; w[c, nw[c]] = cw[c] }
-  cw[c] = ""; inw[c] = 0; cq[c] = 0
-}
-function endseg(c, sep,   k, out) {
-  flushword(c)
-  if (pend[c] != "") { err = "a redirect with no target"; pend[c] = "" }
-  if (nw[c] > 0 || nr[c] > 0) {
-    out = "S" US cur[c] US pip[c] US nw[c]
-    for (k = 1; k <= nw[c]; k++) out = out US clean(w[c, k])
-    out = out US nr[c]
-    for (k = 1; k <= nr[c]; k++) out = out US rop[c, k] US clean(rtg[c, k])
-    print out US "E"
-  }
-  nw[c] = 0; nr[c] = 0; cur[c] = ++SID
-  pip[c] = (sep == "PIPE")
-}
-# $( ... ), <( ... ), >( ... ): a new command context. $(( )) is arithmetic,
-# not a command, and is skipped whole.
-function opensub(i, c,   j, depth, ch) {
-  if (substr(s, i, 3) == "$((") {
-    j = i + 3; depth = 2
-    while (j <= n && depth > 0) { ch = substr(s, j, 1); if (ch == "(") depth++; else if (ch == ")") depth--; j++ }
-    if (substr(s, i + 3, j - i - 3) ~ /\$\(|`/) err = "a command substitution inside arithmetic"
-    addc(c, PH)
-    return j
-  }
-  addc(c, PH)
-  sp++; st[sp] = "S"; cx[sp] = newctx()
-  return i + 2
-}
-function heredocs(i,   j, k, e, line, t, body) {
-  j = i + 1
-  for (k = hdone + 1; k <= nh; k++) {
-    body = ""
-    while (j <= n) {
-      e = index(substr(s, j), "\n")
-      if (e == 0) { line = substr(s, j); j = n + 1 } else { line = substr(s, j, e - 1); j = j + e }
-      t = line
-      if (hdash[k]) sub(/^\t+/, "", t)
-      if (t == hmark[k]) break
-      body = body line "\n"
-    }
-    if (!hquoted[k] && (body ~ /\$\(/ || index(body, "`") > 0)) err = "a command substitution inside an unquoted heredoc body"
-    bodies[hseg[k]] = bodies[hseg[k]] body
-  }
-  hdone = nh
-  return j
-}
-function lex(   i, c, d, top, C, op, k) {
-  n = length(s); sp = 0; st[0] = "N"; cx[0] = newctx()
-  i = 1
-  while (i <= n) {
-    c = substr(s, i, 1); d = substr(s, i + 1, 1); top = st[sp]; C = cx[sp]
-    if (top == "Q") { if (c == SQ) sp--; else addc(C, c); i++; continue }
-    if (top == "A") {
-      if (c == "\\") { addc(C, d); i += 2; continue }
-      if (c == SQ) sp--; else addc(C, c)
-      i++; continue
-    }
-    if (top == "D") {
-      if (c == "\\") {
-        if (d == DQ || d == "\\" || d == "$" || d == "`") { addc(C, d); i += 2 }
-        else if (d == "\n") i += 2
-        else { addc(C, c); i++ }
-        continue
-      }
-      if (c == DQ) { sp--; i++; continue }
-      if (c == "$" && d == "(") { i = opensub(i, C); continue }
-      if (c == "`") { addc(C, PH); sp++; st[sp] = "B"; cx[sp] = newctx(); i++; continue }
-      addc(C, c); i++; continue
-    }
-    # Command context: top level, inside $( ), backticks, or a ( ) group.
-    if (c == "\\") { if (d == "\n") { i += 2; continue } addc(C, d); cq[C] = 1; i += 2; continue }
-    if (c == SQ) { sp++; st[sp] = "Q"; cx[sp] = C; inw[C] = 1; cq[C] = 1; i++; continue }
-    if (c == "$" && d == SQ) { sp++; st[sp] = "A"; cx[sp] = C; inw[C] = 1; cq[C] = 1; i += 2; continue }
-    if (c == DQ) { sp++; st[sp] = "D"; cx[sp] = C; inw[C] = 1; cq[C] = 1; i++; continue }
-    if (c == "$" && d == "(") { i = opensub(i, C); continue }
-    if ((c == "<" || c == ">") && d == "(") { i = opensub(i, C); continue }
-    if (c == "`") {
-      if (top == "B") { endseg(C, "END"); sp--; i++; continue }
-      addc(C, PH); sp++; st[sp] = "B"; cx[sp] = newctx(); i++; continue
-    }
-    if (c == ")") {
-      if (top == "S") { endseg(C, "END"); sp--; i++; continue }
-      endseg(C, "SEQ")
-      if (top == "P") sp--
-      i++; continue
-    }
-    if (c == "(") { endseg(C, "SEQ"); sp++; st[sp] = "P"; cx[sp] = C; i++; continue }
-    if (c == "#" && !inw[C]) { while (i <= n && substr(s, i, 1) != "\n") i++; continue }
-    if (c == "\n") {
-      flushword(C)
-      if (nh > hdone) i = heredocs(i); else i++
-      endseg(C, "SEQ"); continue
-    }
-    if (c == ";") { endseg(C, "SEQ"); i++; if (d == ";") i++; continue }
-    if (c == "|") {
-      if (d == "|") { endseg(C, "SEQ"); i += 2; continue }
-      endseg(C, "PIPE"); i++; if (d == "&") i++
-      continue
-    }
-    if (c == "&") {
-      if (d == "&") { endseg(C, "SEQ"); i += 2; continue }
-      if (d == ">") {
-        flushword(C); op = "&>"; i += 2
-        if (substr(s, i, 1) == ">") { op = "&>>"; i++ }
-        if (pend[C] != "") err = "a redirect with no target"
-        pend[C] = op; continue
-      }
-      endseg(C, "SEQ"); i++; continue
-    }
-    if (c == "<" || c == ">") {
-      op = ""
-      if (inw[C] && !cq[C] && cw[C] ~ /^[0-9]+$/) { op = cw[C]; cw[C] = ""; inw[C] = 0 } else flushword(C)
-      op = op c; i++
-      if (c == "<") {
-        if (substr(s, i, 2) == "<<") { op = op "<<"; i += 2 }
-        else if (substr(s, i, 1) == "<") { op = op "<"; i++; if (substr(s, i, 1) == "-") { op = op "-"; i++ } }
-        else if (substr(s, i, 1) == ">" || substr(s, i, 1) == "&") { op = op substr(s, i, 1); i++ }
-      } else if (substr(s, i, 1) == ">" || substr(s, i, 1) == "|" || substr(s, i, 1) == "&") { op = op substr(s, i, 1); i++ }
-      if (pend[C] != "") err = "a redirect with no target"
-      pend[C] = op; continue
-    }
-    if (c == " " || c == "\t" || c == "\r") { flushword(C); i++; continue }
-    addc(C, c); i++
-  }
-  for (k = sp; k >= 0; k--) if (st[k] == "N" || st[k] == "S" || st[k] == "B") endseg(cx[k], "END")
-  for (k in bodies) print "B" US k US clean(bodies[k])
-  if (err != "") print "X" US err
-}
-BEGIN { US = sprintf("%c", 31); PH = sprintf("%c", 2); SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); s = "" }
-{ s = (NR > 1) ? s "\n" $0 : $0 }
-END { lex() }
-'
-
 case "$tool" in
   Bash)
     bash_cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
     [ -n "$bash_cmd" ] || exit 0
     . "$(dirname "$0")/lib/git-subcommand.sh"
-    US=$(printf '\037')
-    PH=$(printf '\002')
-    lex_out=$(printf '%s\n' "$bash_cmd" | awk "$lexer") || {
+    # The Bash lexer lives in hooks/lib/tokenize.sh, shared with read-cap.sh;
+    # its header documents the S/B/X records read below.
+    . "$(dirname "$0")/lib/tokenize.sh"
+    US="$TOK_US"
+    PH="$TOK_PH"
+    lex_out=$(printf '%s\n' "$bash_cmd" | tokenize) || {
       printf 'blocked (1337 orchestrator mode): Bash command could not be split into segments (%.80s). Dispatch it to 1337:builder with a self-contained brief.\n' "$bash_cmd" >&2
       exit 2
     }
@@ -713,66 +563,29 @@ case "$tool" in
     # channel for the write targets a command names itself (tee, sort -o).
     edit_labels=()
     judge_segment() { # record
-      local f sid piped nw nr k j i t cmd base lookup=0 bad_var=0 reader="" nonflag=0 recursive=0 seg_text op tg
+      local sid piped nw nr k j i t cmd base lookup bad_var=0 reader="" nonflag=0 recursive=0 seg_text op tg
       local words=() args=() rops=() rtgs=() operands=()
       cmd_targets=()
-      IFS="$US" read -r -a f <<<"$1"
-      sid="${f[1]}"; piped="${f[2]}"; nw="${f[3]}"
-      [ "$nw" -gt 0 ] && words=("${f[@]:4:$nw}")
-      k=$((4 + nw)); nr="${f[$k]}"
-      for ((j = 0; j < nr; j++)); do
-        rops+=("${f[$((k + 1 + 2 * j))]}")
-        rtgs+=("${f[$((k + 2 + 2 * j))]}")
-      done
+      tok_parse "$1"
+      sid="$tok_sid"; piped="$tok_piped"; nw="$tok_nw"; nr="$tok_nr"
+      words=("${tok_words[@]+"${tok_words[@]}"}")
+      rops=("${tok_rops[@]+"${tok_rops[@]}"}")
+      rtgs=("${tok_rtgs[@]+"${tok_rtgs[@]}"}")
       seg_text="${words[*]+"${words[*]}"}"
       seg_text="${seg_text//$PH/\$(...)}"
 
-      # A `for VAR in ...` or `select VAR in ...` header, and a `case WORD
-      # in` header, name no command of their own (the loop/case body is a
-      # segment on its own, judged there); without this a loop variable
-      # like `f` in `for f in docs/*.md` is mistaken for the command.
-      if [ "$nw" -gt 0 ]; then
-        case "${words[0]}" in
-          for | select | case) i="$nw" ;;
-          *) i=0 ;;
-        esac
-      else
-        i=0
-      fi
-
-      # Skip what runs the next word rather than being the command:
-      # VAR=val assignments, the command/builtin/exec/env prefixes with their
-      # flags, and the shell keywords that introduce a command.
-      while [ "$i" -lt "$nw" ]; do
-        t="${words[$i]}"
-        if [[ $t =~ ^([A-Za-z_][A-Za-z0-9_]*)= ]]; then
-          is_exec_var "${BASH_REMATCH[1]}" && bad_var=1
-          note_assignment "${BASH_REMATCH[1]}" "${t#*=}"
-          i=$((i + 1)); continue
-        fi
-        case "$t" in
-          command | builtin)
-            i=$((i + 1))
-            while [ "$i" -lt "$nw" ] && [[ ${words[$i]} == -* ]]; do
-              case "${words[$i]}" in *v* | *V*) lookup=1 ;; esac
-              i=$((i + 1))
-            done
-            continue
-            ;;
-          exec | env)
-            i=$((i + 1))
-            while [ "$i" -lt "$nw" ] && [[ ${words[$i]} == -* ]]; do
-              case "$t ${words[$i]}" in
-                "exec -a" | "env -u" | "env -C" | "env --unset" | "env --chdir") i=$((i + 1)) ;;
-              esac
-              i=$((i + 1))
-            done
-            continue
-            ;;
-          '!' | '{' | '}' | if | then | else | elif | do | while | until | time | fi | done | esac)
-            i=$((i + 1)); continue ;;
-        esac
-        break
+      # The tokenizer has already skipped what runs the next word rather
+      # than being the command (VAR=val assignments, the command/builtin/
+      # exec/env prefixes with their flags, the shell keywords that
+      # introduce a command) and a for/select/case header, which names no
+      # command of its own: without that a loop variable like `f` in `for f
+      # in docs/*.md` is mistaken for the command. The assignments among
+      # the skipped words are noted here, in order.
+      i="$tok_at"; lookup="$tok_lookup"
+      for k in "${tok_assigns[@]+"${tok_assigns[@]}"}"; do
+        t="${words[$k]}"
+        is_exec_var "${t%%=*}" && bad_var=1
+        note_assignment "${t%%=*}" "${t#*=}"
       done
       cmd=""
       [ "$i" -lt "$nw" ] && cmd="${words[$i]}"
