@@ -93,6 +93,12 @@ work when the plugin is installed and used in any folder, not only this one.
 - `tests/rule-copies.test.sh`: drift check that shared rule sentences (the
   brevity blocks, the build ladder, the never-cut rule) stay aligned across
   the hook copies, skills and styles.
+- `tools/replay.sh <transcript.jsonl>`: replays a real session transcript's
+  tool_use calls through the current `hooks/orchestrator-guard.sh` and
+  `hooks/read-cap.sh`, printing a TSV plus an allowed/refused/flip summary
+  so a hook change can be checked against real sessions, not just the
+  crafted payloads in their own test suites. Test: `tests/replay.test.sh`
+  against the redacted `tests/fixtures/replay-sample.jsonl`.
 - Orchestrator mode, opt-in via the `orchestrator` option in `plugin.json`
   `userConfig` (or `CLAUDE_1337_ORCHESTRATOR=1`, or `EVAL_CLAUDE_1337_ORCHESTRATOR=1`
   for eval cases): `agents/` holds `scout`,
