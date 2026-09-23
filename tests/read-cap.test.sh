@@ -345,6 +345,17 @@ CLAUDE_1337_READ_CAP=1 check 0 "git -C /repo log --oneline (3rd) allowed" "$(bas
 CLAUDE_1337_READ_CAP=1 check 0 "git -C /repo status (4th) allowed" "$(bashcall "$sid" p36i 'git -C /repo status')"
 CLAUDE_1337_READ_CAP=1 check 0 "git -c url.a:b.insteadOf=c show HEAD (5th) allowed" "$(bashcall "$sid" p36i 'git -c url.a:b.insteadOf=c show HEAD')"
 CLAUDE_1337_READ_CAP=1 check 0 "a Read after five non-reading git calls is the 1st read" "$(readcall "$sid" p36i)"
+# The command/env prefixes are transparent, and a -c alias.* config can rename
+# any subcommand into a read, so each of these counts and fills the cap.
+CLAUDE_1337_READ_CAP=1 check 0 "command git cat-file -p X allowed (1st read this turn)" "$(bashcall "$sid" p36j 'command git cat-file -p X')"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "command git cat-file -p X fills the cap, next read refused" "$(readcall "$sid" p36j)"
+CLAUDE_1337_READ_CAP=1 check 0 "env GIT_PAGER=cat git grep foo allowed (1st read this turn)" "$(bashcall "$sid" p36k 'env GIT_PAGER=cat git grep foo')"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "env GIT_PAGER=cat git grep foo fills the cap, next read refused" "$(readcall "$sid" p36k)"
+CLAUDE_1337_READ_CAP=1 check 0 "git -c alias.s=cat-file s -p X allowed (1st read this turn)" "$(bashcall "$sid" p36l 'git -c alias.s=cat-file s -p X')"
+CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "git -c alias.* fills the cap, next read refused" "$(readcall "$sid" p36l)"
+# An alias cannot shadow a builtin: git diff behind one never counts.
+CLAUDE_1337_READ_CAP=1 check 0 "git -c alias.d=log diff HEAD (1st) allowed" "$(bashcall "$sid" p36m 'git -c alias.d=log diff HEAD')"
+CLAUDE_1337_READ_CAP=1 check 0 "git -c alias.d=log diff HEAD (2nd) allowed" "$(bashcall "$sid" p36m 'git -c alias.d=log diff HEAD')"
 
 # mcp__codebase-memory-mcp__search_graph counts as a read.
 CLAUDE_1337_READ_CAP=1 check 0 "mcp search_graph: first call in p37 allowed" "$(mcpcall_named "$sid" p37 mcp__codebase-memory-mcp__search_graph)"

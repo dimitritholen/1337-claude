@@ -58,15 +58,38 @@ command -v jq >/dev/null 2>&1 || exit 0
 # `ps aux | grep x` or `git log | grep fix` does not count), or `git
 # cat-file`/`git grep`/`git show <rev>:<path>` (a `git show` operand
 # containing a colon; plain `git show HEAD` or `--stat` is metadata, same
-# as `git diff`, and does not count), also behind git global options; git
-# behind a global option it cannot parse counts too. Any other Bash command passes
-# uncounted.
+# as `git diff`, and does not count), also behind git global options and
+# the command/builtin/exec/env prefixes; git behind a global option it
+# cannot parse, or behind a `-c alias.*` config, counts too. Any other Bash
+# command passes uncounted.
 bash_is_read() {
   local cmd="$1" seg first second nonflag arg
   while IFS= read -r seg; do
     seg="$(printf '%s' "$seg" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
     [ -n "$seg" ] || continue
     set -- $seg
+    # VAR=val assignments and the command/builtin/exec/env prefixes (with
+    # their flags, and env's VAR=val arguments) run the next word; skip them
+    # so `command git cat-file -p X` is seen as git.
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        [A-Za-z_]*=*) shift ;;
+        command|builtin)
+          shift
+          while [ "$#" -gt 0 ] && [ "${1#-}" != "$1" ]; do shift; done
+          ;;
+        exec|env)
+          first="$1"; shift
+          while [ "$#" -gt 0 ] && [ "${1#-}" != "$1" ]; do
+            case "$first $1" in
+              "exec -a"|"env -u"|"env -C"|"env --unset"|"env --chdir") shift ;;
+            esac
+            [ "$#" -gt 0 ] && shift
+          done
+          ;;
+        *) break ;;
+      esac
+    done
     first="${1:-}"
     second="${2:-}"
     case "$first" in
@@ -89,6 +112,12 @@ bash_is_read() {
         # starting with -) counts as a possible read.
         shift
         git_subcommand "$@"
+        # A -c alias.* config can rename any subcommand into a read; an
+        # alias cannot shadow a builtin, so `git diff` stays uncounted.
+        if [ "$git_sub" != diff ] \
+          && printf ' %s' "${@:1:$git_sub_at}" | grep -qiE -- " -c ['\"]?alias\."; then
+          return 0
+        fi
         case "$git_sub" in
           cat-file|grep|-*) return 0 ;;
           show)

@@ -257,50 +257,70 @@ case "$tool" in
     # tail, less, more, nl, od, xxd, strings, find, cp/mv, a path-scoped
     # jq/awk/sed/grep, a tree scanner (rg/ag/ack, grep -r) that needs no path
     # at all, or an inline interpreter that opens a file. ripwire, git
-    # inspection, ls, tasqx and the test/build runners are always allowed; a
-    # pipeline stage with no file operand of its own (a bare filter on
-    # another command's stdout) is not a reader.
-    case "$first_word" in
-      git)
-        # git is allowlisted wholesale below, but four subcommand forms dump
-        # a whole file's contents rather than a diff/map: `git show
-        # <rev>:<path>`, `git cat-file` in any form, and `git grep` (which
-        # searches tracked file contents). Everything else under git,
-        # including every `git diff` and `git show HEAD`/`git show --stat
-        # HEAD` (no colon operand), stays allowed. Global options in front
-        # (`git -C /repo show ...`) are skipped by hooks/lib/git-subcommand.sh;
-        # one it cannot parse is refused as a possible read.
-        git_stripped=$(printf '%s\n' "$bash_cmd" | sed -E 's/^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]* )*//')
-        read -r -d '' -a git_words <<<"$git_stripped" || true
-        . "$(dirname "$0")/lib/git-subcommand.sh"
-        git_subcommand "${git_words[@]:1}"
-        git_reader=""
-        case "$git_sub" in
-          show)
-            for git_arg in "${git_words[@]:$((git_sub_at + 1))}"; do
-              case "$git_arg" in
-                -*) ;;
-                *:*) git_reader='git show <rev>:<path>'; break ;;
-              esac
-            done
-            ;;
-          cat-file) git_reader='git cat-file' ;;
-          grep) git_reader='git grep' ;;
-          -*)
-            refuse_read "may print a file's contents: git global option $git_sub is not one this guard can parse" "$bash_cmd"
-            ;;
-        esac
-        if [ -n "$git_reader" ]; then
-          refuse_read "prints a file's contents (not a diff) via $git_reader" "$bash_cmd"
+    # inspection, ls, tasqx and the test/build runners are never readers
+    # themselves; a pipeline stage with no file operand of its own (a bare
+    # filter on another command's stdout) is not a reader either. Both the
+    # reader check and the git check below run on EVERY segment, never only on
+    # the first word: `git status; cat src/x.py` and `cd /repo && git show
+    # HEAD:f` hide the read behind an allowed first command otherwise.
+    #
+    # git is allowed, but four subcommand forms dump a whole file's contents
+    # rather than a diff/map: `git show <rev>:<path>`, `git cat-file` in any
+    # form, and `git grep` (which searches tracked file contents). Everything
+    # else under git, including every `git diff` and `git show HEAD`/`git show
+    # --stat HEAD` (no colon operand), stays allowed. Global options in front
+    # (`git -C /repo show ...`) are skipped by hooks/lib/git-subcommand.sh; one
+    # it cannot parse is refused as a possible read, and so is a `-c alias.*`
+    # config, which can rename any of the four (`git -c alias.s='cat-file -p'
+    # s X`). An alias cannot shadow a builtin, so `git diff` stays allowed even
+    # behind one.
+    . "$(dirname "$0")/lib/git-subcommand.sh"
+    git_read_check() { # the words after `git` in one segment
+      local git_reader="" git_arg prev="" alias_cfg=0
+      git_subcommand "$@"
+      for git_arg in "${@:1:$git_sub_at}"; do
+        if [ "$prev" = "-c" ]; then
+          case "$(printf '%s' "$git_arg" | tr '[:upper:]' '[:lower:]')" in
+            alias.*|\'alias.*|\"alias.*) alias_cfg=1 ;;
+          esac
         fi
-        exit 0
-        ;;
-      ripwire|ls|tasqx|cargo|npm|pnpm|pytest|make|command) exit 0 ;;
+        prev="$git_arg"
+      done
+      case "$git_sub" in
+        show)
+          for git_arg in "${@:$((git_sub_at + 1))}"; do
+            case "$git_arg" in
+              -*) ;;
+              *:*) git_reader='git show <rev>:<path>'; break ;;
+            esac
+          done
+          ;;
+        cat-file) git_reader='git cat-file' ;;
+        grep) git_reader='git grep' ;;
+        diff) alias_cfg=0 ;;
+        -*)
+          refuse_read "may print a file's contents: git global option $git_sub is not one this guard can parse" "$bash_cmd"
+          ;;
+      esac
+      if [ -n "$git_reader" ]; then
+        refuse_read "prints a file's contents (not a diff) via $git_reader" "$bash_cmd"
+      fi
+      if [ "$alias_cfg" = 1 ]; then
+        refuse_read "may print a file's contents: a git -c alias.* config can rename any subcommand" "$bash_cmd"
+      fi
+    }
+    # The inline-interpreter check further down greps the whole command, so a
+    # commit message or a ripwire query that mentions `python ... open(` would
+    # trip it; for the commands that used to be allowlisted wholesale it only
+    # runs when a segment really starts with an interpreter.
+    interp_whole=1
+    case "$first_word" in
+      git|ripwire|ls|tasqx|cargo|npm|pnpm|pytest|make|command) interp_whole=0 ;;
       bash)
-        printf '%s\n' "$bash_cmd" | grep -qE '^bash[[:space:]]+tests/.*\.test\.sh' && exit 0
+        printf '%s\n' "$bash_cmd" | grep -qE '^bash[[:space:]]+tests/.*\.test\.sh' && interp_whole=0
         ;;
     esac
-    reader=$(printf '%s\n' "$clean" | awk '
+    scan=$(printf '%s\n' "$clean" | awk '
       function base(s,   n, a) { n = split(s, a, "/"); return a[n] }
       # A scratch operand is output the session produced itself, not
       # repository payload: temp dirs and ~/.claude, as read-cap.sh exempts.
@@ -375,10 +395,39 @@ case "$tool" in
           gsub(/^[ \t]+|[ \t]+$/, "", seg)
           if (seg == "") continue
           m = split(seg, w, /[ \t]+/)
+          # Skip what runs the next word rather than being the command:
+          # VAR=val assignments, and the command/builtin/exec/env prefixes
+          # with their flags (and env'"'"'s VAR=val arguments), so
+          # `command git cat-file -p X` is seen as git.
           i = 1
-          while (i <= m && w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) i++
+          while (i <= m) {
+            if (w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { i++; continue }
+            p = base(w[i])
+            if (p == "command" || p == "builtin") {
+              i++
+              while (i <= m && w[i] ~ /^-/) i++
+              continue
+            }
+            if (p == "exec" || p == "env") {
+              i++
+              while (i <= m && w[i] ~ /^-/) {
+                if ((p == "exec" && w[i] == "-a") || (p == "env" && (w[i] == "-u" || w[i] == "-C" || w[i] == "--unset" || w[i] == "--chdir"))) i++
+                i++
+              }
+              continue
+            }
+            break
+          }
           if (i > m) continue
           cmd = base(w[i])
+          # git goes back to the shell whole, for hooks/lib/git-subcommand.sh.
+          if (cmd == "git") {
+            g = "G"
+            for (j = i + 1; j <= m; j++) g = g " " w[j]
+            print g
+            continue
+          }
+          if (cmd ~ /^(python[23]?|perl|ruby)$/) print "I " cmd
           nonflag = 0
           recursive = 0
           for (j = i + 1; j <= m; j++) {
@@ -396,22 +445,34 @@ case "$tool" in
             nonflag++
           }
           if (cmd == "cat" || cmd == "head" || cmd == "tail" || cmd == "less" || cmd == "more" || cmd == "nl" || cmd == "od" || cmd == "xxd" || cmd == "strings" || cmd == "find" || cmd == "cp" || cmd == "mv") {
-            if (nonflag >= 1) { print cmd; exit }
+            if (nonflag >= 1) { print "R " cmd; exit }
           } else if (cmd == "rg" || cmd == "ag" || cmd == "ack") {
             # These default to the working tree, so at the head of a
             # pipeline they dump the whole repo with no path operand at all.
-            if (!piped || nonflag >= 2) { print cmd; exit }
+            if (!piped || nonflag >= 2) { print "R " cmd; exit }
           } else if (cmd == "grep" || cmd == "egrep" || cmd == "fgrep") {
             # -r/-R walks the tree from the working directory; without it, a
             # bare `grep pattern` only filters stdin.
-            if (recursive || nonflag >= 2) { print cmd; exit }
+            if (recursive || nonflag >= 2) { print "R " cmd; exit }
           } else if (cmd == "jq" || cmd == "awk" || cmd == "sed") {
-            if (nonflag >= 2) { print cmd; exit }
+            if (nonflag >= 2) { print "R " cmd; exit }
           }
         }
       }
     ')
-    if [ -z "$reader" ]; then
+    reader=""
+    interp_seg=0
+    while IFS= read -r scan_line; do
+      case "$scan_line" in
+        "R "*) reader="${scan_line#R }"; break ;;
+        "I "*) interp_seg=1 ;;
+        G|"G "*)
+          read -r -a git_words <<<"${scan_line#G}"
+          git_read_check "${git_words[@]}"
+          ;;
+      esac
+    done <<<"$scan"
+    if [ -z "$reader" ] && { [ "$interp_whole" = 1 ] || [ "$interp_seg" = 1 ]; }; then
       # A write-mode open is the MODE ARGUMENT, not any quoted string in the
       # call: `open(p, "w")`, `open(p,'wb')`, `open(p, mode="a")`, and the
       # first argument of `Path(p).open("w")`. Matching a quoted string

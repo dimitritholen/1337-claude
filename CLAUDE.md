@@ -99,8 +99,9 @@ work when the plugin is installed and used in any folder, not only this one.
   lines (default 20). It also refuses Bash that dumps a file's contents
   (`cat`, `head`, `sed -n`, a pathless `rg` or `grep -r`, `cp`/`mv` out of
   the tree, an inline interpreter opening a file, and, inside the git
-  allowlist, `git show <rev>:<path>`, `git cat-file`, `git grep`; every
-  `git diff` form stays allowed) the same way `hooks/read-cap.sh` refuses
+  allowlist, `git show <rev>:<path>`, `git cat-file`, `git grep` or a
+  `-c alias.*` config; every `git diff` form stays allowed), in every
+  segment and behind `command`/`builtin`/`exec`/`env`, the same way `hooks/read-cap.sh` refuses
   Read/Grep/Glob. Small allowed edits are capped at 3 per session
   (`CLAUDE_1337_EDIT_CAP`), a budget ripwire's own symbol edit (the one
   sanctioned Bash write) draws on too.
