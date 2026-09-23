@@ -91,6 +91,26 @@ checker_result_line() { # tool-use id, PASS-or-FAIL text
   jq -c -n --arg id "$1" --arg body "$2" \
     '{type:"user",message:{role:"user",content:[{type:"tool_result",tool_use_id:$id,content:$body}]}}'
 }
+# The async launch stub a checker dispatch actually returns synchronously
+# now (the real verdict comes later as a task-notification, see below).
+checker_launch_stub_line() { # tool-use id
+  jq -c -n --arg id "$1" \
+    '{type:"user",message:{role:"user",content:[{type:"tool_result",tool_use_id:$id,content:"Async agent launched successfully. Task ID: af0. Output file: /tmp/x.output"}]}}'
+}
+# A synchronous checker tool_result whose content is an array of text
+# blocks rather than a plain string.
+checker_result_array_line() { # tool-use id, PASS-or-FAIL text
+  jq -c -n --arg id "$1" --arg body "$2" \
+    '{type:"user",message:{role:"user",content:[{type:"tool_result",tool_use_id:$id,content:[{type:"text",text:$body}]}]}}'
+}
+# The real transcript shape for an async agent's delivered verdict: a
+# "user" entry whose message.content is a plain string carrying a
+# <task-notification> block naming the tool-use-id it reports on and the
+# <result> body.
+task_notification_line() { # tool-use id, result body
+  jq -c -n --arg id "$1" --arg body "$2" \
+    '{type:"user",message:{role:"user",content:("<task-notification>\n<task-id>t1</task-id>\n<tool-use-id>" + $id + "</tool-use-id>\n<status>completed</status>\n<result>" + $body + "</result>\n</task-notification>")}}'
+}
 scout_line() {
   jq -c -n '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Agent",input:{subagent_type:"1337:scout",model:"haiku"}}]}}'
 }
@@ -214,6 +234,68 @@ t_tool "$(checker_result_line c1 "PASS
 0 FAIL lines, 42 passed")" "$tr7d"
 check_grep 2 'unreviewed' "dispatch gate: PASS verdict with '0 FAIL lines' in body: no false exemption, still refused" \
   "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr7d")"
+
+# --- case 7e: async launch stub + a later task-notification carrying the
+# real FAIL verdict, matching the checker's tool-use-id -> retry allowed ---
+tr7e="$TMPDIR/tr7e.jsonl"
+t_tool "$(builder_line b1)" "$tr7e"
+t_tool "$(builder_result_line b1)" "$tr7e"
+t_tool "$(checker_line c1)" "$tr7e"
+t_tool "$(checker_launch_stub_line c1)" "$tr7e"
+t_tool "$(task_notification_line c1 "FAIL
+
+verdict text")" "$tr7e"
+check 0 "dispatch gate: async launch stub + task-notification FAIL: retry allowed" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr7e")"
+
+# --- case 7f: same, but the notification reports PASS -> no exemption ---
+tr7f="$TMPDIR/tr7f.jsonl"
+t_tool "$(builder_line b1)" "$tr7f"
+t_tool "$(builder_result_line b1)" "$tr7f"
+t_tool "$(checker_line c1)" "$tr7f"
+t_tool "$(checker_launch_stub_line c1)" "$tr7f"
+t_tool "$(task_notification_line c1 "PASS
+
+nothing wrong")" "$tr7f"
+check_grep 2 'unreviewed' "dispatch gate: async launch stub + task-notification PASS: no exemption, still refused" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr7f")"
+
+# --- case 7g: a task-notification for a DIFFERENT tool-use-id reporting
+# FAIL must not exempt this checker's stub -> still refused ---
+tr7g="$TMPDIR/tr7g.jsonl"
+t_tool "$(builder_line b1)" "$tr7g"
+t_tool "$(builder_result_line b1)" "$tr7g"
+t_tool "$(checker_line c1)" "$tr7g"
+t_tool "$(checker_launch_stub_line c1)" "$tr7g"
+t_tool "$(task_notification_line other-id "FAIL
+
+unrelated task")" "$tr7g"
+check_grep 2 'unreviewed' "dispatch gate: task-notification for a different tool-use-id: no exemption, still refused" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr7g")"
+
+# --- case 7h: a synchronous checker tool_result whose content is an array
+# of text blocks (not a plain string) reporting FAIL -> retry allowed ---
+tr7h="$TMPDIR/tr7h.jsonl"
+t_tool "$(builder_line b1)" "$tr7h"
+t_tool "$(builder_result_line b1)" "$tr7h"
+t_tool "$(checker_line c1)" "$tr7h"
+t_tool "$(checker_result_array_line c1 "FAIL
+
+boom")" "$tr7h"
+check 0 "dispatch gate: synchronous checker result as array-of-text-blocks reporting FAIL: retry allowed" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr7h")"
+
+# --- case 7i: the verdict token wrapped in markdown emphasis (**FAIL**)
+# still fires the exemption ---
+tr7i="$TMPDIR/tr7i.jsonl"
+t_tool "$(builder_line b1)" "$tr7i"
+t_tool "$(builder_result_line b1)" "$tr7i"
+t_tool "$(checker_line c1)" "$tr7i"
+t_tool "$(checker_result_line c1 "**FAIL**
+
+details")" "$tr7i"
+check 0 "dispatch gate: checker result with **FAIL** first line: retry allowed" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr7i")"
 
 # --- case 8: a 1337:scout dispatch -> never refused, whatever the state ---
 check 0 "dispatch gate: 1337:scout dispatch: never refused" \

@@ -6,6 +6,9 @@ reliably.
 
 - Plan the work yourself (plan mode for anything non-trivial). Write each step as a
   self-contained brief: files, the change, constraints, and how to verify it.
+- Open every turn with a map, not a read: `git status`, `git diff --stat`, `ls`
+  and `ripwire <dir> --for="..."` are free; Read, Grep and Glob are capped at 0
+  per turn and refused, so a file's contents go to a `1337:scout`.
 - You consume maps, never payloads: ripwire output, subagent reports, git
   metadata (`git diff` and friends), test results — never the contents of a
   repository file, through any tool or route. Locate code with `ripwire

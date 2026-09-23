@@ -298,8 +298,10 @@ work when the plugin is installed and used in any folder, not only this one.
   `git diff` has run and `/1337:review` has been called, unless the change is
   at or under `CLAUDE_1337_REVIEW_MIN_LINES` (default 20). For dispatch only,
   a `1337:checker` result starting with `FAIL` on its first line sanctions a
-  retry even without review. A `git diff` with git global options in front
-  (`git -C <path> diff`) counts. The gate anchors on the last dispatch that
+  retry even without review; an async checker's verdict, when its synchronous
+  result is only the launch stub, is read from the matching
+  `<task-notification>`'s `<result>` instead. A `git diff` with git global
+  options in front (`git -C <path> diff`) counts. The gate anchors on the last dispatch that
   actually ran from `hooks/lib/builder-dispatches.jq`, ignoring ones a
   PreToolUse hook refused. `CLAUDE_1337_REVIEW_GATE=off` disables it. Test:
   `tests/review-gate.test.sh`.

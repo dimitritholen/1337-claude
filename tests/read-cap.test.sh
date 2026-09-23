@@ -177,6 +177,9 @@ if command -v ripwire >/dev/null 2>&1; then
   CLAUDE_1337_GREP_CAP=0 check_grep 2 'ripwire' "cap 0: message names ripwire when it is on PATH" "$(grepcall "$sid" p12 Grep)"
 fi
 
+# q2. the refusal mentions "Free instead" with git status/diff/ls/ripwire guidance.
+CLAUDE_1337_READ_CAP=0 check_grep 2 'Free instead' "Read refusal contains Free instead" "$(readcall "$sid" p12b)"
+
 # r. with ripwire missing from PATH, the message drops the ripwire half and
 # names only the 1337:scout dispatch.
 NOPWIRE_DIR="$STATEDIR/nopath"

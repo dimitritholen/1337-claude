@@ -370,10 +370,12 @@ fi
 # config, a lockfile, a transcript or a prose doc — for those, or for wanting
 # a file's literal contents, dispatch 1337:scout instead.
 if command -v ripwire >/dev/null 2>&1; then
-  route='For code: `ripwire <dir> --for="<what you are after>" --legend=compact`, then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR` as follow-ups.
+  route='Free instead: `git status`, `git diff --stat`, `ls`, or `ripwire <dir> --for="<what you are after>" --legend=compact`.
+For code: `ripwire <dir> --for="<what you are after>" --legend=compact`, then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR` as follow-ups.
 For anything else (config, lockfile, transcript, prose), or when the file contents themselves are wanted: dispatch 1337:scout with the question; it reads in its own context.'
 else
-  route='Dispatch 1337:scout with the question; it reads in its own context.'
+  route='Free instead: `git status`, `git diff --stat`, `ls`.
+Dispatch 1337:scout with the question; it reads in its own context.'
 fi
 
 if [ "$kind" = "read" ]; then

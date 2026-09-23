@@ -26,7 +26,13 @@
 # agents/checker.md documents), the next 1337:builder dispatch is the
 # sanctioned retry one tier up and passes even with neither diff nor review
 # seen — without this the gate deadlocks the exact path where work is
-# already going wrong.
+# already going wrong. An Agent/Task dispatch now runs in the background:
+# the checker's synchronous tool_result is only the async launch stub, and
+# the real verdict lands later as a separate transcript entry carrying a
+# `<task-notification>...<tool-use-id>...</tool-use-id>...<result>...
+# </result>...</task-notification>` block. The FAIL check below looks at
+# both — the synchronous result and any notification whose tool-use-id
+# matches a 1337:checker dispatch — either counts.
 #
 # SIZE CARVE-OUT: the hook measures the change itself instead of trusting
 # what got dispatched — `git diff --numstat HEAD` (covers staged and
@@ -131,10 +137,21 @@ scan=$(tail -n "+$((builder_ln + 1))" "$transcript" 2>/dev/null | jq -R 'fromjso
     "(^|[;&|\\s])git(?:\\s+(?:-[Cc]\\s+" + optarg
     + "|--no-pager|-p|--paginate|--(?:git-dir|work-tree)(?:=|\\s+)" + optarg
     + "|--no-optional-locks))*\\s+diff(\\s|$)";
-  # The checker verdict token: the first non-empty line, trimmed, must be
-  # exactly FAIL for the retry exemption to fire (agents/checker.md).
+  # The checker verdict token: the first non-empty line, trimmed, with any
+  # leading markdown emphasis stripped (`**FAIL**`, `# FAIL`, `` `FAIL` ``),
+  # must start with FAIL for the retry exemption to fire (agents/checker.md).
   def verdict_line(t):
-    (t | split("\n") | map(gsub("^[ \t]+|[ \t]+$"; "")) | map(select(length > 0)) | (.[0] // ""));
+    (t | split("\n") | map(gsub("^[ \t]+|[ \t]+$"; "")) | map(select(length > 0)) | (.[0] // ""))
+    | gsub("^[*#`_ ]+"; "");
+  # A task-notification block (an Agent/Task dispatch that ran in the
+  # background): the tool-use-id it reports on and its <result> body, the
+  # real verdict when the checkers own tool_result was only the async
+  # launch stub.
+  def notify_of(t):
+    select(t | contains("<task-notification>"))
+    | {kind:"notify",
+       tool_use_id:((t | capture("<tool-use-id>(?<v>[^<]*)</tool-use-id>") | .v) // ""),
+       text:((t | capture("<result>(?<v>[\\s\\S]*?)</result>") | .v) // "")};
   [ .[] |
     if .type == "assistant" then
       ((.message.content? // [])[]? | select(.type == "tool_use")
@@ -144,13 +161,17 @@ scan=$(tail -n "+$((builder_ln + 1))" "$transcript" 2>/dev/null | jq -R 'fromjso
            skill:(.input.skill // "")})
     elif .type == "user" then
       (.message.content?) as $c
+      | (texts_of($c)) as $t
       | (
           (if ($c|type) == "array" then
              ($c[]? | select(.type == "tool_result")
                | {kind:"result", tool_use_id:(.tool_use_id // ""), text:texts_of(.content)})
            else empty end),
-          {kind:"usertext", text: texts_of($c)}
+          {kind:"usertext", text: $t},
+          notify_of($t)
         )
+    elif .type == "queue-operation" then
+      notify_of(.content // "")
     else empty end
   ] as $events
   | ($events | any(.kind == "use" and .name == "Bash"
@@ -160,9 +181,9 @@ scan=$(tail -n "+$((builder_ln + 1))" "$transcript" 2>/dev/null | jq -R 'fromjso
       and (.text | contains("<command-name>/1337:review</command-name>")))) as $slashreview
   | ([$events[] | select(.kind == "use" and (.name == "Agent" or .name == "Task")
       and .subagent_type == "1337:checker") | .id]) as $checker_ids
-  | ($events | any(.kind == "result"
+  | ($events | any((.kind == "result" or .kind == "notify")
       and (.tool_use_id as $t | ($checker_ids | index($t)) != null)
-      and (verdict_line(.text) == "FAIL"))) as $checker_fail
+      and (verdict_line(.text) | test("^FAIL")))) as $checker_fail
   | {diffed:$diffed, review:($skillreview or $slashreview), checker_fail:$checker_fail}
 ' 2>/dev/null) || exit 0
 [ -n "$scan" ] || exit 0
@@ -189,12 +210,14 @@ else
   missing='`/1337:review` has not run since'
 fi
 
+# The remedy leads (#717): a caller skimming only the first line still gets
+# the fix, not just the diagnosis.
 if [ "$gate" = "commit" ]; then
+  remedy='blocked (1337 review gate): run `git diff`, then `/1337:review`, before committing.'
   lead="a 1337:builder dispatch finished and $missing."
-  action="committing"
 else
+  remedy='blocked (1337 review gate): run `git diff`, then `/1337:review`, before the next builder dispatch.'
   lead="the previous 1337:builder dispatch is unreviewed — $missing, and no 1337:checker failure sanctions this as a retry."
-  action="dispatching another builder"
 fi
-printf 'blocked (1337 orchestrator mode): %s Read the diff with `git diff`, then run `/1337:review`, then approve or send the deltas back before %s. CLAUDE_1337_REVIEW_GATE=off disables.\n' "$lead" "$action" >&2
+printf '%s\n%s Approve or send the deltas back first. CLAUDE_1337_REVIEW_GATE=off disables.\n' "$remedy" "$lead" >&2
 exit 2
