@@ -412,4 +412,27 @@ check_code "--preview: still written and exit 0" "$code" 0
 check_eq "--preview: JSON line gets a preview path" "$([ -n "$(field .preview)" ] && echo yes || echo no)" "yes"
 [ -s "$(field .preview)" ] && printf 'ok   --preview: preview file exists\n' || { printf 'FAIL --preview: preview file missing (%s)\n' "$(field .preview)"; fail=1; }
 
+# --- --prompt-file (#646) ---
+prompt_file="$work/prompt.txt"
+printf "A fox's tale,\nline two" > "$prompt_file"
+run --model acme/paint --modality raster_image --prompt-file "$prompt_file"
+check_code "--prompt-file: written" "$code" 0
+check_eq "--prompt-file: file text (apostrophe and newline intact) sent as the prompt" \
+  "$(jq -r 'select(.path=="/api/v1/chat/completions") | .body.messages[0].content' "$work/requests.jsonl")" "A fox's tale,
+line two"
+
+run --model acme/paint --modality raster_image --prompt "x" --prompt-file "$prompt_file"
+check_code "--prompt and --prompt-file together: usage exit 2" "$code" 2
+
+run --model acme/paint --modality raster_image
+check_code "neither --prompt nor --prompt-file: usage exit 2" "$code" 2
+
+empty_prompt_file="$work/empty-prompt.txt"
+: > "$empty_prompt_file"
+run --model acme/paint --modality raster_image --prompt-file "$empty_prompt_file"
+check_code "--prompt-file empty: usage exit 2" "$code" 2
+
+run --model acme/paint --modality raster_image --prompt-file "$work/no-such-prompt.txt"
+check_code "--prompt-file missing: usage exit 2" "$code" 2
+
 exit $fail

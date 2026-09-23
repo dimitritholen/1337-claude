@@ -58,8 +58,10 @@ work when the plugin is installed and used in any folder, not only this one.
   raster and vector through chat completions with the image modality
   (extension from the data URL's media type, so Recraft vector gives
   `.svg`), video through the async videos job, speech through the audio
-  endpoint. Writes `--out` or `assets/<slug>.<ext>`, never overwrites,
-  prints path and cost. `--transparent` (raster only) posts `background:
+  endpoint. `--prompt-file <path>` reads the prompt from a UTF-8 file
+  instead of the shell (exactly one of `--prompt`/`--prompt-file` required),
+  for a long or heavily-quoted brief. Writes `--out` or `assets/<slug>.<ext>`,
+  never overwrites, prints path and cost. `--transparent` (raster only) posts `background:
   "transparent"`, `output_format: "png"` to `/api/v1/images` instead,
   refusing before any request when `catalogue.has_alpha` says the model has
   no real alpha channel (most diffusion models only paint a fake

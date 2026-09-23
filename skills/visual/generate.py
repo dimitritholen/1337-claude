@@ -2,8 +2,14 @@
 """Make an image, SVG, video or speech file through OpenRouter.
 
     generate.py --model <id> --modality raster_image|vector_svg|video|speech
-                --prompt <text> [--out <path>] [--aspect 16:9] [--duration 8]
-                [--voice alloy] [--transparent] [--reference <file>] [--preview]
+                (--prompt <text> | --prompt-file <path>) [--out <path>]
+                [--aspect 16:9] [--duration 8] [--voice alloy] [--transparent]
+                [--reference <file>] [--preview]
+
+--prompt-file reads the prompt from a UTF-8 file instead of the command
+line (trailing whitespace stripped), for a prompt too long or too full
+of quoting to pass on the shell; exactly one of --prompt/--prompt-file
+is required.
 
 Raster and vector go through POST /api/v1/chat/completions with
 modalities ["image"]; the first message.images entry is a data
@@ -429,7 +435,9 @@ def main(argv):
     parser = argparse.ArgumentParser(description="Make an image, SVG, video or speech file through OpenRouter.")
     parser.add_argument("--model", required=True)
     parser.add_argument("--modality", required=True, choices=MODALITIES)
-    parser.add_argument("--prompt", required=True)
+    prompt_group = parser.add_mutually_exclusive_group(required=True)
+    prompt_group.add_argument("--prompt", help="the prompt text")
+    prompt_group.add_argument("--prompt-file", help="path to a file holding the prompt text")
     parser.add_argument("--out", help="output path (default assets/<slug>.<ext>)")
     parser.add_argument("--aspect", help="aspect ratio such as 16:9 (image and video)")
     parser.add_argument("--duration", type=int, help="seconds (video)")
@@ -446,6 +454,12 @@ def main(argv):
     parser.add_argument("--preview", action="store_true",
                         help="also write a GitHub dark/light contact sheet through preview.py")
     args = parser.parse_args(argv[1:])
+    if args.prompt_file:
+        try:
+            with open(args.prompt_file, "r", encoding="utf-8") as f:
+                args.prompt = f.read().rstrip()
+        except OSError as e:
+            parser.error(f"cannot read --prompt-file {args.prompt_file}: {e}")
     if not args.prompt.strip():
         parser.error("--prompt must not be empty")
     if args.transparent and args.modality != "raster_image":

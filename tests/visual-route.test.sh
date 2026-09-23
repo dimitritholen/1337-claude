@@ -192,7 +192,7 @@ run "Give me a transparent PNG picture of a logo"
 check_code "transparent PNG prompt: exit 0" "$code" 0
 check_eq "transparent PNG prompt: single raster question" "$(ctx | grep -c 'asks for a raster image')" "1"
 check_eq "transparent PNG prompt: only the alpha model listed" "$(ctx | grep -o '^[0-9]\. [a-z]*/[^ ]*' | tr '\n' ' ')" "1. openai/gpt-image-1 "
-check_eq "transparent PNG prompt: command carries --transparent" "$(ctx | grep -c -- '--modality raster_image --prompt <the user'\''s prompt, verbatim> --transparent')" "1"
+check_eq "transparent PNG prompt: command carries --transparent" "$(ctx | grep -c -- '--modality raster_image --prompt-file <path to the design brief> --transparent')" "1"
 
 run "Wordy: explain which logo image format suits a letterhead"
 check_code "text_or_code majority: exit 0" "$code" 0

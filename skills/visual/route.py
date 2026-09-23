@@ -113,8 +113,14 @@ def context(prompt, picks, transparent=False):
 
     def command(modality):
         extra = " --transparent" if transparent and modality == "raster_image" else ""
-        return (f"python3 \"{generate}\" --model <chosen id> --modality {modality} --prompt "
-                f"<the user's prompt, verbatim>{extra} [--out <path named in the prompt>]")
+        return (f"python3 \"{generate}\" --model <chosen id> --modality {modality} "
+                f"--prompt-file <path to the design brief>{extra} [--out <path named in the prompt>]")
+
+    brief_instruction = (
+        "Turn the request into a design brief (subject, hierarchy, style, colours, "
+        "background, what to leave out), keeping the user's own words for subject and "
+        "style; write it to a file in the scratchpad or a temp directory."
+    )
 
     if len(picks) == 1:
         modality, ranked, recommended = picks[0]
@@ -126,8 +132,9 @@ def context(prompt, picks, transparent=False):
         ]
         lines += options(ranked, recommended)
         lines.append(
-            f"On a model choice run: {command(modality)}, then report the path "
-            "and cost it prints. On \"Stay with Claude\" carry on as usual. "
+            f"On a model choice, {brief_instruction} Then run: {command(modality)}, and "
+            "report the path and cost it prints, plus the brief itself so the user can "
+            "correct it. On \"Stay with Claude\" carry on as usual. "
             "Do not ask twice for the same prompt."
         )
         return "\n".join(lines)
@@ -144,10 +151,11 @@ def context(prompt, picks, transparent=False):
     raster_hint = (" (--transparent on the raster_image run)"
                    if transparent and any(m == "raster_image" for m, _, _ in picks) else "")
     lines.append(
-        f"For every question answered with a model run: {command('<its --modality>')}{raster_hint}"
-        ", one run per format, each with its own --out when the prompt names paths; then "
-        "report every path and cost printed. A question answered \"Stay with Claude\" means "
-        "Claude makes that format by hand. Do not ask twice for the same prompt."
+        f"For every question answered with a model, {brief_instruction} Then run: "
+        f"{command('<its --modality>')}{raster_hint}, one run per format, each with its own "
+        "--out when the prompt names paths; then report every path and cost printed, plus "
+        "each brief so the user can correct it. A question answered \"Stay with Claude\" "
+        "means Claude makes that format by hand. Do not ask twice for the same prompt."
     )
     return "\n".join(lines)
 

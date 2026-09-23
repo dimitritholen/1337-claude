@@ -28,16 +28,24 @@ that choice.
    model", ...), Jev's pick first and marked Recommended, then cheap to
    expensive, a price in every label, "Stay with Claude" last. Never twice
    for one prompt.
-3. **You generate.** On a model choice run the command the block gives, once
+3. **You generate.** On a model choice, first turn the request into a design
+   brief: subject, hierarchy, style, colours, background, what to leave out.
+   Keep the user's own words for subject and style — "give me 2 versions: 1
+   svg and 1 png, should look good on dark and light GitHub" is instructions
+   to Claude, not a picture description, so it needs turning into an actual
+   brief before it becomes a prompt. Write the brief to a file in the
+   scratchpad or a temp directory, then run the command the block gives, once
    per format chosen:
 
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/skills/visual/generate.py" \
      --model <chosen id> --modality raster_image|vector_svg|video|speech \
-     --prompt "<the user's prompt, verbatim>" [--out <path>] \
+     --prompt-file <path to the design brief> [--out <path>] \
      [--endpoint auto|chat|images] [--aspect 16:9] [--duration 8] [--voice alloy] \
      [--transparent] [--trim [--trim-margin 32]] [--reference <file>] [--preview]
    ```
+
+   Print the brief in the report too, so the user can correct it.
 
    `--trim` (raster PNG only) crops fully-transparent margins, leaving
    `--trim-margin` pixels (default 32); pairs well with `--transparent`.
