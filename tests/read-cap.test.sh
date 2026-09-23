@@ -497,5 +497,17 @@ CLAUDE_1337_READ_CAP=0 check 0 '696: a multi-line commit message naming `; cat f
 # command -v / -V looks a name up and runs nothing.
 CLAUDE_1337_READ_CAP=0 check 0 '696: command -v cat src/x.py (a lookup) is not a read' "$(bashcall_json "$sid" p82 "$(bash_json 'command -v cat src/x.py')")"
 
+# --- tasqx #699: jq's own options are not all flag-then-operand, so
+# bash_is_read counts jq operands with jq's own option grammar instead of
+# the generic sed/grep/awk rule.
+CLAUDE_1337_READ_CAP=0 check 0 '699: jq -n --arg c x (--arg NAME VALUE is not a file) is not a read' "$(bashcall_json "$sid" p83 "$(bash_json "jq -n --arg c x '{c:\$c}'")")"
+CLAUDE_1337_READ_CAP=0 check 0 '699: jq -n --argjson n 1 (--argjson NAME VALUE is not a file) is not a read' "$(bashcall_json "$sid" p84 "$(bash_json "jq -n --argjson n 1 '\$n'")")"
+CLAUDE_1337_READ_CAP=0 check 2 '699: jq --indent 2 . f.json (a real file operand) is a read' "$(bashcall_json "$sid" p85 "$(bash_json 'jq --indent 2 . f.json')")"
+CLAUDE_1337_READ_CAP=0 check 2 '699: jq --rawfile t notes.md -n (--rawfile FILE is a read) is a read' "$(bashcall_json "$sid" p86 "$(bash_json "jq --rawfile t notes.md -n '\$t'")")"
+CLAUDE_1337_READ_CAP=0 check 2 '699: jq -f prog.jq data.json (-f FILE plus a data file) is a read' "$(bashcall_json "$sid" p87 "$(bash_json 'jq -f prog.jq data.json')")"
+CLAUDE_1337_READ_CAP=0 check 2 '699: jq -n -f prog.jq (-f FILE alone still reads prog.jq) is a read' "$(bashcall_json "$sid" p88 "$(bash_json 'jq -n -f prog.jq')")"
+CLAUDE_1337_READ_CAP=0 check 0 '699: echo {} | jq --arg a b (piped, no file operand) is not a read' "$(bashcall_json "$sid" p89 "$(bash_json "echo '{}' | jq --arg a b '.x=\$a'")")"
+CLAUDE_1337_READ_CAP=0 check 0 '699: jq -n --args (positional args after --args are not files) is not a read' "$(bashcall_json "$sid" p90 "$(bash_json "jq -n --args '\$ARGS' a b")")"
+
 printf 'summary: %d ok, %d FAIL, %d todo\n' "$ok_count" "$fail_count" "$todo_count"
 exit $fail

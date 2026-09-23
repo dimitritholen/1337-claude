@@ -54,14 +54,20 @@ command -v jq >/dev/null 2>&1 || exit 0
 # A Bash call counts as a read only when it has a segment whose command word
 # is a plain file-reader with a file operand (cat, head, tail, less, more,
 # nl, od, xxd, strings), rg/ag/ack (these always count), `sed`/`grep`/
-# `egrep`/`fgrep`/`awk`/`jq` WITH a path operand (a second non-flag
-# argument, so a pure stdin filter like `ps aux | grep x` or `git log | grep
-# fix` does not count), or `git cat-file`/`git grep`/`git show <rev>:<path>`
-# (a `git show` operand containing a colon; plain `git show HEAD` or
-# `--stat` is metadata, same as `git diff`, and does not count), also
-# behind git global options; git behind a global option it cannot parse, or
-# behind a `-c alias.*` config, counts too. An input redirect (`< file`)
-# counts as one operand. Any other Bash command passes uncounted.
+# `egrep`/`fgrep`/`awk` WITH a path operand (a second non-flag argument, so
+# a pure stdin filter like `ps aux | grep x` or `git log | grep fix` does
+# not count), `jq` judged by jq's own option grammar (see the jq case
+# below: `--arg`/`--argjson`/`--indent`/`-L` consume a value that is never
+# a file, `--slurpfile`/`--rawfile`/`-f`/`--from-file` read a file on their
+# own regardless of anything else on the line, `--args`/`--jsonargs` turn
+# the rest of the line into positional arguments, and what's left needs a
+# second non-flag operand past the filter, same as sed/grep/awk), or `git
+# cat-file`/`git grep`/`git show <rev>:<path>` (a `git show` operand
+# containing a colon; plain `git show HEAD` or `--stat` is metadata, same
+# as `git diff`, and does not count), also behind git global options; git
+# behind a global option it cannot parse, or behind a `-c alias.*` config,
+# counts too. An input redirect (`< file`) counts as one operand. Any
+# other Bash command passes uncounted.
 #
 # Segments and words come from hooks/lib/tokenize.sh, the lexer
 # orchestrator-guard.sh judges with, so both hooks split a command the same
@@ -118,10 +124,42 @@ bash_is_read() {
         [ "$nonflag" -ge 1 ] && return 0
         ;;
       rg|ag|ack) return 0 ;;
-      sed|grep|egrep|fgrep|awk|jq)
+      sed|grep|egrep|fgrep|awk)
         nonflag=$inputs
         for arg in "$@"; do
           case "$arg" in -*) ;; *) nonflag=$((nonflag + 1)) ;; esac
+        done
+        [ "$nonflag" -ge 2 ] && return 0
+        ;;
+      jq)
+        # jq's options are not all flag-then-operand like sed/grep/awk:
+        # --arg/--argjson take NAME and VALUE (neither a file), --indent
+        # and -L take one value word (a number, a module dir), the
+        # boolean switches take none. --slurpfile/--rawfile and
+        # -f/--from-file each read a FILE that is not the jq program's
+        # operand slot, so their presence alone is a read, regardless of
+        # anything else on the line (-n -f prog.jq reads prog.jq with no
+        # other operand at all). --args/--jsonargs turns everything after
+        # it into positional arguments, never files, so counting stops
+        # there. What's left follows the sed/grep/awk rule: the first
+        # non-flag word is the filter, not a file, so it takes two or
+        # more non-flag operands to count as a read.
+        nonflag=$inputs
+        skip_next=0
+        for arg in "$@"; do
+          if [ "$skip_next" -gt 0 ]; then
+            skip_next=$((skip_next - 1))
+            continue
+          fi
+          case "$arg" in
+            --arg | --argjson) skip_next=2 ;;
+            --indent | -L) skip_next=1 ;;
+            --slurpfile | --rawfile | -f | --from-file) return 0 ;;
+            --args | --jsonargs) break ;;
+            --tab | -n | --null-input | -r | -c | -e | -s | -j | -a | -S | -C | -M) ;;
+            -*) ;;
+            *) nonflag=$((nonflag + 1)) ;;
+          esac
         done
         [ "$nonflag" -ge 2 ] && return 0
         ;;
