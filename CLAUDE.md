@@ -21,6 +21,16 @@ work when the plugin is installed and used in any folder, not only this one.
   exists, else to OpenRouter's decisions endpoint with `OPENROUTER_API_KEY`;
   one retry on 408/429/5xx after at most a second. Test: `tests/lib.test.sh`
   (stand-in server, no key).
+- `lib/png.py`: stdlib-only 8-bit, non-interlaced PNG codec (`from lib
+  import png`). `decode(raw)` reads colour types 0, 2, 3, 4 and 6 into
+  `(width, height, rows)`, rows always expanded to RGBA; `encode(width,
+  height, rows)` writes RGBA (colour type 6) with adaptive per-row
+  filtering (least signed-byte sum among the five PNG filter types) and
+  zlib level 9 — an unfiltered zlib-9 encode of a real generated image was
+  3.1 MB where Chrome's re-encode of the same pixels was 1.0 MB; `bbox(...)`
+  finds the non-transparent bounding box for `--trim`. Test:
+  `tests/png.test.sh` (round trip, one decode per filter type, adaptive vs.
+  all-None size, bbox on a known rectangle).
 - `skills/visual/setup-key.py`: one-time OpenRouter key onboarding. OAuth
   PKCE against `openrouter.ai/auth` with a callback server on 127.0.0.1, a
   nonce-guarded paste page for when the callback cannot reach this machine,
@@ -53,9 +63,14 @@ work when the plugin is installed and used in any folder, not only this one.
   "transparent"`, `output_format: "png"` to `/api/v1/images` instead,
   refusing before any request when `catalogue.has_alpha` says the model has
   no real alpha channel (most diffusion models only paint a fake
-  checkerboard). Exit 3 no key, 4 API failure, 5 failed video job, 6 model
-  unusable for this account, 7 `--transparent` on a non-alpha model. Test:
-  `tests/generate.test.sh` (stand-in OpenRouter).
+  checkerboard). An SVG output has Recraft's C2PA `<metadata>` block, root
+  `width`/`height`, `preserveAspectRatio="none"` and `style="display:
+  block;"` stripped (viewBox kept, synthesized from width/height first if
+  missing). `--trim` (PNG only, no-op elsewhere) crops fully-transparent
+  margins through `lib/png.py`, leaving `--trim-margin` pixels (default 32)
+  clamped to the image. Exit 3 no key, 4 API failure, 5 failed video job, 6
+  model unusable for this account, 7 `--transparent` on a non-alpha model.
+  Test: `tests/generate.test.sh` (stand-in OpenRouter).
 - `skills/visual/catalogue.py`: `models(modality)` lists OpenRouter's
   generation models for `raster_image`, `vector_svg`, `video` or `speech`
   with one price and unit each (image token, second or video token,

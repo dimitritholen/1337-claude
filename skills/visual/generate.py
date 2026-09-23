@@ -21,6 +21,16 @@ without native alpha is refused before any request is sent, since a
 diffusion model such as FLUX.2 Klein, Krea or Muse would only spend
 credit on a fake checkerboard.
 
+An SVG output has the metadata Recraft embeds (a ~18 KB C2PA <metadata>
+block), the root width/height, preserveAspectRatio="none" and
+style="display: block;" stripped before it is written; the viewBox stays
+(synthesized from width/height first if the root had none). Nothing else
+in the SVG is touched.
+
+--trim (raster PNG only) crops fully-transparent margins with
+--trim-margin N pixels (default 32) left around the remaining content,
+clamped to the image; a no-op with a stderr note for any other format.
+
 The file goes to --out, else assets/<slug of the prompt>.<ext> under the
 current directory, never overwriting (a -2, -3 suffix instead). Stdout
 is one JSON line: path, model, modality, media_type, cost (USD from the
@@ -47,7 +57,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, HERE)
-from lib import keys  # noqa: E402
+from lib import keys, png  # noqa: E402
 import catalogue  # noqa: E402
 
 MODALITIES = ("raster_image", "vector_svg", "video", "speech")
@@ -266,6 +276,62 @@ def make_speech(model, prompt, voice, key):
     return raw, media_type, ext, cost
 
 
+# --- SVG cleanup (Recraft adds a C2PA block, fixed width/height, ...) ------------
+
+_ATTR = r"""\s+{name}\s*=\s*(?:"[^"]*"|'[^']*')"""
+
+
+def _drop_attr(tag, name):
+    return re.sub(_ATTR.format(name=name), "", tag)
+
+
+def clean_svg(text):
+    """Strip what Recraft adds to an SVG: the C2PA <metadata> block, the
+    root width/height, preserveAspectRatio="none" and
+    style="display: block;". The viewBox stays, synthesized from
+    width/height first if the root had none. Nothing else is touched."""
+    text = re.sub(r"<metadata\b[^>]*>.*?</metadata>\s*", "", text, flags=re.DOTALL)
+    match = re.search(r"<svg\b[^>]*>", text)
+    if not match:
+        return text
+    tag = match.group(0)
+
+    def attr(name):
+        m = re.search(_ATTR.format(name=name), tag)
+        return m.group(0).split("=", 1)[1].strip(" \"'") if m else None
+
+    if not attr("viewBox"):
+        width, height = attr("width"), attr("height")
+        w = re.match(r"[\d.]+", width) if width else None
+        h = re.match(r"[\d.]+", height) if height else None
+        if w and h:
+            tag = re.sub(r"^<svg\b", f'<svg viewBox="0 0 {w.group(0)} {h.group(0)}"', tag, count=1)
+    for name in ("width", "height"):
+        tag = _drop_attr(tag, name)
+    tag = re.sub(r"""\s+preserveAspectRatio\s*=\s*(?:"none"|'none')""", "", tag)
+    tag = re.sub(r"""\s+style\s*=\s*(?:"display:\s*block;?"|'display:\s*block;?')""", "", tag)
+    return text[:match.start()] + tag + text[match.end():]
+
+
+# --- trim (crop transparent PNG margins, leaving a fixed margin) -----------------
+
+def trim_png(raw, margin):
+    """Crop fully-transparent margins from a PNG, leaving `margin` pixels
+    of transparency around the remaining content, clamped to the image.
+    Returns raw unchanged if the whole image is transparent."""
+    width, height, rows = png.decode(raw)
+    box = png.bbox(width, height, rows)
+    if box is None:
+        return raw
+    x0, y0, x1, y1 = box
+    x0 = max(0, x0 - margin)
+    y0 = max(0, y0 - margin)
+    x1 = min(width, x1 + margin)
+    y1 = min(height, y1 + margin)
+    cropped = [row[x0 * 4:x1 * 4] for row in rows[y0:y1]]
+    return png.encode(x1 - x0, y1 - y0, cropped)
+
+
 # --- where the file goes ---------------------------------------------------------
 
 def slug(text, limit=60):
@@ -301,6 +367,10 @@ def main(argv):
                         help="image endpoint to use (raster and vector only, default auto)")
     parser.add_argument("--transparent", action="store_true",
                         help="raster only: a real alpha channel through /api/v1/images")
+    parser.add_argument("--trim", action="store_true",
+                        help="PNG only: crop fully-transparent margins, keeping --trim-margin px")
+    parser.add_argument("--trim-margin", type=int, default=32,
+                        help="margin left around the content when --trim crops (default 32)")
     args = parser.parse_args(argv[1:])
     if not args.prompt.strip():
         parser.error("--prompt must not be empty")
@@ -334,6 +404,23 @@ def main(argv):
     except ApiError as e:
         print(f"generate: {e}", file=sys.stderr)
         return 4
+
+    # Cleanup and --trim run after the paid request: a bug here must never
+    # cost the user the file they already paid for, so each keeps the
+    # original bytes and only notes the failure on stderr.
+    if ext == "svg":
+        try:
+            raw = clean_svg(raw.decode("utf-8")).encode("utf-8")
+        except Exception as e:  # noqa: BLE001 - a data-loss guard, must never lose the file
+            print(f"generate: svg cleanup skipped: {type(e).__name__}: {e}", file=sys.stderr)
+    if args.trim:
+        if ext == "png":
+            try:
+                raw = trim_png(raw, args.trim_margin)
+            except Exception as e:  # noqa: BLE001 - same guard: a truncated/odd PNG must still write
+                print(f"generate: --trim skipped: {type(e).__name__}: {e}", file=sys.stderr)
+        else:
+            print(f"generate: --trim is a no-op for {ext}, PNG only", file=sys.stderr)
 
     path = target_path(args.out, args.prompt, ext)
     directory = os.path.dirname(path)

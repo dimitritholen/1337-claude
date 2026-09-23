@@ -11,12 +11,48 @@ fail=0
 work="$(mktemp -d)"
 trap 'rm -rf "$work"; [ -n "${server_pid:-}" ] && kill "$server_pid" 2>/dev/null' EXIT
 
-python3 - "$work" <<'EOF_SERVER' &
+python3 - "$work" "$ROOT" <<'EOF_SERVER' &
 import base64, json, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 work = sys.argv[1]
+sys.path.insert(0, sys.argv[2])
+from lib import png
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
 SVG = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>'
+SVG_MESSY = (b'<?xml version="1.0" encoding="UTF-8"?>\n'
+             b'<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" '
+             b'preserveAspectRatio="none" style="display: block;" viewBox="0 0 512 512">'
+             b'<metadata>' + b'x' * 200 + b'</metadata>'
+             b'<circle cx="256" cy="256" r="200"/></svg>')
+SVG_MESSY_NO_VIEWBOX = (b'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32" '
+                        b'style="display: block;"><rect width="64" height="32"/></svg>')
+
+
+def _trim_png():
+    w, h = 40, 30
+    rows = [bytearray(w * 4) for _ in range(h)]
+    for y in range(10, 15):
+        for x in range(12, 20):
+            rows[y][x * 4:x * 4 + 4] = bytes([255, 0, 0, 255])
+    return png.encode(w, h, rows), (12, 10, 20, 15), (w, h)
+
+
+TRIM_PNG, TRIM_BOX, TRIM_SIZE = _trim_png()
+
+
+def _interlaced_png():
+    import struct, zlib
+
+    def chunk(ctype, data):
+        return struct.pack(">I", len(data)) + ctype + data + struct.pack(">I", zlib.crc32(ctype + data) & 0xFFFFFFFF)
+
+    ihdr = struct.pack(">IIBBBBB", 2, 2, 8, 6, 0, 0, 1)  # interlace=1: unsupported
+    idat = zlib.compress(b"\x00" * 64, 9)  # contents never reached, checked before decompress
+    return png.SIGNATURE + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+
+
+INTERLACED_PNG = _interlaced_png()
+SVG_BAD_UTF8 = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4">\xff\xfe<!-- bad --></svg>'
 MP4 = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 24
 MP3 = b"ID3" + b"\x00" * 13
 polls = {}
@@ -78,11 +114,21 @@ class Handler(BaseHTTPRequestHandler):
             if "images-only" in model:
                 self.send_json(404, {"error": {"message": "acme/images-only is an image generation model and cannot be used with the chat/completions endpoint. Use the /api/v1/images endpoint instead.",
                                                "code": 404}}); return
-            if "vector" in model:
+            if "vector-messy-no-viewbox" in model:
+                url = "data:image/svg+xml;base64," + base64.b64encode(SVG_MESSY_NO_VIEWBOX).decode()
+            elif "vector-messy" in model:
+                url = "data:image/svg+xml;base64," + base64.b64encode(SVG_MESSY).decode()
+            elif "vector-badutf8" in model:
+                url = "data:image/svg+xml;base64," + base64.b64encode(SVG_BAD_UTF8).decode()
+            elif "vector" in model:
                 url = "data:image/svg+xml;base64," + base64.b64encode(SVG).decode()
             elif "noimage" in model:
                 self.send_json(200, {"choices": [{"message": {"content": "I cannot draw that."}}],
                                      "usage": {"cost": 0.0}}); return
+            elif "trim-badpng" in model:
+                url = "data:image/png;base64," + base64.b64encode(INTERLACED_PNG).decode()
+            elif "trim" in model:
+                url = "data:image/png;base64," + base64.b64encode(TRIM_PNG).decode()
             else:
                 url = "data:image/png;base64," + base64.b64encode(PNG).decode()
             self.send_json(200, {"id": "gen-img", "choices": [{"message": {"role": "assistant", "content": "",
@@ -248,5 +294,66 @@ check_eq "--transparent refusal: no request at all" "$([ -f "$work/requests.json
 run --model recraft/recraft-v4.1-vector --modality vector_svg --prompt "A fox logo" --transparent
 check_code "--transparent on a non-raster modality: usage exit 2" "$code" 2
 check_eq "--transparent, non-raster: no request at all" "$([ -f "$work/requests.jsonl" ] && wc -l < "$work/requests.jsonl" || echo 0)" "0"
+
+# --- SVG cleanup (#643) ---
+run --model recraft/recraft-v4.1-vector-messy --modality vector_svg --prompt "Fox logo, messy svg"
+check_code "svg cleanup: written" "$code" 0
+svg_out="$(cat "$(field .path)")"
+check_eq "svg cleanup: metadata block gone" "$(printf '%s' "$svg_out" | grep -c '<metadata')" "0"
+check_eq "svg cleanup: width attribute gone" "$(printf '%s' "$svg_out" | grep -c 'width=')" "0"
+check_eq "svg cleanup: height attribute gone" "$(printf '%s' "$svg_out" | grep -c 'height=')" "0"
+check_eq "svg cleanup: preserveAspectRatio gone" "$(printf '%s' "$svg_out" | grep -c 'preserveAspectRatio')" "0"
+check_eq "svg cleanup: display:block style gone" "$(printf '%s' "$svg_out" | grep -c 'display: block')" "0"
+check_eq "svg cleanup: viewBox kept" "$(printf '%s' "$svg_out" | grep -o 'viewBox="0 0 512 512"')" 'viewBox="0 0 512 512"'
+check_eq "svg cleanup: circle untouched" "$(printf '%s' "$svg_out" | grep -c '<circle cx="256" cy="256" r="200"/>')" "1"
+check_eq "svg cleanup: much smaller than the messy source" "$([ "$(field .bytes)" -lt 400 ] && echo yes || echo no)" "yes"
+
+run --model recraft/recraft-v4.1-vector-messy-no-viewbox --modality vector_svg --prompt "Rect, no viewbox"
+check_code "svg cleanup, no viewBox: written" "$code" 0
+svg_out2="$(cat "$(field .path)")"
+check_eq "svg cleanup: viewBox synthesized from width/height" "$(printf '%s' "$svg_out2" | grep -o 'viewBox="0 0 64 32"')" 'viewBox="0 0 64 32"'
+check_eq "svg cleanup: root width/height gone after synthesizing viewBox" \
+  "$(printf '%s' "$svg_out2" | grep -o '<svg[^>]*>' | grep -c 'width=\|height=')" "0"
+
+# --- --trim (#643) ---
+run --model acme/paint-trim --modality raster_image --prompt "Trim me" --trim --trim-margin 2
+check_code "--trim: written" "$code" 0
+dims="$(python3 -c "import sys; sys.path.insert(0, '$ROOT'); from lib import png
+w, h, rows = png.decode(open('$(field .path)', 'rb').read())
+print(f'{w}x{h}')
+print(rows[0][0 * 4 + 3])   # top-left alpha: still transparent margin
+print(rows[4][4 * 4 + 3])   # inside the original rectangle, offset by the new crop
+")"
+check_eq "--trim: cropped to rectangle plus margin 2 (12x9)" "$(printf '%s' "$dims" | sed -n 1p)" "12x9"
+check_eq "--trim: margin stays transparent" "$(printf '%s' "$dims" | sed -n 2p)" "0"
+check_eq "--trim: content still opaque after crop" "$(printf '%s' "$dims" | sed -n 3p)" "255"
+
+run --model acme/paint-trim --modality raster_image --prompt "Trim me, default margin"
+mv "$(field .path)" "$work/untrimmed.png"
+run --model acme/paint-trim --modality raster_image --prompt "Trim me, default margin" --trim
+check_code "--trim, default margin: written" "$code" 0
+untrimmed_size=$(stat -c%s "$work/untrimmed.png" 2>/dev/null || stat -f%z "$work/untrimmed.png")
+trimmed_size=$(stat -c%s "$(field .path)")
+check_eq "--trim, default margin 32 on a 40x30 canvas clamps to the full image" \
+  "$([ "$trimmed_size" -gt 0 ] && echo yes || echo no)" "yes"
+
+run --model recraft/recraft-v4.1-vector --modality vector_svg --prompt "SVG, trim is a no-op" --trim
+check_code "--trim on a non-PNG: still written" "$code" 0
+check_eq "--trim on a non-PNG: stderr note" "$(grep -c 'trim is a no-op for svg' "$work/stderr")" "1"
+
+# --- cleanup/trim never lose a paid-for file on failure (review) ---
+run --model acme/paint-trim-badpng --modality raster_image --prompt "Interlaced, trim should skip" --trim
+check_code "--trim on an unsupported PNG: still exit 0" "$code" 0
+check_eq "--trim skipped: note on stderr" "$(grep -c 'generate: --trim skipped:' "$work/stderr")" "1"
+check_eq "--trim skipped: file still written with the original (untrimmed) PNG bytes" \
+  "$(head -c 8 "$(field .path)" | od -An -c | tr -d ' \n')" '211PNG\r\n032\n'
+check_eq "--trim skipped: IHDR still says interlace=1 (nothing was re-encoded)" \
+  "$(od -An -tu1 -j 28 -N 1 "$(field .path)" | tr -d ' ')" "1"
+
+run --model recraft/recraft-v4.1-vector-badutf8 --modality vector_svg --prompt "Bad utf8 svg"
+check_code "svg cleanup on non-UTF-8 body: still exit 0" "$code" 0
+check_eq "svg cleanup skipped: note on stderr" "$(grep -c 'generate: svg cleanup skipped:' "$work/stderr")" "1"
+check_eq "svg cleanup skipped: file still has the un-cleaned bytes (viewBox and the bad byte both present)" \
+  "$(od -An -tx1 "$(field .path)" | tr -d ' \n' | grep -c 'fffe')" "1"
 
 exit $fail

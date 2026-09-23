@@ -36,8 +36,11 @@ that choice.
      --model <chosen id> --modality raster_image|vector_svg|video|speech \
      --prompt "<the user's prompt, verbatim>" [--out <path>] \
      [--endpoint auto|chat|images] [--aspect 16:9] [--duration 8] [--voice alloy] \
-     [--transparent]
+     [--transparent] [--trim [--trim-margin 32]]
    ```
+
+   `--trim` (raster PNG only) crops fully-transparent margins, leaving
+   `--trim-margin` pixels (default 32); pairs well with `--transparent`.
 
    It prints one JSON line with `path`, `media_type`, `bytes` and `cost`.
    Report the path and the cost in one line. On "Stay with Claude" carry on
