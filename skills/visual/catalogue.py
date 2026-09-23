@@ -5,7 +5,8 @@
     for m in catalogue.models("vector_svg"):
         m["id"], m["name"], m["description"], m["price"], m["unit"], m["vector"],
         m["reference_required"],  # needs a reference image, useless for a bare prompt
-        m["alpha"]   # raster only: --transparent gives a real alpha channel on this model
+        m["alpha"],   # raster only: --transparent gives a real alpha channel on this model
+        m["reference_supported"]  # raster/vector: --reference works on this model
 
 Modalities: raster_image, vector_svg (both from GET /api/v1/models
 ?output_modalities=image, split on the vector flag), video (GET
@@ -59,6 +60,30 @@ def has_alpha(model_id, supported_parameters=None):
     return bool(ALPHA_ALLOWLIST.search(model_id or ""))
 
 
+def _input_modalities(model):
+    return (model.get("architecture") or {}).get("input_modalities") or []
+
+
+def reference_supported(model_id, input_modalities=None):
+    """Whether model_id takes a reference image alongside the prompt:
+    "image" in its architecture.input_modalities from /api/v1/models.
+
+    Pass input_modalities when already known, as _image_entry does for the
+    per-entry field below; called with just a model id (generate.py's
+    --reference guard, before any spend) it fetches that live listing
+    itself and looks the model up there. False for a model not in that
+    listing. Raises CatalogueError only when it must fetch and the fetch
+    fails."""
+    if input_modalities is None:
+        for model in _get("/api/v1/models?output_modalities=image", 10.0):
+            if model.get("id") == model_id:
+                input_modalities = _input_modalities(model)
+                break
+        else:
+            return False
+    return "image" in input_modalities
+
+
 class CatalogueError(Exception):
     pass
 
@@ -91,7 +116,7 @@ def _number(value):
     return n if n >= 0 else None
 
 
-def _entry(model, price, unit, alpha=None):
+def _entry(model, price, unit, alpha=None, reference_supported=None):
     text = f"{model.get('id', '')} {model.get('name', '')} {model.get('description', '')}"
     return {
         "id": model.get("id"),
@@ -102,13 +127,15 @@ def _entry(model, price, unit, alpha=None):
         "vector": bool(VECTOR.search(text)),
         "reference_required": bool(REFERENCE_REQUIRED.search(model.get("description") or "")),
         **({"alpha": alpha} if alpha is not None else {}),
+        **({"reference_supported": reference_supported} if reference_supported is not None else {}),
     }
 
 
 def _image_entry(model):
     pricing = model.get("pricing") or {}
     alpha = has_alpha(model.get("id"), model.get("supported_parameters"))
-    return _entry(model, _number(pricing.get("image_output")), "image token", alpha=alpha)
+    ref = reference_supported(model.get("id"), _input_modalities(model))
+    return _entry(model, _number(pricing.get("image_output")), "image token", alpha=alpha, reference_supported=ref)
 
 
 def _speech_entry(model):

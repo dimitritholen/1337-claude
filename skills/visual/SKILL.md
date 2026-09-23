@@ -36,11 +36,15 @@ that choice.
      --model <chosen id> --modality raster_image|vector_svg|video|speech \
      --prompt "<the user's prompt, verbatim>" [--out <path>] \
      [--endpoint auto|chat|images] [--aspect 16:9] [--duration 8] [--voice alloy] \
-     [--transparent] [--trim [--trim-margin 32]]
+     [--transparent] [--trim [--trim-margin 32]] [--reference <file>]
    ```
 
    `--trim` (raster PNG only) crops fully-transparent margins, leaving
    `--trim-margin` pixels (default 32); pairs well with `--transparent`.
+
+   When the user asks to edit or vary a previous output rather than start
+   over, pass `--reference <that path>` (raster or vector only). It only
+   works on a model `catalogue.py` marks `reference_supported: true`.
 
    It prints one JSON line with `path`, `media_type`, `bytes` and `cost`.
    Report the path and the cost in one line. On "Stay with Claude" carry on
@@ -92,6 +96,11 @@ Exit 7 (`--transparent` on a model without a real alpha channel) refuses
 before any request is sent — most diffusion models only paint a fake
 checkerboard for "transparent". Never pass `--transparent` for a model
 `catalogue.py` did not mark `alpha: true`.
+
+Exit 8 (`--reference` on a model whose `architecture.input_modalities` has
+no `image`) also refuses before any request is sent. Never pass
+`--reference` for a model `catalogue.py` did not mark
+`reference_supported: true`.
 
 # Prices
 

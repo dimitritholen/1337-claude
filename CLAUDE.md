@@ -68,9 +68,16 @@ work when the plugin is installed and used in any folder, not only this one.
   block;"` stripped (viewBox kept, synthesized from width/height first if
   missing). `--trim` (PNG only, no-op elsewhere) crops fully-transparent
   margins through `lib/png.py`, leaving `--trim-margin` pixels (default 32)
-  clamped to the image. Exit 3 no key, 4 API failure, 5 failed video job, 6
-  model unusable for this account, 7 `--transparent` on a non-alpha model.
-  Test: `tests/generate.test.sh` (stand-in OpenRouter).
+  clamped to the image. `--reference <file>` (raster or vector, PNG/JPEG/WebP/SVG
+  by extension or magic bytes, refused over 20 MB) sends the file as a data
+  URL alongside the prompt so the model edits or varies it: a second
+  `image_url` content part on chat/completions, an `image` list on
+  `/api/v1/images` (unverified against a live edit call). Refused before any
+  request when `catalogue.reference_supported` says the model takes no image
+  input. Exit 3 no key, 4 API failure, 5 failed video job, 6 model unusable
+  for this account, 7 `--transparent` on a non-alpha model, 8 `--reference`
+  on a model with no image input. Test: `tests/generate.test.sh` (stand-in
+  OpenRouter).
 - `skills/visual/catalogue.py`: `models(modality)` lists OpenRouter's
   generation models for `raster_image`, `vector_svg`, `video` or `speech`
   with one price and unit each (image token, second or video token,
@@ -78,8 +85,12 @@ work when the plugin is installed and used in any folder, not only this one.
   entries also carry `alpha` (`has_alpha`): true when the listing's
   `supported_parameters` names `background`, else a small id-prefix
   allowlist (`openai/gpt-*image*`), the one source `generate.py` imports
-  for its `--transparent` refusal. Test: `tests/catalogue.test.sh` (fixture
-  JSON shaped like the live lists).
+  for its `--transparent` refusal; and `reference_supported`
+  (`reference_supported`): true when the listing's `architecture.input_modalities`
+  names `image`, the one source `generate.py` imports for its `--reference`
+  refusal, callable with just a model id (it fetches the live listing
+  itself then). Test: `tests/catalogue.test.sh` (fixture JSON shaped like
+  the live lists).
 - `skills/tier/route.py`: python3 script that asks Jev, TypeSafe's decision
   model, for the model tier per plan step through `lib/jev.py`. Needs a
   stored OpenRouter or TypeSafe key. Test: `tests/tier-route.test.sh`

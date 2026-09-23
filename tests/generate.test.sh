@@ -93,6 +93,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/v1/models?output_modalities=speech":
             self.send_json(200, {"data": [{"id": "acme/tts", "supported_voices": ["nova", "alloy"]},
                                           {"id": "acme/tts-mute", "supported_voices": []}]}); return
+        if self.path == "/api/v1/models?output_modalities=image":
+            self.send_json(200, {"data": [
+                {"id": "acme/paint", "architecture": {"input_modalities": ["text", "image"]}},
+                {"id": "acme/paint-noref", "architecture": {"input_modalities": ["text"]}},
+            ]}); return
         if self.path.startswith("/api/v1/generation?id="):
             gen = self.path.split("=", 1)[1]
             if gen == "gen-late" and polls.get("gen-late", 0) == 0:
@@ -355,5 +360,37 @@ check_code "svg cleanup on non-UTF-8 body: still exit 0" "$code" 0
 check_eq "svg cleanup skipped: note on stderr" "$(grep -c 'generate: svg cleanup skipped:' "$work/stderr")" "1"
 check_eq "svg cleanup skipped: file still has the un-cleaned bytes (viewBox and the bad byte both present)" \
   "$(od -An -tx1 "$(field .path)" | tr -d ' \n' | grep -c 'fffe')" "1"
+
+# --- --reference (#644) ---
+ref_png="$work/reference.png"
+printf '%s' "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" | base64 -d > "$ref_png"
+
+run --model acme/paint --modality raster_image --prompt "Vary this fox" --reference "$ref_png"
+check_code "--reference on a supporting model: written" "$code" 0
+data_url="$(jq -r 'select(.path=="/api/v1/chat/completions") | .body.messages[0].content[1].image_url.url' "$work/requests.jsonl")"
+check_eq "--reference: text part kept alongside the image part" "$(jq -r 'select(.path=="/api/v1/chat/completions") | .body.messages[0].content[0].text' "$work/requests.jsonl")" "Vary this fox"
+check_eq "--reference: data URL prefix" "$(printf '%s' "$data_url" | cut -c1-22)" "data:image/png;base64,"
+check_eq "--reference: decodes to the reference file's bytes" \
+  "$(printf '%s' "$data_url" | sed 's/^data:image\/png;base64,//' | base64 -d | cmp -s - "$ref_png" && echo same || echo different)" "same"
+check_eq "--reference: model listing looked up before the generation call" "$(jq -r '.method + " " + .path' "$work/requests.jsonl" | tr '\n' ';')" "GET /api/v1/models?output_modalities=image;POST /api/v1/chat/completions;"
+
+run --model acme/paint-noref --modality raster_image --prompt "Vary this owl, unsupported" --reference "$ref_png"
+check_code "--reference on a non-supporting model: new exit code 8" "$code" 8
+check_eq "--reference refusal: reason on stderr" "$(grep -c 'does not take a reference image' "$work/stderr")" "1"
+check_eq "--reference refusal: no generation request made" "$(grep -c 'chat/completions\|api/v1/images' "$work/requests.jsonl")" "0"
+[ ! -e assets/vary-this-owl-unsupported.png ] && printf 'ok   --reference refusal: nothing written\n' || { printf 'FAIL --reference refusal wrote a file\n'; fail=1; }
+
+run --model acme/paint --modality raster_image --prompt "Missing reference" --reference "$work/no-such-file.png"
+check_code "--reference file missing: exit 2" "$code" 2
+check_eq "--reference missing: no request at all" "$([ -f "$work/requests.jsonl" ] && wc -l < "$work/requests.jsonl" || echo 0)" "0"
+
+big_ref="$work/big.png"
+head -c $((20 * 1024 * 1024 + 1)) /dev/zero > "$big_ref"
+run --model acme/paint --modality raster_image --prompt "Too big" --reference "$big_ref"
+check_code "--reference over 20 MB: exit 2" "$code" 2
+check_eq "--reference over 20 MB: no request at all" "$([ -f "$work/requests.jsonl" ] && wc -l < "$work/requests.jsonl" || echo 0)" "0"
+
+run --model acme/video --modality video --prompt "x" --reference "$ref_png"
+check_code "--reference on video: usage exit 2" "$code" 2
 
 exit $fail

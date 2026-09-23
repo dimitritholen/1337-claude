@@ -3,7 +3,7 @@
 
     generate.py --model <id> --modality raster_image|vector_svg|video|speech
                 --prompt <text> [--out <path>] [--aspect 16:9] [--duration 8]
-                [--voice alloy] [--transparent]
+                [--voice alloy] [--transparent] [--reference <file>]
 
 Raster and vector go through POST /api/v1/chat/completions with
 modalities ["image"]; the first message.images entry is a data
@@ -21,6 +21,19 @@ without native alpha is refused before any request is sent, since a
 diffusion model such as FLUX.2 Klein, Krea or Muse would only spend
 credit on a fake checkerboard.
 
+--reference <file> (raster or vector) sends an existing PNG, JPEG, WebP
+or SVG (sniffed by extension or magic bytes) as a data URL alongside the
+prompt, so the model edits or varies that image instead of starting from
+nothing. On chat/completions it is a second image_url content part next
+to the text part in the user message; on /api/v1/images (--transparent,
+--endpoint images, or the auto fallback) it goes in the body's "image"
+list, the way OpenRouter's images endpoint takes an edit source
+(unverified against a live edit call: chat/completions is the one this
+was tested against). A file over 20 MB, or missing/unreadable, is
+refused before any request; catalogue.reference_supported is the one
+source of truth for whether the model takes an image at all, and a
+model it marks unsupported is refused the same way, before any spend.
+
 An SVG output has the metadata Recraft embeds (a ~18 KB C2PA <metadata>
 block), the root width/height, preserveAspectRatio="none" and
 style="display: block;" stripped before it is written; the viewBox stays
@@ -35,10 +48,12 @@ The file goes to --out, else assets/<slug of the prompt>.<ext> under the
 current directory, never overwriting (a -2, -3 suffix instead). Stdout
 is one JSON line: path, model, modality, media_type, cost (USD from the
 API's usage, or null when it reports none). Exit: 0 written, 2 usage
-(including --transparent on a non-raster modality), 3 no key, 4 API
-failure, 5 the video job failed, 6 the model is unusable for this
-account (upstream said why), 7 --transparent on a model with no native
-alpha channel. OPENROUTER_BASE_URL redirects the API;
+(including --transparent on a non-raster modality, --reference on video
+or speech, a --reference file over 20 MB, missing or unreadable), 3 no
+key, 4 API failure, 5 the video job failed, 6 the model is unusable for
+this account (upstream said why), 7 --transparent on a model with no
+native alpha channel, 8 --reference on a model catalogue.reference_supported
+marks as not taking an image input. OPENROUTER_BASE_URL redirects the API;
 CLAUDE_1337_POLL_SECONDS sets the poll interval (5).
 Stdlib only.
 """
@@ -70,6 +85,11 @@ EXTENSIONS = {
 }
 HTTP_TIMEOUT = 120.0
 VIDEO_WAIT = 900.0
+MAX_REFERENCE_BYTES = 20 * 1024 * 1024
+REFERENCE_EXTENSIONS = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".webp": "image/webp", ".svg": "image/svg+xml",
+}
 
 
 class ApiError(Exception):
@@ -141,28 +161,67 @@ def cost_of(usage):
     return None
 
 
+def sniff_media_type(path, data):
+    """PNG/JPEG/WebP by magic bytes; SVG by a leading '<' plus the
+    extension, since a text format has no magic bytes of its own. Falls
+    back to the extension when the bytes don't match a known signature."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data.lstrip()[:1] == b"<" and (b"<svg" in data[:1024] or path.lower().endswith(".svg")):
+        return "image/svg+xml"
+    return REFERENCE_EXTENSIONS.get(os.path.splitext(path)[1].lower())
+
+
+def load_reference(path):
+    """Read a --reference file: PNG, JPEG, WebP or SVG by extension or
+    magic bytes, refused over MAX_REFERENCE_BYTES before any request.
+    Returns a data: URL. Raises ValueError, meant for exit 2."""
+    try:
+        if os.path.getsize(path) > MAX_REFERENCE_BYTES:
+            raise ValueError(f"{path} is over the {MAX_REFERENCE_BYTES // (1024 * 1024)} MB --reference limit")
+        with open(path, "rb") as f:
+            raw = f.read()
+    except OSError as e:
+        raise ValueError(f"cannot read --reference {path}: {e}") from e
+    media_type = sniff_media_type(path, raw)
+    if not media_type:
+        raise ValueError(f"--reference {path} is not a PNG, JPEG, WebP or SVG I can recognise")
+    return f"data:{media_type};base64,{base64.b64encode(raw).decode()}"
+
+
 # --- the three producers: each returns (bytes, media_type, ext, cost) ---------
 
-def make_image(model, prompt, aspect, key, endpoint, transparent=False):
+def make_image(model, prompt, aspect, key, endpoint, transparent=False, reference=None):
     if transparent:
         # alpha only exists on /api/v1/images; --endpoint chat/auto do not apply.
-        return make_image_via_images(model, prompt, aspect, key, transparent=True)
+        return make_image_via_images(model, prompt, aspect, key, transparent=True, reference=reference)
     if endpoint == "images":
-        return make_image_via_images(model, prompt, aspect, key)
+        return make_image_via_images(model, prompt, aspect, key, reference=reference)
     try:
-        return make_image_via_chat(model, prompt, aspect, key)
+        return make_image_via_chat(model, prompt, aspect, key, reference=reference)
     except ApiError as e:
         # auto falls back once: some models only exist behind /api/v1/images
         # and chat/completions says so in a 404.
         if endpoint == "auto" and e.status == 404 and "/api/v1/images" in str(e):
-            return make_image_via_images(model, prompt, aspect, key)
+            return make_image_via_images(model, prompt, aspect, key, reference=reference)
         raise
 
 
-def make_image_via_chat(model, prompt, aspect, key):
+def make_image_via_chat(model, prompt, aspect, key, reference=None):
+    content = prompt
+    if reference:
+        # a reference image rides next to the text part, not instead of it.
+        content = [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": reference}},
+        ]
     body = {
         "model": model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": content}],
         # "image" alone: models such as Recraft vector output only images and
         # refuse a request that also asks for text.
         "modalities": ["image"],
@@ -191,13 +250,18 @@ def make_image_via_chat(model, prompt, aspect, key):
     return raw, media_type, ext, cost_of(answer.get("usage"))
 
 
-def make_image_via_images(model, prompt, aspect, key, transparent=False):
+def make_image_via_images(model, prompt, aspect, key, transparent=False, reference=None):
     body = {"model": model, "prompt": prompt}
     if aspect:
         body["image_config"] = {"aspect_ratio": aspect}
     if transparent:
         body["background"] = "transparent"
         body["output_format"] = "png"
+    if reference:
+        # OpenRouter's images endpoint takes an edit source as a list of
+        # image data URLs under "image" (unverified against a live edit
+        # call; chat/completions above is the one this was tested against).
+        body["image"] = [reference]
     answer = request_json("POST", "/api/v1/images", key, body)
     data = ((answer.get("data") or [{}])[0])
     b64 = data.get("b64_json")
@@ -371,6 +435,7 @@ def main(argv):
                         help="PNG only: crop fully-transparent margins, keeping --trim-margin px")
     parser.add_argument("--trim-margin", type=int, default=32,
                         help="margin left around the content when --trim crops (default 32)")
+    parser.add_argument("--reference", help="existing PNG/JPEG/WebP/SVG to edit or vary (raster and vector only)")
     args = parser.parse_args(argv[1:])
     if not args.prompt.strip():
         parser.error("--prompt must not be empty")
@@ -380,6 +445,25 @@ def main(argv):
         print(f"generate: {args.model} has no native alpha channel; --transparent on it would "
               "only spend credit on a fake checkerboard", file=sys.stderr)
         return 7
+    if args.reference and args.modality not in ("raster_image", "vector_svg"):
+        parser.error("--reference only applies to --modality raster_image or vector_svg")
+
+    reference = None
+    if args.reference:
+        try:
+            reference = load_reference(args.reference)
+        except ValueError as e:
+            print(f"generate: {e}", file=sys.stderr)
+            return 2
+        try:
+            supported = catalogue.reference_supported(args.model)
+        except catalogue.CatalogueError as e:
+            print(f"generate: {e}", file=sys.stderr)
+            return 4
+        if not supported:
+            print(f"generate: {args.model} does not take a reference image "
+                  "(architecture.input_modalities has no image)", file=sys.stderr)
+            return 8
 
     try:
         key = keys.get("OPENROUTER_API_KEY")
@@ -390,7 +474,7 @@ def main(argv):
     try:
         if args.modality in ("raster_image", "vector_svg"):
             raw, media_type, ext, cost = make_image(args.model, args.prompt, args.aspect, key,
-                                                     args.endpoint, args.transparent)
+                                                     args.endpoint, args.transparent, reference)
         elif args.modality == "video":
             raw, media_type, ext, cost = make_video(args.model, args.prompt, args.aspect, args.duration, key)
         else:
