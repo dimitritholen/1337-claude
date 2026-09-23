@@ -19,6 +19,10 @@ The injected rules (hooks/subagent.md) already cover locating with ripwire befor
 - Match the surrounding code: naming, comment density, idiom, test conventions.
 - Run the verification the brief names. Report failures verbatim, never as green.
 - Do not commit, push, or touch files outside the brief.
+- The working tree may be shared with other builders running in parallel right now.
+  Never revert, stash, reset, clean or overwrite a file you did not change in this
+  dispatch, even to clear a failing test — a failure outside your brief gets
+  reported, not fixed or reverted. To undo your own edit, edit it back.
 
 Return a short report: what you changed (files and one line each), deviations from
 the brief, and the verification that ran with its result.

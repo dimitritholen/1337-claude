@@ -4,10 +4,14 @@
 # or EVAL_CLAUDE_1337_ORCHESTRATOR=1, the switch eval cases use since `claude
 # plugin eval` cases may only set EVAL_* variables).
 # Keeps the main session an orchestrator: subagent calls (payload carries
-# agent_id) always pass; the main session may make edits of <= MAX_LINES
-# lines (CLAUDE_1337_MAX_LINES, default 20; an edit counts the larger of its
-# old and new text, a MultiEdit the sum over its edits) and write under
-# ~/.claude or a temp dir, where a code file is still refused.
+# agent_id) pass with one exception, a Bash git command that would revert,
+# stash, reset, clean or overwrite another parallel builder's finished work
+# in the shared tree (#723; see subagent_git_guard below,
+# CLAUDE_1337_SUBAGENT_GIT_GUARD=off disables it); the main session may make
+# edits of <= MAX_LINES lines (CLAUDE_1337_MAX_LINES, default 20; an edit
+# counts the larger of its old and new text, a MultiEdit the sum over its
+# edits) and write under ~/.claude or a temp dir, where a code file is still
+# refused.
 # 1337: later: mcp write tools in the matcher
 #
 # Bash is judged against an ALLOWLIST, not a list of write patterns: the
@@ -206,10 +210,70 @@ refuse_claude_config() { # command
   exit 2
 }
 
+# #723: three 1337:builder subagents in one shared working tree is the
+# documented shape (hooks/orchestrator.md), and one of them once saw test
+# failures caused by the others' in-progress work and ran `git checkout --
+# ...` to wipe it. A subagent otherwise passes this guard untouched (it may
+# not have read the file it is fixing, unlike the main session); this one
+# check still applies to it, since none of these git forms are a subagent's
+# own edit going back. CLAUDE_1337_SUBAGENT_GIT_GUARD=off disables it.
+refuse_subagent_revert() { # what was run
+  printf 'blocked (1337 orchestrator mode): subagent Bash command runs %s. Never revert, stash, reset, clean or overwrite a file you did not change in this dispatch (#723, a parallel builder'"'"'s finished work); edit your own change back instead.\n' "$1" >&2
+  exit 2
+}
+
+subagent_git_guard() { # the full bash command
+  [ "${CLAUDE_1337_SUBAGENT_GIT_GUARD:-on}" != "off" ] || return 0
+  . "$(dirname "$0")/lib/git-subcommand.sh"
+  . "$(dirname "$0")/lib/tokenize.sh"
+  local lex_out rec words nw at cmd args a form
+  lex_out=$(printf '%s\n' "$1" | tokenize) || return 0
+  while IFS= read -r rec; do
+    case "$rec" in "S$TOK_US"*) ;; *) continue ;; esac
+    tok_parse "$rec"
+    words=(); [ "$tok_nw" -gt 0 ] && words=("${tok_words[@]}")
+    at="$tok_at"; nw="$tok_nw"
+    cmd=""
+    [ "$at" -lt "$nw" ] && cmd="${words[$at]}"
+    [ "$cmd" = git ] || continue
+    args=()
+    [ $((at + 1)) -lt "$nw" ] && args=("${words[@]:$((at + 1))}")
+    git_subcommand "${args[@]}"
+    case "$git_sub" in
+      checkout)
+        for a in "${args[@]:$git_sub_at}"; do
+          case "$a" in
+            -- | .) refuse_subagent_revert "git checkout with a pathspec" ;;
+          esac
+        done
+        ;;
+      restore) refuse_subagent_revert "git restore" ;;
+      reset)
+        for a in "${args[@]:$git_sub_at}"; do
+          case "$a" in --hard | --merge | --keep) refuse_subagent_revert "git reset $a" ;; esac
+        done
+        ;;
+      stash)
+        form="${args[$git_sub_at]:-}"
+        case "$form" in list | show) ;; *) refuse_subagent_revert "git stash${form:+ $form}" ;; esac
+        ;;
+      clean) refuse_subagent_revert "git clean" ;;
+    esac
+  done <<<"$lex_out"
+  return 0
+}
+
 payload="$(cat)"
 
 agent_id=$(printf '%s' "$payload" | jq -r '.agent_id // empty' 2>/dev/null) || exit 0
-[ -n "$agent_id" ] && exit 0
+if [ -n "$agent_id" ]; then
+  tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null) || exit 0
+  if [ "$tool" = Bash ]; then
+    bash_cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
+    [ -n "$bash_cmd" ] && subagent_git_guard "$bash_cmd"
+  fi
+  exit 0
+fi
 
 tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null) || exit 0
 file=$(printf '%s' "$payload" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' 2>/dev/null) || exit 0

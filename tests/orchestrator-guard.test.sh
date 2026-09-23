@@ -666,6 +666,40 @@ check_err 2 "$allow_err" "git switch -c --discard-changes is refused" "$(bash_pa
 check_err 2 "$allow_err" "git checkout -b -m is refused" "$(bash_payload 'git checkout -b fix/x -m')"
 check_err 2 "$allow_err" "git switch --force-create is refused" "$(bash_payload 'git switch --force-create fix/x')"
 
+# #723: a subagent's Bash calls otherwise pass untouched, except for the one
+# shape that can wipe a parallel builder's finished work in the shared tree.
+sub_payload() { printf '{"agent_id":"abc","tool_name":"Bash","tool_input":{"command":%s}}' "$(bash_json "$1")"; }
+sub_err="Never revert, stash, reset, clean or overwrite"
+check_err 2 "$sub_err" "subagent: git checkout -- path is refused" "$(sub_payload 'git checkout -- x')"
+check_err 2 "$sub_err" "subagent: git checkout . is refused" "$(sub_payload 'git checkout .')"
+check_err 2 "$sub_err" "subagent: git checkout <rev> -- <path> is refused" "$(sub_payload 'git checkout main -- x')"
+check_err 2 "$sub_err" "subagent: git restore is refused" "$(sub_payload 'git restore x')"
+check_err 2 "$sub_err" "subagent: git reset --hard is refused" "$(sub_payload 'git reset --hard')"
+check_err 2 "$sub_err" "subagent: git reset --merge is refused" "$(sub_payload 'git reset --merge')"
+check_err 2 "$sub_err" "subagent: git reset --keep is refused" "$(sub_payload 'git reset --keep')"
+check_err 2 "$sub_err" "subagent: git stash is refused" "$(sub_payload 'git stash')"
+check_err 2 "$sub_err" "subagent: git stash pop is refused" "$(sub_payload 'git stash pop')"
+check_err 2 "$sub_err" "subagent: git clean is refused" "$(sub_payload 'git clean -fd')"
+check_err 2 "$sub_err" "subagent: git -C . checkout -- x is refused" "$(sub_payload 'git -C . checkout -- x')"
+
+check 0 "subagent: git status is allowed" "$(sub_payload 'git status')"
+check 0 "subagent: git diff is allowed" "$(sub_payload 'git diff')"
+check 0 "subagent: git stash list is allowed" "$(sub_payload 'git stash list')"
+check 0 "subagent: git stash show is allowed" "$(sub_payload 'git stash show')"
+check 0 "subagent: git checkout -b feat is allowed" "$(sub_payload 'git checkout -b feat')"
+check 0 "subagent: git log is allowed" "$(sub_payload 'git log')"
+
+unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR CLAUDE_1337_ORCHESTRATOR
+check 0 "subagent git checkout -- x allowed with orchestrator mode off" "$(sub_payload 'git checkout -- x')"
+export CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=true
+
+CLAUDE_1337_SUBAGENT_GIT_GUARD=off check 0 "subagent git checkout -- x allowed with the env switch off" "$(sub_payload 'git checkout -- x')"
+
+# A main-session payload still behaves exactly as before: `git checkout --
+# x` (and `.`) stay refused by the allowlist's checkout/switch rule, not by
+# the subagent guard, which never runs for a payload with no agent_id.
+check_err 2 "$allow_err" "main session: git checkout -- x is still refused by the allowlist" "$(bash_payload 'git checkout -- x')"
+
 # No jq: the guard cannot read the call, so it refuses instead of passing.
 nojq_bin="$edit_cap_tmpdir/nojq-bin"
 mkdir -p "$nojq_bin" && ln -s "$(command -v bash)" "$nojq_bin/bash"

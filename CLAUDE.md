@@ -271,6 +271,12 @@ work when the plugin is installed and used in any folder, not only this one.
   Read/Grep/Glob. Small allowed edits are capped at 3 per session
   (`CLAUDE_1337_EDIT_CAP`), a budget ripwire's own symbol edit (the one
   sanctioned Bash write) draws on too.
+  Subagent Bash calls otherwise pass untouched, but one check still applies
+  to them (#723): `git checkout -- <path>`/`git checkout .`, `git restore`,
+  `git reset --hard/--merge/--keep`, `git stash` beyond `list`/`show`, and
+  `git clean` are refused, since a subagent reverting another parallel
+  builder's finished work in the shared tree is the incident this guards
+  against; `CLAUDE_1337_SUBAGENT_GIT_GUARD=off` disables it.
   Test: `tests/orchestrator-guard.test.sh`.
 - `hooks/read-cap.sh`: PreToolUse hook, orchestrator mode only, capping the
   main session's Reads (`CLAUDE_1337_READ_CAP`) and Grep/Glob calls
