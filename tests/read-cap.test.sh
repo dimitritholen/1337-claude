@@ -291,9 +291,10 @@ printf '%s' "$(readcall "$sid3233" p32)" | CLAUDE_1337_READ_CAP=1 "$HOOK" >/dev/
 CLAUDE_1337_READ_CAP=1 check 0 "gap 33: an Edit between two Reads is itself allowed" "$(editcall "$sid3233" p32)"
 CLAUDE_1337_READ_CAP=1 check 2 "gap 32: the second Read after an intervening Edit is still refused under READ_CAP=1" "$(readcall "$sid3233" p32)"
 
-# --- new cases (#662): WebFetch, mcp search_graph, Bash pipe-filter
+# --- new cases (#662): mcp search_graph, Bash pipe-filter
 # exclusion, subagent Bash bypass, state-file truncation on turn change,
-# and Bash reads following the read kind under GREP_CAP=off.
+# and Bash reads following the read kind under GREP_CAP=off. WebFetch is
+# never counted or refused.
 
 webfetchcall() { # session prompt_id extra
   printf '{"session_id":"%s","prompt_id":"%s","tool_name":"WebFetch","tool_input":{"url":"https://example.com"}%s}' "$1" "$2" "${3:-}"
@@ -302,9 +303,11 @@ mcpcall_named() { # session prompt_id tool
   printf '{"session_id":"%s","prompt_id":"%s","tool_name":"%s","tool_input":{}}' "$1" "$2" "$3"
 }
 
-# WebFetch counts against READ_CAP: second WebFetch in a turn is refused.
+# WebFetch does not count against READ_CAP: all WebFetch calls pass, and do not
+# consume the budget. A Read after two WebFetch calls is still the first read.
 CLAUDE_1337_READ_CAP=1 check 0 "WebFetch: first fetch in p34 allowed" "$(webfetchcall "$sid" p34)"
-CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "WebFetch: second fetch in p34 refused" "$(webfetchcall "$sid" p34)"
+CLAUDE_1337_READ_CAP=1 check 0 "WebFetch: second fetch in p34 allowed (does not count)" "$(webfetchcall "$sid" p34)"
+CLAUDE_1337_READ_CAP=1 check 0 "WebFetch: a Read after two WebFetch calls is the 1st read" "$(readcall "$sid" p34)"
 
 # A pure stdin-filter Bash pipeline never counts, no matter how many run.
 CLAUDE_1337_READ_CAP=1 check 0 "Bash pipe-filter: ps aux | grep x (1st) allowed" "$(bashcall "$sid" p35 'ps aux | grep x')"

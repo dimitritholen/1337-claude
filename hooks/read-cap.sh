@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# PreToolUse hook for Read|Grep|Glob|Bash|WebFetch|mcp__codebase-memory-mcp__
+# PreToolUse hook for Read|Grep|Glob|Bash|mcp__codebase-memory-mcp__
 # (get_code_snippet|search_code|search_graph) — see hooks.json's read-cap
 # matcher, #662; keep both lists in sync — active only in orchestrator mode
 # (plugin option `orchestrator`, or CLAUDE_1337_ORCHESTRATOR=1). Caps how
 # many of each the main session may run per user turn: CLAUDE_1337_READ_CAP
-# Reads (also WebFetch, the three mcp tools, and a Bash call whose command
+# Reads (also the three mcp tools, and a Bash call whose command
 # reads a file — see bash_is_read below), CLAUDE_1337_GREP_CAP Grep/Glob
 # calls, both default 0 — the main session reads nothing by default. A
 # positive integer allows that many per turn; 0 refuses every call of that
@@ -13,7 +13,7 @@
 # always pass the cap. Their first Grep or Glob is a one-time nudge instead:
 # refused once with a message pointing at ripwire (keyed per agent_id,
 # skipped if ripwire is not on PATH), then every later call from that agent
-# passes untouched. Subagent Reads, Bash, WebFetch and mcp calls are never
+# passes untouched. Subagent Reads, Bash and mcp calls are never
 # nudged or counted.
 #
 # A Read/Grep/Glob whose target path falls under the session scratchpad or a
@@ -272,7 +272,7 @@ tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null) || exit
 case "$tool" in
   Read) kind=read; cap="${CLAUDE_1337_READ_CAP:-0}" ;;
   Grep|Glob) kind=grep; cap="${CLAUDE_1337_GREP_CAP:-0}" ;;
-  WebFetch|mcp__codebase-memory-mcp__get_code_snippet|mcp__codebase-memory-mcp__search_code|mcp__codebase-memory-mcp__search_graph)
+  mcp__codebase-memory-mcp__get_code_snippet|mcp__codebase-memory-mcp__search_code|mcp__codebase-memory-mcp__search_graph)
     kind=read; cap="${CLAUDE_1337_READ_CAP:-0}" ;;
   Bash)
     bash_command=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
