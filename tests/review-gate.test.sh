@@ -297,6 +297,21 @@ details")" "$tr7i"
 check 0 "dispatch gate: checker result with **FAIL** first line: retry allowed" \
   "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr7i")"
 
+# --- case 7j: a task-notification whose text has a `[harness: ...]` note
+# ahead of the actual verdict -> the FAIL line under it still fires the
+# exemption (#720) ---
+tr7j="$TMPDIR/tr7j.jsonl"
+t_tool "$(builder_line b1)" "$tr7j"
+t_tool "$(builder_result_line b1)" "$tr7j"
+t_tool "$(checker_line c1)" "$tr7j"
+t_tool "$(checker_launch_stub_line c1)" "$tr7j"
+t_tool "$(task_notification_line c1 "[harness: subagent output matched instruction-shaped pattern(s): foo]
+FAIL
+
+verdict text")" "$tr7j"
+check 0 "dispatch gate: task-notification with a [harness: ...] line ahead of FAIL: retry allowed" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr7j")"
+
 # --- case 8: a 1337:scout dispatch -> never refused, whatever the state ---
 check 0 "dispatch gate: 1337:scout dispatch: never refused" \
   "$MODE_ORCH" "$(dispatch_payload 1337:scout "$tr5")"

@@ -140,8 +140,13 @@ scan=$(tail -n "+$((builder_ln + 1))" "$transcript" 2>/dev/null | jq -R 'fromjso
   # The checker verdict token: the first non-empty line, trimmed, with any
   # leading markdown emphasis stripped (`**FAIL**`, `# FAIL`, `` `FAIL` ``),
   # must start with FAIL for the retry exemption to fire (agents/checker.md).
+  # The harness sometimes prepends a `[harness: ...]` note of its own ahead
+  # of the subagent text it wraps; any leading non-empty line starting with
+  # `[harness:` is skipped before the verdict line is taken.
   def verdict_line(t):
-    (t | split("\n") | map(gsub("^[ \t]+|[ \t]+$"; "")) | map(select(length > 0)) | (.[0] // ""))
+    (t | split("\n") | map(gsub("^[ \t]+|[ \t]+$"; "")) | map(select(length > 0))
+       | until((. == []) or ((.[0] // "") | startswith("[harness:") | not); .[1:])
+       | (.[0] // ""))
     | gsub("^[*#`_ ]+"; "");
   # A task-notification block (an Agent/Task dispatch that ran in the
   # background): the tool-use-id it reports on and its <result> body, the

@@ -20,7 +20,9 @@ Output: JSON on stdout, one entry per step in input order:
 
 A step whose confidence falls under the floor is escalated one tier, because
 an uncertain "haiku" is a retry waiting to happen. The floor is 0.5 unless
-CLAUDE_1337_TIER_FLOOR says otherwise.
+CLAUDE_1337_TIER_FLOOR says otherwise. The API timeout is 20 seconds by default;
+CLAUDE_1337_TIER_TIMEOUT overrides it (in seconds, as a float; unparseable or
+non-positive values fall back to 20).
 
 Needs a stored OpenRouter or TypeSafe key (see lib/keys.py: the
 environment, then ~/.config/1337/credentials). Exit codes: 0 routed, 2 bad
@@ -119,6 +121,14 @@ def main(argv):
     if not 0.0 <= floor <= 1.0:
         fail(2, f"CLAUDE_1337_TIER_FLOOR must be between 0 and 1, got {floor}")
 
+    timeout_raw = os.environ.get("CLAUDE_1337_TIER_TIMEOUT", "20.0")
+    try:
+        timeout = float(timeout_raw)
+        if timeout <= 0:
+            timeout = 20.0
+    except ValueError:
+        timeout = 20.0
+
     # Every step goes into one state so each question can name its own step
     # and still see the others: the same rename is haiku in a script and
     # sonnet next to a public API.
@@ -141,7 +151,7 @@ def main(argv):
     }
 
     try:
-        response = jev.decide(state, questions, timeout=5.0)
+        response = jev.decide(state, questions, timeout=timeout)
     except jev.JevError as e:
         fail(4, f"Jev call failed: {e}")
 

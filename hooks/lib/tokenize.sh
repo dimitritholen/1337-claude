@@ -250,3 +250,33 @@ tok_parse() { # one S record
   done
   return 0
 }
+
+# tok_input_redirects: sets tok_inputs to the `<` targets of the segment
+# tok_parse last split (fd digits stripped from the operand, e.g. `3<`),
+# skipping /dev/null and /dev/stdin, and only when the segment has no
+# command word (tok_at >= tok_nw) — a `for`/`select`/`case` header is also
+# command-less but never carries a redirect of its own, so this cannot
+# mistake one for a read. That shape is `$(< file)` (or the backtick/
+# `x=$(< file)` equivalents): bash expands it to the file's contents with
+# no reader program in sight, so hooks/orchestrator-guard.sh's judge_segment
+# and hooks/read-cap.sh's bash_is_read both need to catch it even though
+# neither sees a command word to dispatch on. Each caller applies its own
+# path policy on top of tok_inputs (orchestrator-guard.sh exempts a scratch
+# operand the same as it does for `cat`; read-cap.sh does not, since it
+# already counts `cat /tmp/x` as a read with no such exemption — keeping
+# `$(< /tmp/x)` on the same footing there, not a new carve-out).
+tok_input_redirects() {
+  local j op
+  tok_inputs=()
+  [ "$tok_at" -ge "$tok_nw" ] || return 0
+  for ((j = 0; j < tok_nr; j++)); do
+    op="${tok_rops[$j]}"
+    while [[ $op == [0-9]* ]]; do op="${op#?}"; done
+    [ "$op" = "<" ] || continue
+    case "${tok_rtgs[$j]}" in
+      /dev/null | /dev/stdin) ;;
+      *) tok_inputs+=("${tok_rtgs[$j]}") ;;
+    esac
+  done
+  return 0
+}

@@ -8,7 +8,10 @@ Before opening a file, run `ripwire <dir> --for="<what you are after>"
 symbol's body instead of a whole file; `--callers=SYM`, `--impact=SYM`,
 `--uses=SYM` give blast radius; `--grep=STR` a literal. Reading a whole file
 to learn one thing is the thing to avoid. If ripwire is not on PATH, use
-Grep and Glob as before and say so in one line.
+Grep and Glob as before and say so in one line. Once ripwire has named the
+symbol, take `--expand=SYM`, not a whole-file Read. After an edit, check the
+changed region with `git diff` or a grep, never by reading the whole file
+again.
 
 # Work on the minimum
 

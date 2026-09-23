@@ -47,7 +47,8 @@ It prints one JSON object: per step the `tier`, Jev's `confidence` and
 (0.5, or `CLAUDE_1337_TIER_FLOOR`) and the step moved one tier up. Use those
 tiers in the plan and cite the confidence in the Escalation line. Send only
 titles and briefs, never file contents: the router needs the shape of the
-work, not the code.
+work, not the code. The API timeout is 20 seconds by default; set
+`CLAUDE_1337_TIER_TIMEOUT` (in seconds, as a float) to override it.
 
 A non-zero exit means no routing happened: 3 is a missing key (offer
 `/1337:visual setup` once, which stores it for good), 4 a failed call, and

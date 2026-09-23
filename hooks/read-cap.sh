@@ -80,7 +80,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 # expansion, so `cat *.rs` is one literal operand, not globbed against this
 # hook's cwd.
 bash_is_read() {
-  local lex rec first nonflag arg skip_next inputs op prev alias_cfg ri
+  local lex rec first nonflag arg skip_next inputs op prev alias_cfg
   lex=$(printf '%s\n' "$1" | tokenize) || return 1
   while IFS= read -r rec; do
     case "$rec" in "S$TOK_US"*) ;; *) continue ;; esac
@@ -88,17 +88,12 @@ bash_is_read() {
     if [ "$tok_at" -ge "$tok_nw" ]; then
       # No command word: a bare input-redirect segment ($(< file), a
       # backtick equivalent, or a variable assigned from one) still reads
-      # the file's contents into the substitution result. /dev/null and
-      # friends stay uncounted, same as everywhere else.
-      for ((ri = 0; ri < tok_nr; ri++)); do
-        op="${tok_rops[$ri]}"
-        while [[ $op == [0-9]* ]]; do op="${op#?}"; done
-        [ "$op" = "<" ] || continue
-        case "${tok_rtgs[$ri]}" in
-          /dev/null|/dev/stdin) ;;
-          *) return 0 ;;
-        esac
-      done
+      # the file's contents into the substitution result. tok_input_redirects
+      # (hooks/lib/tokenize.sh) already drops /dev/null and /dev/stdin; no
+      # further path exemption here, same as `cat /tmp/x` is already
+      # counted as a read by this hook (no scratch carve-out for Bash).
+      tok_input_redirects
+      [ "${#tok_inputs[@]}" -eq 0 ] || return 0
       continue
     fi
     [ "$tok_lookup" = 0 ] || continue
@@ -370,8 +365,7 @@ fi
 # config, a lockfile, a transcript or a prose doc — for those, or for wanting
 # a file's literal contents, dispatch 1337:scout instead.
 if command -v ripwire >/dev/null 2>&1; then
-  route='Free instead: `git status`, `git diff --stat`, `ls`, or `ripwire <dir> --for="<what you are after>" --legend=compact`.
-For code: `ripwire <dir> --for="<what you are after>" --legend=compact`, then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR` as follow-ups.
+  route='Free instead: `git status`, `git diff --stat`, `ls`, or `ripwire <dir> --for="<what you are after>" --legend=compact` (then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR`).
 For anything else (config, lockfile, transcript, prose), or when the file contents themselves are wanted: dispatch 1337:scout with the question; it reads in its own context.'
 else
   route='Free instead: `git status`, `git diff --stat`, `ls`.

@@ -157,8 +157,7 @@ count_edit() { # label recorded in the state file
 # in the two files aligned.
 read_route() {
   if command -v ripwire >/dev/null 2>&1; then
-    printf '%s' 'Free instead: `git status`, `git diff --stat`, `ls`, or `ripwire <dir> --for="<what you are after>" --legend=compact`.
-For code: `ripwire <dir> --for="<what you are after>" --legend=compact`, then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR` as follow-ups.
+    printf '%s' 'Free instead: `git status`, `git diff --stat`, `ls`, or `ripwire <dir> --for="<what you are after>" --legend=compact` (then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR`).
 For anything else (config, lockfile, transcript, prose), or when the file contents themselves are wanted: dispatch 1337:scout with the question; it reads in its own context.'
   else
     printf '%s' 'Free instead: `git status`, `git diff --stat`, `ls`.
@@ -623,17 +622,14 @@ case "$tool" in
       # A segment with no command word at all, but an input redirect, is
       # `$(< file)` (or the backtick/`x=$(< file)` equivalents): bash
       # expands that to the file's contents with no reader program in
-      # sight. A `for`/`select`/`case` header (also cmd-less) never carries
-      # a redirect of its own, so this cannot mistake one for a read.
+      # sight. tok_input_redirects (hooks/lib/tokenize.sh) already skips
+      # a `for`/`select`/`case` header (also cmd-less, but never carrying
+      # a redirect of its own) and /dev/null/stdin; a scratch operand is
+      # exempt here the same as it is for a reader like `cat`.
       if [ -z "$cmd" ]; then
-        for ((j = 0; j < nr; j++)); do
-          op="${rops[$j]}"
-          while [[ $op == [0-9]* ]]; do op="${op#?}"; done
-          [ "$op" = "<" ] || continue
-          case "${rtgs[$j]}" in
-            /dev/null | /dev/stdin) ;;
-            *) ! is_scratch_operand "${rtgs[$j]}" && refuse_read 'reads a file'"'"'s contents via $(< file)' "$bash_cmd" ;;
-          esac
+        tok_input_redirects
+        for tg in "${tok_inputs[@]+"${tok_inputs[@]}"}"; do
+          is_scratch_operand "$tg" || refuse_read 'reads a file'"'"'s contents via $(< file)' "$bash_cmd"
         done
       fi
 

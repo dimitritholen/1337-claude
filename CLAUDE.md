@@ -196,8 +196,9 @@ work when the plugin is installed and used in any folder, not only this one.
   the live lists).
 - `skills/tier/route.py`: python3 script that asks Jev, TypeSafe's decision
   model, for the model tier per plan step through `lib/jev.py`. Needs a
-  stored OpenRouter or TypeSafe key. Test: `tests/tier-route.test.sh`
-  (stand-in API, no key).
+  stored OpenRouter or TypeSafe key. The API timeout is 20 seconds by default;
+  `CLAUDE_1337_TIER_TIMEOUT` (seconds, float) overrides it. Test:
+  `tests/tier-route.test.sh` (stand-in API, no key).
 - `output-styles/<name>.md`: a pack of voices (`1337:l33t`, `1337:unc`,
   `1337:tremendous`, `1337:silent`, `1337:hippy`, `1337:pimp`, `1337:surfer`,
   `1337:yoda`),
@@ -230,7 +231,11 @@ work when the plugin is installed and used in any folder, not only this one.
 - `hooks/subagent-rules.sh` + `hooks/subagent.md`: SubagentStart hook that
   injects a compact rule digest into every spawned subagent
   (`CLAUDE_1337_SUBAGENT_MATCHER` scopes by agent type,
-  `CLAUDE_1337_SUBAGENT_RULES=0` disables). Test:
+  `CLAUDE_1337_SUBAGENT_RULES=0` disables). A read-only agent type
+  (`CLAUDE_1337_SUBAGENT_READONLY`, default `scout|checker|explore`, an
+  empty string giving nobody the short digest) gets the digest with its
+  "Work on the minimum" and "Evaluate the task briefly" sections cut, since
+  it has nothing to build or evaluate for scope. Test:
   `tests/subagent-rules.test.sh`.
 - `tests/rule-copies.test.sh`: drift check that shared rule sentences (the
   brevity blocks, the build ladder, the never-cut rule) stay aligned across
@@ -298,10 +303,11 @@ work when the plugin is installed and used in any folder, not only this one.
   `git diff` has run and `/1337:review` has been called, unless the change is
   at or under `CLAUDE_1337_REVIEW_MIN_LINES` (default 20). For dispatch only,
   a `1337:checker` result starting with `FAIL` on its first line sanctions a
-  retry even without review; an async checker's verdict, when its synchronous
-  result is only the launch stub, is read from the matching
-  `<task-notification>`'s `<result>` instead. A `git diff` with git global
-  options in front (`git -C <path> diff`) counts. The gate anchors on the last dispatch that
+  retry even without review (a leading `[harness: ...]` line the harness
+  sometimes prepends to a subagent result is skipped first); an async
+  checker's verdict, when its synchronous result is only the launch stub, is
+  read from the matching `<task-notification>`'s `<result>` instead. A `git
+  diff` with git global options in front (`git -C <path> diff`) counts. The gate anchors on the last dispatch that
   actually ran from `hooks/lib/builder-dispatches.jq`, ignoring ones a
   PreToolUse hook refused. `CLAUDE_1337_REVIEW_GATE=off` disables it. Test:
   `tests/review-gate.test.sh`.
@@ -329,8 +335,14 @@ work when the plugin is installed and used in any folder, not only this one.
   the words (quotes removed) and the redirects with their targets; plus
   `B` heredoc bodies and `X` constructs it does not judge. Quoted text and
   heredoc bodies are data. `tok_parse` splits one `S` record into
-  `tok_*` variables. Covered by `tests/orchestrator-guard.test.sh` and
-  `tests/read-cap.test.sh`.
+  `tok_*` variables; `tok_input_redirects` (on top of the current `tok_parse`
+  state) sets `tok_inputs` to a command-less segment's `<` targets (fd
+  digits stripped, `/dev/null`/`/dev/stdin` dropped) — the `$(< file)`
+  shape neither hook's own reader dispatch sees, since there is no command
+  word to switch on; each hook still applies its own path policy on top
+  (`hooks/orchestrator-guard.sh` exempts a scratch operand, `hooks/read-cap.sh`
+  does not, matching how it already treats `cat /tmp/x`). Covered by
+  `tests/orchestrator-guard.test.sh` and `tests/read-cap.test.sh`.
 - `.claude/skills/seed-corpus/`: repo-local skill (not shipped) for turning a
   shell test suite into a JSONL corpus of captured checks, one row per
   execution with payload, exit code, and error fragment. Worked example:

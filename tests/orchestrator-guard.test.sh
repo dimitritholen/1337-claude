@@ -579,6 +579,9 @@ check_err 2 "reads a file's contents via \$(< file)" 'backtick < file) dumps the
 check_err 2 "reads a file's contents via \$(< file)" 'a variable assigned from $(< file) dumps the file' \
   "$(bash_payload 'x=$(< hooks/evaluate.md); echo $x')"
 check 0 "\$(< /dev/null) stays allowed" "$(bash_payload 'echo $(< /dev/null)')"
+# #720: a scratch-path target gets the same treatment via $(< file) as it
+# does for `cat` (line ~329: "bash cat under /tmp stays allowed").
+check 0 "\$(< /tmp/x) under a scratch path stays allowed" "$(bash_payload 'echo $(< /tmp/x)')"
 check_err 2 "unquoted heredoc body" "a command substitution in an unquoted heredoc body" \
   "$(bash_payload "$(printf 'cat <<EOF\n$(rm -rf src)\nEOF')")"
 check 0 "arithmetic << is not a heredoc" "$(bash_payload 'echo $((1 << 2))')"

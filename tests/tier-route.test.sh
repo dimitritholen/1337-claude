@@ -13,10 +13,10 @@ trap 'rm -rf "$work"; [ -n "${server_pid:-}" ] && kill "$server_pid" 2>/dev/null
 
 # The stand-in API: answers each step_N choice from the words in its title,
 # records the last request body for assertions, and fails or misbehaves on
-# demand. "slow" sleeps 20s (past route.py's 5s timeout), "bad-tier" answers
-# with a tier outside TIERS, "no-confidence" omits confidence, "not-dict"
-# answers a step with something other than an object, "cased tier" answers
-# with padding and mixed case that must still parse.
+# demand. "delayed" sleeps ~6s, "slow" sleeps 20s (past any reasonable timeout),
+# "bad-tier" answers with a tier outside TIERS, "no-confidence" omits confidence,
+# "not-dict" answers a step with something other than an object, "cased tier"
+# answers with padding and mixed case that must still parse.
 python3 - "$work" <<'EOF' &
 import json, sys, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -38,6 +38,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(500)
                 self.end_headers()
                 return
+            if "delayed" in t:
+                time.sleep(6)
             if "slow" in t:
                 time.sleep(20)
                 self.send_response(500)
@@ -269,18 +271,39 @@ check_code "openrouter transport: routed" "$code" 0
 check_eq "openrouter path" "$(cat "$work/last-path.txt")" "/api/alpha/decisions"
 check_eq "openrouter model in the request" "$(jq -r .model "$work/last-request.json")" "typesafe/jev-1.13"
 
-# Wall clock: a server that never answers must not cost more than the 5s
-# timeout plus the one JevError-triggering attempt (no retry on a timeout,
-# only on an HTTP status), nowhere near the 20s the stand-in sleeps.
+# Timeout behaviour: delayed ~6s succeeds with the default 20s timeout.
+delayed='{"task":"t","steps":[{"id":1,"title":"Delayed step"}]}'
+run "$delayed"
+check_code "delayed ~6s with default timeout: routed" "$code" 0
+check_eq "delayed step resolved successfully" "$(printf '%s' "$out" | jq -r '.steps[0].tier')" "haiku"
+
+# Timeout behaviour: delayed ~6s times out with 1s timeout.
+CLAUDE_1337_TIER_TIMEOUT=1 run "$delayed"
+check_code "delayed ~6s with 1s timeout: exit 4" "$code" 4
+check_failure_marker "failure marker printed on exit 4 (timeout)" 4
+
+# Wall clock: a server that delays ~6s must not cost more than the 1s
+# timeout plus the one JevError-triggering attempt.
+start=$(date +%s)
+CLAUDE_1337_TIER_TIMEOUT=1 run "$delayed"
+elapsed=$(( $(date +%s) - start ))
+check_code "1s timeout against delayed server: exit 4" "$code" 4
+if [ "$elapsed" -lt 5 ]; then
+  printf 'ok   %s\n' "wall clock stays within 5s on 1s timeout (${elapsed}s)"
+else
+  printf 'FAIL %s (%ss)\n' "wall clock stays within 5s on 1s timeout" "$elapsed"; fail=1
+fi
+
+# Wall clock: a server that sleeps 20s should fail quickly with a lower timeout.
 slow='{"task":"t","steps":[{"id":1,"title":"Slow step"}]}'
 start=$(date +%s)
-run "$slow"
+CLAUDE_1337_TIER_TIMEOUT=1 run "$slow"
 elapsed=$(( $(date +%s) - start ))
-check_code "slow server: exit 4" "$code" 4
-if [ "$elapsed" -lt 10 ]; then
-  printf 'ok   %s\n' "wall clock stays near the 5s timeout (${elapsed}s)"
+check_code "slow server with 1s timeout: exit 4" "$code" 4
+if [ "$elapsed" -lt 5 ]; then
+  printf 'ok   %s\n' "wall clock stays within 5s on 1s timeout against slow server (${elapsed}s)"
 else
-  printf 'FAIL %s (%ss)\n' "wall clock stays near the 5s timeout" "$elapsed"; fail=1
+  printf 'FAIL %s (%ss)\n' "wall clock stays within 5s on 1s timeout against slow server" "$elapsed"; fail=1
 fi
 
 # The exit-3 text names one setup path, the same in all three places.

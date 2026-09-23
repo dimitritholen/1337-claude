@@ -522,6 +522,10 @@ CLAUDE_1337_READ_CAP=0 check 2 '704: echo $(< f) is a read' "$(bashcall_json "$s
 CLAUDE_1337_READ_CAP=0 check 2 '704: echo `< f` is a read' "$(bashcall_json "$sid" p92 "$(bash_json 'echo `< hooks/evaluate.md`')")"
 CLAUDE_1337_READ_CAP=0 check 2 '704: x=$(< f); echo $x is a read' "$(bashcall_json "$sid" p93 "$(bash_json 'x=$(< hooks/evaluate.md); echo $x')")"
 CLAUDE_1337_READ_CAP=0 check 0 '704: echo $(< /dev/null) is not a read' "$(bashcall_json "$sid" p94 "$(bash_json 'echo $(< /dev/null)')")"
+# #720: this hook already counts `cat /tmp/x` as a read (no scratch-path
+# carve-out for Bash, unlike Read/Grep/Glob's file_path exemption above), so
+# $(< /tmp/x) gets the same treatment for consistency.
+CLAUDE_1337_READ_CAP=0 check 2 '720: echo $(< /tmp/x) is a read, same as cat /tmp/x' "$(bashcall_json "$sid" p95 "$(bash_json 'echo $(< /tmp/x)')")"
 
 printf 'summary: %d ok, %d FAIL, %d todo\n' "$ok_count" "$fail_count" "$todo_count"
 exit $fail
