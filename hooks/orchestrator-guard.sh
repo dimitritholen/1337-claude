@@ -102,6 +102,30 @@ is_code() { # path
   [[ $lc =~ \.($code_ext)$ ]]
 }
 
+# ~/.claude is not all scratch: config (settings.json, settings.local.json,
+# CLAUDE.md), hooks, agents, skills, commands and, above all, plugins/ (the
+# INSTALLED copy of this plugin, whose hooks and skills/tier/route.py the
+# main session goes on to run) live under it too, and a write there is a way
+# to rewrite the router or turn this guard off. Only the data locations the
+# main session and this plugin's own scripts legitimately write to are
+# exempt: session scratch and per-project memory files under
+# ~/.claude/projects/, ~/.claude/todos/, and this plugin's own state files
+# (~/.claude/.1337-*, e.g. .1337-terse written by /1337:terse). Everything
+# else under ~/.claude is refused like any other tree write. Used by the
+# Write/Edit path check, judge_target (Bash redirect/tee/mkdir/mktemp/sort
+# targets) and note_assignment (variable resolution) alike, so the exemption
+# cannot be widened in one place and forgotten in another. The caller is
+# expected to have $HOME, ~ and any variables already resolved into $1 (as
+# resolve_target does for the Bash side); a `..` step is caught by the tree
+# fallback in target_class before this ever runs.
+is_claude_data() { # resolved absolute path
+  case "$1" in
+    "${HOME:-/nonexistent}"/.claude/projects/* | "${HOME:-/nonexistent}"/.claude/todos/*) return 0 ;;
+    "${HOME:-/nonexistent}"/.claude/.1337-*) return 0 ;;
+  esac
+  return 1
+}
+
 # The per-session edit budget, drawn on by small Edit/MultiEdit calls and by
 # ripwire's symbol edit alike: both change code the main session has not read,
 # so they share one allowance. Returns 2 when the call is past the cap, 0 when
@@ -158,7 +182,18 @@ refuse_code_write() { # command
 }
 
 refuse_write() { # command
-  printf 'blocked (1337 orchestrator mode): Bash command writes files (%.80s). Dispatch it to 1337:builder with a self-contained brief; the main session may only write under ~/.claude and temp directories.\n' "$1" >&2
+  printf 'blocked (1337 orchestrator mode): Bash command writes files (%.80s). Dispatch it to 1337:builder with a self-contained brief; the main session may only write under the ~/.claude data allowlist (projects, todos, .1337-* state) and temp directories.\n' "$1" >&2
+  exit 2
+}
+
+# ~/.claude config (settings.json, settings.local.json, CLAUDE.md), hooks,
+# agents, skills, commands and the installed plugin under ~/.claude/plugins
+# (this plugin's own hooks and skills/tier/route.py, which the main session
+# then runs) are off-limits in orchestrator mode: a write there could rewrite
+# the router or turn this guard off. Named separately from refuse_write so
+# the message points at the narrower cause.
+refuse_claude_config() { # command
+  printf 'blocked (1337 orchestrator mode): Bash command writes under ~/.claude outside the data allowlist (%.80s). Config, hooks, agents, skills, commands and the installed plugin under ~/.claude are off-limits in orchestrator mode; only ~/.claude/projects, ~/.claude/todos and ~/.claude/.1337-* state files are writable. Dispatch it to 1337:builder with a self-contained brief.\n' "$1" >&2
   exit 2
 }
 
@@ -170,19 +205,29 @@ agent_id=$(printf '%s' "$payload" | jq -r '.agent_id // empty' 2>/dev/null) || e
 tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null) || exit 0
 file=$(printf '%s' "$payload" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' 2>/dev/null) || exit 0
 
-# ~/.claude and temp dirs are the session's own scratch. A `..` step never
-# counts as inside one, and a code file written under temp is still a script.
+# The ~/.claude data allowlist (is_claude_data) and temp dirs are the
+# session's own scratch. A `..` step never counts as inside one, and a code
+# file written under temp is still a script.
 tmp_real="${TMPDIR:-}"
 case "$tmp_real" in /?*) tmp_real="${tmp_real%/}" ;; *) tmp_real="" ;; esac
 case "$file" in
   */../*|*/..) ;;
-  "${HOME:-/nonexistent}"/.claude/*) exit 0 ;;
-  /tmp/*|/private/tmp/*|/var/folders/*|"${tmp_real:-/nonexistent}"/*)
-    if [ "$tool" = Write ] && is_code "$file"; then
-      printf 'blocked (1337 orchestrator mode): Write on %s writes a code file. Scripts are builder work even under temp directories; dispatch it to 1337:builder with a self-contained brief.\n' "$file" >&2
-      exit 2
-    fi
-    exit 0
+  *)
+    is_claude_data "$file" && exit 0
+    case "$file" in
+      "${HOME:-/nonexistent}"/.claude/*)
+        printf 'blocked (1337 orchestrator mode): %s on %s writes under ~/.claude outside the data allowlist. Config, hooks, agents, skills, commands and the installed plugin under ~/.claude are off-limits in orchestrator mode; only ~/.claude/projects, ~/.claude/todos and ~/.claude/.1337-* state files are writable. Dispatch it to 1337:builder with a self-contained brief.\n' \
+          "$tool" "$file" >&2
+        exit 2
+        ;;
+      /tmp/*|/private/tmp/*|/var/folders/*|"${tmp_real:-/nonexistent}"/*)
+        if [ "$tool" = Write ] && is_code "$file"; then
+          printf 'blocked (1337 orchestrator mode): Write on %s writes a code file. Scripts are builder work even under temp directories; dispatch it to 1337:builder with a self-contained brief.\n' "$file" >&2
+          exit 2
+        fi
+        exit 0
+        ;;
+    esac
     ;;
 esac
 
@@ -443,13 +488,18 @@ case "$tool" in
       fi
       rt="$t"
     }
-    # Sets tc: dev (/dev/null and friends), claude (~/.claude), temp, or
-    # tree for everything else, including anything still dynamic.
+    # Sets tc: dev (/dev/null and friends), claude (the ~/.claude data
+    # allowlist, is_claude_data), temp, or tree for everything else,
+    # including anything still dynamic.
     target_class() { # resolved target
       case "$1" in
-        *"$PH"* | *'$'* | *'`'* | */../* | */.. | ../* | ..) tc=tree ;;
-        /dev/null | /dev/stdout | /dev/stderr | /dev/tty | /dev/fd/*) tc=dev ;;
-        "${HOME:-/nonexistent}"/.claude/*) tc=claude ;;
+        *"$PH"* | *'$'* | *'`'* | */../* | */.. | ../* | ..) tc=tree; return ;;
+        /dev/null | /dev/stdout | /dev/stderr | /dev/tty | /dev/fd/*) tc=dev; return ;;
+      esac
+      if is_claude_data "$1"; then
+        tc=claude; return
+      fi
+      case "$1" in
         /tmp | /tmp/* | /private/tmp | /private/tmp/* | /var/folders | /var/folders/* \
           | "${tmp_real:-/nonexistent}" | "${tmp_real:-/nonexistent}"/*) tc=temp ;;
         *) tc=tree ;;
@@ -459,6 +509,7 @@ case "$tool" in
       resolve_target "$1"
       target_class "$rt"
       case "$tc" in dev | claude) return 0 ;; esac
+      case "$rt" in "${HOME:-/nonexistent}"/.claude/*) refuse_claude_config "$bash_cmd" ;; esac
       if [ -z "${2:-}" ] && is_code "$rt"; then refuse_code_write "$bash_cmd"; fi
       [ "$tc" = temp ] && return 0
       refuse_write "$bash_cmd"

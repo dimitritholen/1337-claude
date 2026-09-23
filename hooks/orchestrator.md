@@ -43,8 +43,11 @@ reliably.
   `tasqx` and `ripwire`. Anything else (`cp`, `rm`, `patch`, `git apply`, `curl`,
   any inline interpreter script) is a `1337:builder` or `1337:checker` dispatch;
   `CLAUDE_1337_BASH_ALLOW="make cargo"` adds first words. Redirects and `tee` may
-  write only under ~/.claude and temp directories, and scripts (`.py`, `.sh`,
-  `.js` and the like) are refused even there; only data files may be written. The
+  write only under the ~/.claude data allowlist (`~/.claude/projects`,
+  `~/.claude/todos`, `~/.claude/.1337-*` state) and temp directories — config,
+  hooks, agents, skills, commands and the installed plugin under
+  `~/.claude/plugins` stay off-limits — and scripts (`.py`, `.sh`, `.js` and
+  the like) are refused even there; only data files may be written. The
   guard counts these small edits and refuses past 3 per session
   (`CLAUDE_1337_EDIT_CAP`). ripwire's symbol edit
   (`--replace-symbol-body`/`--insert-before-symbol`/`--insert-after-symbol`

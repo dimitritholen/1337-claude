@@ -172,8 +172,11 @@ work when the plugin is installed and used in any folder, not only this one.
   the plugin's own scripts, the test runners, `claude`, `tasqx`, `ripwire`;
   `CLAUDE_1337_BASH_ALLOW` adds words). A small shell lexer in the hook
   splits the command, keeps quoted text and heredoc bodies as data, and
-  judges every redirect/`tee` target: only ~/.claude and temp dirs, with
-  code files refused even under temp dirs (Write too). jq missing refuses.
+  judges every redirect/`tee` target: only the ~/.claude data allowlist
+  (`~/.claude/projects`, `~/.claude/todos`, `~/.claude/.1337-*` state — config,
+  hooks, agents, skills, commands and the installed plugin under
+  `~/.claude/plugins` stay off-limits) and temp dirs, with code files refused
+  even under temp dirs (Write too). jq missing refuses.
   It also refuses Bash that dumps a file's contents
   (`cat`, `head`, `sed -n`, a pathless `rg` or `grep -r`, `cp`/`mv` out of
   the tree, an inline interpreter opening a file, and, inside the git

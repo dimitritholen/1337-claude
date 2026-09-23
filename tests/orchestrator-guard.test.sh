@@ -36,6 +36,27 @@ check 0 "write under ~/.claude" \
 check 0 "write in temp scratchpad" \
   '{"tool_name":"Write","tool_input":{"file_path":"/private/tmp/claude-501/x/scratchpad/f.txt","content":"x"}}'
 
+# ~/.claude is not all scratch: config, the installed plugin's hooks/skills
+# and other non-data paths under it are off-limits (#695).
+check 2 "write to ~/.claude/settings.json is refused" \
+  "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/settings.json\",\"content\":\"x\"}}"
+check 2 "edit under the installed plugin's cache is refused" \
+  "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$HOME/.claude/plugins/cache/x/hooks/a.sh\",\"old_string\":\"a\",\"new_string\":\"b\"}}"
+check 2 "bash redirect to ~/.claude/settings.local.json is refused" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo x > $HOME/.claude/settings.local.json\"}}"
+check 2 "mkdir under the installed plugin is refused" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"mkdir -p $HOME/.claude/plugins/evil\"}}"
+check 2 "tee to ~/.claude/CLAUDE.md is refused" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"tee $HOME/.claude/CLAUDE.md\"}}"
+check 2 "a .. step out of the data allowlist into plugins is still refused" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo x > $HOME/.claude/projects/../plugins/x\"}}"
+check 0 "write to ~/.claude/projects memory stays allowed" \
+  "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/projects/-home-x/memory/a.md\",\"content\":\"x\"}}"
+check 0 "bash redirect into a temp claude-* scratch dir stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo x > /tmp/claude-1000/s/msg.txt"}}'
+check 0 "bash redirect to a ~/.claude/.1337-* state file stays allowed" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo on > $HOME/.claude/.1337-terse\"}}"
+
 # Bash writes are refused in the main session, reads are not.
 check 2 "bash redirect to a file in main session" \
   '{"tool_name":"Bash","tool_input":{"command":"printf \"a\\nb\\n\" > /repo/big.txt"}}'
@@ -216,7 +237,7 @@ printf '%s' "$fourth_err" | grep -q "1337:builder" \
   && echo "ok   edit cap: stderr points at 1337:builder" || { echo "FAIL edit cap: stderr missing 1337:builder ($fourth_err)"; fail=1; }
 
 check 0 "edit cap: exempt path not counted after cap" \
-  "{\"session_id\":\"ecap-$$-a\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/x\",\"content\":\"x\"}}"
+  "{\"session_id\":\"ecap-$$-a\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/projects/p/x\",\"content\":\"x\"}}"
 
 check 2 "edit cap: large edit in fresh session does not count" \
   "{\"session_id\":\"ecap-$$-b\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"old_string\":\"a\",\"new_string\":$bigjson}}"
