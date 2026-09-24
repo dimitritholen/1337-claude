@@ -16,7 +16,9 @@ trap 'rm -rf "$work"; [ -n "${server_pid:-}" ] && kill "$server_pid" 2>/dev/null
 # demand. "delayed" sleeps ~6s, "slow" sleeps 20s (past any reasonable timeout),
 # "bad-tier" answers with a tier outside TIERS, "no-confidence" omits confidence,
 # "not-dict" answers a step with something other than an object, "cased tier"
-# answers with padding and mixed case that must still parse.
+# answers with padding and mixed case that must still parse, "bad-confidence"
+# answers with a non-numeric confidence, "no-model" omits "model" from the
+# response entirely.
 python3 - "$work" <<'EOF' &
 import json, sys, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -32,6 +34,7 @@ class Handler(BaseHTTPRequestHandler):
         open(f"{work}/last-request.json", "w").write(json.dumps(body))
         open(f"{work}/last-path.txt", "w").write(self.path)
         answers = {}
+        no_model = False
         for key in body["questions"]:
             t = body["state"]["steps"][key]["title"].lower()
             if "boom" in t:
@@ -60,6 +63,15 @@ class Handler(BaseHTTPRequestHandler):
                 answers[key] = {"type": "choice", "choice": " Sonnet ",
                                 "confidence": 0.9, "probabilities": {"sonnet": 0.9}}
                 continue
+            if "bad-confidence" in t:
+                answers[key] = {"type": "choice", "choice": "sonnet",
+                                "confidence": "high", "probabilities": {"sonnet": 0.9}}
+                continue
+            if "no-model" in t:
+                no_model = True
+                answers[key] = {"type": "choice", "choice": "sonnet",
+                                "confidence": 0.9, "probabilities": {"sonnet": 0.9}}
+                continue
             if "unsure" in t:
                 tier, confidence = "haiku", 0.3
             elif "concurrency" in t:
@@ -74,8 +86,10 @@ class Handler(BaseHTTPRequestHandler):
             probs[tier] = confidence
             answers[key] = {"type": "choice", "choice": tier,
                             "confidence": confidence, "probabilities": probs}
-        out = json.dumps({"model": "jev-stand-in", "answers": answers,
-                          "usage": {"input_tokens": 1, "output_tokens": 1}}).encode()
+        payload = {"answers": answers, "usage": {"input_tokens": 1, "output_tokens": 1}}
+        if not no_model:
+            payload["model"] = "jev-stand-in"
+        out = json.dumps(payload).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(out)))
@@ -159,6 +173,9 @@ check_eq "task in state" "$(jq -r '.state.task' "$work/last-request.json")" "Add
 check_eq "brief in state" "$(jq -r '.state.steps.step_2.brief' "$work/last-request.json")" "todo.py: lock around save()"
 check_eq "question names its step" "$(jq -r '.questions.step_1.instructions' "$work/last-request.json" | grep -c 'steps.step_1')" "1"
 check_eq "three tiers offered" "$(jq -c '.questions.step_0.criteria | keys' "$work/last-request.json")" '["haiku","opus","sonnet"]'
+check_eq "contrastive criteria: what/not_for/examples per tier" \
+  "$(jq -c '.questions.step_0.criteria.haiku | keys | sort' "$work/last-request.json")" '["examples","not_for","what"]'
+check_eq "default floor is 0.6" "$(printf '%s' "$out" | jq -r '.floor')" "0.6"
 check_marker_prefix "marker starts at column 0 with exact prefix"
 check_marker_json "marker JSON parses"
 check_eq "marker tiers match main output" "$(printf '%s' "$marker" | sed 's/^1337-tier-route: //' | jq -c '[.steps[].tier]')" '["haiku","sonnet","opus"]'
@@ -180,6 +197,40 @@ check_eq "marker reflects escalation" "$(printf '%s' "$marker" | sed 's/^1337-ti
 
 CLAUDE_1337_TIER_FLOOR=0.2 run "$unsure"
 check_eq "lower floor: no escalation" "$(printf '%s' "$out" | jq -c '[.steps[].tier, .floor]')" '["haiku","opus",0.2]'
+
+# previous_attempt is forwarded into state exactly as given, per-step.
+withprev='{"task":"t","steps":[{"id":1,"title":"Endpoint retry","previous_attempt":{"tier":"sonnet","outcome":"checker FAIL: missed an edge case"}}]}'
+run "$withprev"
+check_code "previous_attempt: routed" "$code" 0
+check_eq "previous_attempt reaches state" \
+  "$(jq -r '.state.steps.step_0.previous_attempt.outcome' "$work/last-request.json")" "checker FAIL: missed an edge case"
+check_eq "previous_attempt tier reaches state" \
+  "$(jq -r '.state.steps.step_0.previous_attempt.tier' "$work/last-request.json")" "sonnet"
+
+noprev='{"task":"t","steps":[{"id":1,"title":"Rename helper"}]}'
+run "$noprev"
+check_eq "no previous_attempt: absent from state" \
+  "$(jq -r 'has("previous_attempt")' <<< "$(jq -c '.state.steps.step_0' "$work/last-request.json")")" "false"
+
+badprev='{"task":"t","steps":[{"id":1,"title":"Endpoint retry","previous_attempt":{"tier":"medium","outcome":"x"}}]}'
+run "$badprev"
+check_code "previous_attempt.tier outside TIERS: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (bad previous_attempt tier)" 2
+
+badprevshape='{"task":"t","steps":[{"id":1,"title":"Endpoint retry","previous_attempt":"oops"}]}'
+run "$badprevshape"
+check_code "previous_attempt not an object: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (previous_attempt not an object)" 2
+
+badconf='{"task":"t","steps":[{"id":1,"title":"Bad-confidence step"}]}'
+run "$badconf"
+check_code "non-numeric confidence: exit 4" "$code" 4
+check_failure_marker "failure marker printed on exit 4 (non-numeric confidence)" 4
+
+nomodel='{"task":"t","steps":[{"id":1,"title":"No-model step"}]}'
+run "$nomodel"
+check_code "missing model in response: exit 4" "$code" 4
+check_failure_marker "failure marker printed on exit 4 (missing model)" 4
 
 run '{"task":"t","steps":[{"title":"Boom"}]}'
 check_code "API 500: exit 4" "$code" 4

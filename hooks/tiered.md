@@ -27,7 +27,9 @@ model, not from your own read of the step.
   once; if it fails again, take over the diagnosis yourself. The guard
   allows that one retry once the step's routed slot is spent — one tier up
   from what it routed, never a bigger jump, never twice, and never for a
-  step routed to Opus.
+  step routed to Opus. If the retry brief goes back through the router
+  instead of a direct dispatch, pass the failed step's `previous_attempt`
+  (its routed tier and a short failure summary) so the router weighs it.
 - Exit 3 means no key: say so in one line, offer `/1337:visual setup` once,
   and size the rest of the session's steps by hand from the Tiers section
   of the tier skill. Exit 4 means the call failed: size this dispatch by

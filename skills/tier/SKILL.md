@@ -15,14 +15,14 @@ escalation must justify itself.
 
 # Tiers
 
-- **Haiku** — mechanical: renames, moves, config edits, CRUD along an
-  existing pattern, boilerplate, lookups, running checks. Most steps are
-  this.
-- **Sonnet** — pattern-following with judgment: new endpoint or component
-  matching existing conventions, straightforward tests, small refactors.
+- **Haiku** — mechanical execution along a path that already exists: renames,
+  moves, config edits, CRUD copied from a sibling, boilerplate, running
+  checks.
+- **Sonnet** — pattern-following with judgment: a new endpoint or component
+  shaped like its neighbours, a straightforward test, a small refactor.
 - **Opus** — reasoning-heavy: new architecture, tricky algorithms,
-  concurrency, security-sensitive paths, a step that failed at a lower tier
-  already.
+  concurrency, security-sensitive paths, or a step that already failed at a
+  lower tier.
 
 Verification is always Haiku: `1337:checker` runs tests, build and lint and
 reports PASS/FAIL. Escalation happens through the retry rule — a failed
@@ -44,11 +44,15 @@ EOF
 
 It prints one JSON object: per step the `tier`, Jev's `confidence` and
 `probabilities`, and `escalated: true` where confidence fell under the floor
-(0.5, or `CLAUDE_1337_TIER_FLOOR`) and the step moved one tier up. Use those
+(0.6, or `CLAUDE_1337_TIER_FLOOR`) and the step moved one tier up. Use those
 tiers in the plan and cite the confidence in the Escalation line. Send only
 titles and briefs, never file contents: the router needs the shape of the
 work, not the code. The API timeout is 20 seconds by default; set
-`CLAUDE_1337_TIER_TIMEOUT` (in seconds, as a float) to override it.
+`CLAUDE_1337_TIER_TIMEOUT` (in seconds, as a float) to override it. A step
+that already failed once at a lower tier can carry
+`"previous_attempt": {"tier": "sonnet", "outcome": "<short failure>"}`
+alongside its title and brief, so the router weighs the failure when
+picking the next tier.
 
 A non-zero exit means no routing happened: 3 is a missing key (offer
 `/1337:visual setup` once, which stores it for good), 4 a failed call, and

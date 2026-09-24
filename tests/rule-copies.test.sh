@@ -112,18 +112,21 @@ else
 fi
 
 # Drift check 3: Every keyword in Tiers section of SKILL.md appears in CRITERIA in route.py
-# Keywords from Haiku: renames, moves, config edits, CRUD, existing pattern, boilerplate, lookups, running checks
-# Keywords from Sonnet: new endpoint, new component, existing conventions, straightforward tests, small refactors
+# route.py's CRITERIA is the contrastive wording tools/tier-eval.py's live eval
+# picked (see CRITERIA's own comment in route.py); these keyword lists are shared
+# by SKILL.md's Tiers section and route.py's CRITERIA, so the two stay one rulebook.
+# Keywords from Haiku: renames, moves, config edits, CRUD, existing pattern, boilerplate, running checks
+# Keywords from Sonnet: new endpoint, new component, shaped like its neighbours, unit tests, small refactor
 # Keywords from Opus: new architecture, tricky algorithms, concurrency, security-sensitive paths
 
-for key in renames moves config CRUD boilerplate lookups; do
+for key in renames moves config CRUD boilerplate checks; do
   if ! grep -q "$key" "$ROOT/skills/tier/route.py"; then
     printf 'FAIL skills/tier/route.py CRITERIA: missing haiku keyword "%s"\n' "$key" >&2
     fail=1
   fi
 done
 
-for key in endpoint component conventions tests refactors; do
+for key in endpoint component neighbours tests refactor; do
   if ! grep -q "$key" "$ROOT/skills/tier/route.py"; then
     printf 'FAIL skills/tier/route.py CRITERIA: missing sonnet keyword "%s"\n' "$key" >&2
     fail=1

@@ -195,10 +195,28 @@ work when the plugin is installed and used in any folder, not only this one.
   itself then). Test: `tests/catalogue.test.sh` (fixture JSON shaped like
   the live lists).
 - `skills/tier/route.py`: python3 script that asks Jev, TypeSafe's decision
-  model, for the model tier per plan step through `lib/jev.py`. Needs a
+  model, for the model tier per plan step through `lib/jev.py`. Its `CRITERIA`
+  (what/not_for/examples per tier) and `instructions()` are the contrastive
+  question design a live eval in `tools/tier-eval.py` picked over the old
+  plain-string criteria (accuracy 0.90 vs. 0.73, under-route 3.3%, stable
+  over 3 runs); both are module-level so the eval harness imports them
+  instead of keeping its own copy. The escalation floor defaults to 0.6
+  (`DEFAULT_FLOOR`), `CLAUDE_1337_TIER_FLOOR` still overrides. A step can
+  carry an optional `previous_attempt: {"tier": ..., "outcome": "..."}`,
+  forwarded into that step's state as-is; a bad `tier` there exits 2. Needs a
   stored OpenRouter or TypeSafe key. The API timeout is 20 seconds by default;
   `CLAUDE_1337_TIER_TIMEOUT` (seconds, float) overrides it. Test:
   `tests/tier-route.test.sh` (stand-in API, no key).
+- `tools/tier-eval.py`: offline eval harness that scores question-design
+  variants for `skills/tier/route.py` against a fixture of known-tier steps
+  before a wording change goes live. `current` imports route.py's own
+  `CRITERIA`/`instructions` (so the eval tracks the real router); `legacy`
+  freezes the router's old plain-string criteria as the baseline; `score`
+  and `atomic` are alternate question shapes (a Score question over three
+  levels, five combined Noul questions). `--dry-run` needs no key; otherwise
+  a stored OpenRouter or TypeSafe key is required. Fixture:
+  `tests/fixtures/tier-steps.jsonl`. Test: `tests/tier-eval.test.sh`
+  (stand-in API, no key).
 - `output-styles/<name>.md`: a pack of voices (`1337:l33t`, `1337:unc`,
   `1337:tremendous`, `1337:silent`, `1337:hippy`, `1337:pimp`, `1337:surfer`,
   `1337:yoda`),

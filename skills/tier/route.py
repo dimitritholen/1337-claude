@@ -5,21 +5,24 @@ decision model, one Choice question per step.
 Input: JSON on stdin (or a file path as the only argument):
 
     {"task": "<the whole task in a line or two>",
-     "steps": [{"id": 1, "title": "...", "brief": "..."}, ...]}
+     "steps": [{"id": 1, "title": "...", "brief": "...",
+                "previous_attempt": {"tier": "sonnet", "outcome": "..."}},
+               ...]}
 
 At most five steps, and ids (when given) must be unique; a step without an
-id falls back to its position.
+id falls back to its position. `previous_attempt` is optional; when given,
+its `tier` must be one of "haiku", "sonnet", "opus".
 
 Output: JSON on stdout, one entry per step in input order:
 
     {"model": "jev-1.12",
-     "floor": 0.5,
+     "floor": 0.6,
      "steps": [{"id": 1, "tier": "sonnet", "confidence": 0.71,
                 "probabilities": {"haiku": 0.2, "sonnet": 0.7, "opus": 0.1},
                 "escalated": false}, ...]}
 
 A step whose confidence falls under the floor is escalated one tier, because
-an uncertain "haiku" is a retry waiting to happen. The floor is 0.5 unless
+an uncertain "haiku" is a retry waiting to happen. The floor is 0.6 unless
 CLAUDE_1337_TIER_FLOOR says otherwise. The API timeout is 20 seconds by default;
 CLAUDE_1337_TIER_TIMEOUT overrides it (in seconds, as a float; unparseable or
 non-positive values fall back to 20).
@@ -38,23 +41,62 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from lib import jev, keys  # noqa: E402
 
 TIERS = ["haiku", "sonnet", "opus"]
+DEFAULT_FLOOR = 0.6
 
-# The same wording as the Tiers section of SKILL.md, so the model and the
-# reader judge steps by one rulebook.
+# The contrastive question design that won the live eval in
+# tools/tier-eval.py (accuracy 0.90, under-route 3.3%, stable over 3 runs,
+# vs. 0.73 for the older plain-string criteria): each tier gets what it is
+# for, what it is explicitly not for, and worked examples, instead of one
+# descriptive sentence. Module-level so tools/tier-eval.py imports it rather
+# than keeping its own copy.
 CRITERIA = {
-    "haiku": (
-        "Mechanical: renames, moves, config edits, CRUD along an existing "
-        "pattern, boilerplate, lookups, running checks."
-    ),
-    "sonnet": (
-        "Pattern-following with judgment: a new endpoint or component "
-        "matching existing conventions, straightforward tests, small refactors."
-    ),
-    "opus": (
-        "Reasoning-heavy: new architecture, tricky algorithms, concurrency, "
-        "security-sensitive paths, or a step that already failed at a lower tier."
-    ),
+    "haiku": {
+        "what": "Mechanical execution along a path that already exists: "
+                "renames, moves, config edits, CRUD copied from a sibling, "
+                "boilerplate, running checks.",
+        "not_for": "A step that introduces a new shape, decision or surface, "
+                   "even a small one.",
+        "examples": [
+            "rename a helper and update its call sites",
+            "add a CLI flag that maps straight to an existing internal option",
+            "bump a pinned dependency version",
+        ],
+    },
+    "sonnet": {
+        "what": "Pattern-following with judgment: a new endpoint or "
+                "component shaped like its neighbours, a straightforward "
+                "test, a small refactor.",
+        "not_for": "Either a step so mechanical it needs no judgment, or "
+                   "one whose hard part is genuinely unclear.",
+        "examples": [
+            "add a new REST endpoint next to three existing ones",
+            "write unit tests for an existing function",
+            "extract a duplicated block into a helper",
+        ],
+    },
+    "opus": {
+        "what": "Reasoning-heavy: new architecture, tricky algorithms, "
+                "concurrency, security-sensitive paths, or a step that "
+                "already failed at a lower tier.",
+        "not_for": "A step whose shape is already decided elsewhere and "
+                   "only needs following.",
+        "examples": [
+            "design the locking strategy for concurrent writers",
+            "add an auth check to a sensitive endpoint",
+            "retry a step that failed as sonnet",
+        ],
+    },
 }
+
+
+def instructions(key):
+    """The Choice instructions for one step's question. Module-level so
+    tools/tier-eval.py's "current" variant imports it rather than keeping
+    its own copy."""
+    return (
+        f"Which model tier fits `steps.{key}` best, as part of `task`? "
+        f"When `steps.{key}.previous_attempt` is present, weigh its outcome."
+    )
 
 
 def fail(code, message):
@@ -87,6 +129,10 @@ def read_input(argv):
     for i, step in enumerate(steps):
         if not isinstance(step, dict) or not step.get("title"):
             fail(2, f'steps[{i}] needs a "title"')
+        previous_attempt = step.get("previous_attempt")
+        if previous_attempt is not None:
+            if not isinstance(previous_attempt, dict) or previous_attempt.get("tier") not in TIERS:
+                fail(2, f'steps[{i}].previous_attempt.tier must be one of {TIERS}')
     seen_ids = set()
     for step in steps:
         step_id = step.get("id")
@@ -113,7 +159,7 @@ def main(argv):
     except keys.UnsafeFile as e:
         fail(3, str(e))
 
-    floor_raw = os.environ.get("CLAUDE_1337_TIER_FLOOR", "0.5")
+    floor_raw = os.environ.get("CLAUDE_1337_TIER_FLOOR", str(DEFAULT_FLOOR))
     try:
         floor = float(floor_raw)
     except ValueError:
@@ -133,27 +179,21 @@ def main(argv):
     # and still see the others: the same rename is haiku in a script and
     # sonnet next to a public API.
     step_keys = [f"step_{i}" for i in range(len(steps))]
-    state = {
-        "task": task,
-        "steps": {
-            key: {"title": step["title"], "brief": step.get("brief", "")}
-            for key, step in zip(step_keys, steps)
-        },
-    }
-    questions = {
-        key: jev.choice(
-            f"Which is the cheapest model tier that can build `steps.{key}` "
-            "reliably in one go, as part of `task`? Cheap is the default; "
-            "a higher tier must be earned by the hard part of the step.",
-            CRITERIA,
-        )
-        for key in step_keys
-    }
+    steps_state = {}
+    for key, step in zip(step_keys, steps):
+        entry = {"title": step["title"], "brief": step.get("brief", "")}
+        if step.get("previous_attempt"):
+            entry["previous_attempt"] = step["previous_attempt"]
+        steps_state[key] = entry
+    state = {"task": task, "steps": steps_state}
+    questions = {key: jev.choice(instructions(key), CRITERIA) for key in step_keys}
 
     try:
         response = jev.decide(state, questions, timeout=timeout)
     except jev.JevError as e:
         fail(4, f"Jev call failed: {e}")
+    if not response.get("model"):
+        fail(4, f"Jev response had no model: {response!r}")
 
     routed = []
     for key, step in zip(step_keys, steps):
@@ -172,7 +212,10 @@ def main(argv):
             confidence = None
             escalated = False
         else:
-            confidence = float(raw_confidence)
+            try:
+                confidence = float(raw_confidence)
+            except (TypeError, ValueError):
+                fail(4, f"Jev answered {key} with a non-numeric confidence: {raw_confidence!r}")
             escalated = confidence < floor and tier != TIERS[-1]
         if escalated:
             tier = escalate(tier)
