@@ -198,8 +198,8 @@ work when the plugin is installed and used in any folder, not only this one.
   model, for the model tier per plan step through `lib/jev.py`. Its `CRITERIA`
   (what/not_for/examples per tier) and `instructions()` are the contrastive
   question design a live eval in `tools/tier-eval.py` picked over the old
-  plain-string criteria (accuracy 0.90 vs. 0.73, under-route 3.3%, stable
-  over 3 runs); both are module-level so the eval harness imports them
+  plain-string criteria (accuracy 0.867 vs. 0.667, under-route 6.7% vs. 30%,
+  identical over 2 runs); both are module-level so the eval harness imports them
   instead of keeping its own copy. The escalation floor defaults to 0.6
   (`DEFAULT_FLOOR`), `CLAUDE_1337_TIER_FLOOR` still overrides. A step can
   carry an optional `previous_attempt: {"tier": ..., "outcome": "..."}`,
@@ -217,6 +217,17 @@ work when the plugin is installed and used in any folder, not only this one.
   a stored OpenRouter or TypeSafe key is required. Fixture:
   `tests/fixtures/tier-steps.jsonl`. Test: `tests/tier-eval.test.sh`
   (stand-in API, no key).
+- `tools/tier-outcome-eval.py`: outcome eval for tiered mode. Replays real
+  past commits of this repo (fixture `tests/fixtures/tier-outcome-steps.jsonl`,
+  12 rows, trivial/ordinary/tricky) through a headless `claude -p --safe-mode`
+  builder at haiku, sonnet and opus, each in its own git worktree at the parent
+  commit, and scores each run on the visible tests, the commit's own held-back
+  tests, a ripwire quality delta, a blind Opus review (1-5) and builder/reviewer
+  cost. Reports per tier and per difficulty, and compares `skills/tier/route.py`'s
+  routed tier with the cheapest tier that matched Opus. Raw rows go to
+  `evals/results/tier-outcome/`; `--report <file>` re-prints one. `--dry-run`
+  needs no key and spends nothing; a live run spends real money. Test:
+  `tests/tier-outcome-eval.test.sh` (stand-in `claude`, no key).
 - `output-styles/<name>.md`: a pack of voices (`1337:l33t`, `1337:unc`,
   `1337:tremendous`, `1337:silent`, `1337:hippy`, `1337:pimp`, `1337:surfer`,
   `1337:yoda`),
@@ -276,7 +287,8 @@ work when the plugin is installed and used in any folder, not only this one.
   `CLAUDE_1337_BASH_ALLOW` adds words). A small shell lexer in the hook
   splits the command, keeps quoted text and heredoc bodies as data, and
   judges every redirect/`tee` target: only the ~/.claude data allowlist
-  (`~/.claude/projects`, `~/.claude/todos`, `~/.claude/.1337-*` state — config,
+  (`~/.claude/projects`, `~/.claude/todos`, `~/.claude/plans`, `~/.claude/.1337-*`
+  state — config,
   hooks, agents, skills, commands and the installed plugin under
   `~/.claude/plugins` stay off-limits) and temp dirs, with code files refused
   even under temp dirs (Write too). jq missing refuses.

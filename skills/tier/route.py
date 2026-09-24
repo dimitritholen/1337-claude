@@ -44,8 +44,8 @@ TIERS = ["haiku", "sonnet", "opus"]
 DEFAULT_FLOOR = 0.6
 
 # The contrastive question design that won the live eval in
-# tools/tier-eval.py (accuracy 0.90, under-route 3.3%, stable over 3 runs,
-# vs. 0.73 for the older plain-string criteria): each tier gets what it is
+# tools/tier-eval.py (accuracy 0.867 vs. 0.667, under-route 6.7% vs. 30%,
+# identical over 2 runs): each tier gets what it is
 # for, what it is explicitly not for, and worked examples, instead of one
 # descriptive sentence. Module-level so tools/tier-eval.py imports it rather
 # than keeping its own copy.

@@ -18,10 +18,10 @@ Variants (--variant, repeatable or comma-separated, default all):
             tracks the real router instead of a frozen copy: a Choice
             question with what/not_for/examples criteria per tier, plus
             previous_attempt in state -- this is the contrastive design a
-            live eval run picked (accuracy 0.90, under-route 3.3%, stable
-            over 3 runs, floor 0.6) over the plain-string criteria below.
+            live eval run picked (accuracy 0.867, under-route 6.7%, identical
+            over 2 runs, floor 0.6) over the plain-string criteria below.
   legacy    the router's old plain-string CRITERIA and instructions
-            (accuracy 0.73), frozen here as the baseline current replaced.
+            (accuracy 0.667), frozen here as the baseline current replaced.
   score     a Score question over three ordered situation levels;
             tier = round(score) via --score-cut.
   atomic    five per-step Noul questions, combined in code by a
@@ -157,7 +157,7 @@ def parse_choice_answer(answer):
 # --- variant B: legacy ------------------------------------------------------
 
 # route.py's CRITERIA and instructions before the contrastive rewrite
-# (accuracy 0.73 in the eval that picked "current" over this), frozen here
+# (accuracy 0.667 in the eval that picked "current" over this), frozen here
 # as the baseline: git show HEAD:skills/tier/route.py:44-57,145-147.
 LEGACY_CRITERIA = {
     "haiku": (
