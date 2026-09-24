@@ -42,13 +42,6 @@ for f in hooks/evaluate.md hooks/subagent.md skills/plan/SKILL.md; do
     "never-cut rule"
 done
 
-# The two ways forward out of a refused read: the read-cap hook and the
-# orchestrator guard say it in the same words.
-for f in hooks/read-cap.sh hooks/orchestrator-guard.sh; do
-  need "$f" 'or `ripwire <dir> --for="<what you are after>" --legend=compact` (then `--expand=SYM`' "ripwire route"
-  need "$f" 'dispatch 1337:scout with the question; it reads in its own context.' "scout route"
-done
-
 # The skills express the same never-cut rule in review voice.
 for f in skills/review/SKILL.md skills/audit/SKILL.md; do
   need "$f" "never over-engineering" "never-cut rule"

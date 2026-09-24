@@ -331,8 +331,23 @@ work when the plugin is installed and used in any folder, not only this one.
   global options (`-C`/`-c` with bare or quoted values, `--no-pager`,
   `--git-dir`, `--work-tree` and the like). An option it cannot parse comes
   back as `git_sub` starting with `-`, which `hooks/orchestrator-guard.sh`
-  refuses and `hooks/read-cap.sh` counts as a read. Test:
+  refuses and `hooks/read-cap.sh` counts as a read. `git_is_read WORD...`
+  returns 0 for the git shapes that dump a file (an unparsable option,
+  `show <rev>:<path>`, `cat-file`, `grep`, a `-c alias.*` config), naming
+  which in `git_read_why`; both hooks call it. Test:
   `tests/git-subcommand.test.sh`.
+- `hooks/lib/mode.sh`: sourced helper; `mode_on orchestrator|tiered` is true
+  when any of that mode's three switches is set (the plugin option, the
+  `CLAUDE_1337_*` env var, or the `EVAL_CLAUDE_1337_*` one eval cases use).
+  Sourced by `hooks/orchestrator-guard.sh`, `hooks/review-gate.sh`,
+  `hooks/read-cap.sh`, `hooks/route-guard.sh`, `hooks/tiered-rules.sh` and
+  `hooks/dispatch-nudge.sh` in place of repeating the three-way check.
+- `hooks/lib/read-route.sh`: sourced helper that outputs routing text when a
+  read or Grep/Glob call is refused, telling the user to try `ripwire` for
+  code discovery or dispatch `1337:scout` for other file types (config, prose,
+  etc.). Sourced by both `hooks/orchestrator-guard.sh` (for Bash read refusals)
+  and `hooks/read-cap.sh` (for Read/Grep/Glob cap refusals) to keep the message
+  consistent across both hooks.
 - `hooks/lib/tokenize.sh`: sourced helper, the one Bash lexer both
   `hooks/orchestrator-guard.sh` and `hooks/read-cap.sh` judge a command with.
   `tokenize` reads a command on stdin (portable awk) and prints one `S`

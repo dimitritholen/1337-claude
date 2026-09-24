@@ -73,7 +73,8 @@
 # Exit 2 + stderr refuses; exit 0 allows.
 set -u
 
-[ "${CLAUDE_PLUGIN_OPTION_TIERED:-false}" = "true" ] || [ "${CLAUDE_1337_TIERED:-0}" = "1" ] || [ "${EVAL_CLAUDE_1337_TIERED:-0}" = "1" ] || exit 0
+. "${0%/*}/lib/mode.sh"
+mode_on tiered || exit 0
 
 # `off` (any case) disables this hook entirely.
 guard_lc=$(printf '%s' "${CLAUDE_1337_ROUTE_GUARD:-}" | tr '[:upper:]' '[:lower:]')

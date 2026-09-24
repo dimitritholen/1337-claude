@@ -56,3 +56,38 @@ git_subcommand() {
   done
   return 0
 }
+
+# git_is_read WORD...   the words after `git`, as for git_subcommand.
+# Returns 0 when the command may print a file's contents rather than a diff,
+# with git_read_why naming the shape, checked in this order: `option` (an
+# unparsable global option, see above), `show` (git show <rev>:<path>: a
+# non-option operand after show holding a colon), `cat-file`, `grep`, and
+# `alias` (a -c alias.* config, which can rename any subcommand into a read;
+# an alias cannot shadow a builtin, so `git diff` stays a non-read). Leaves
+# git_sub and git_sub_at set by its git_subcommand call.
+git_is_read() {
+  local arg prev="" alias_cfg=0
+  git_read_why=""
+  git_subcommand "$@"
+  for arg in "${@:1:$git_sub_at}"; do
+    if [ "$prev" = "-c" ]; then
+      case "$arg" in [aA][lL][iI][aA][sS].*) alias_cfg=1 ;; esac
+    fi
+    prev="$arg"
+  done
+  case "$git_sub" in
+    -*) git_read_why=option ;;
+    show)
+      for arg in "${@:$((git_sub_at + 1))}"; do
+        case "$arg" in
+          -*) ;;
+          *:*) git_read_why=show; break ;;
+        esac
+      done
+      ;;
+    cat-file|grep) git_read_why="$git_sub" ;;
+    diff) alias_cfg=0 ;;
+  esac
+  [ -z "$git_read_why" ] && [ "$alias_cfg" = 1 ] && git_read_why=alias
+  [ -n "$git_read_why" ]
+}

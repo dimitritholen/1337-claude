@@ -22,11 +22,13 @@ MAX_LINES=20
 [ "${CLAUDE_1337_DISPATCH_NUDGE:-1}" != "0" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
+. "${0%/*}/lib/mode.sh"
+
 orchestrator_on=0
-[ "${CLAUDE_PLUGIN_OPTION_ORCHESTRATOR:-false}" = "true" ] || [ "${CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] || [ "${EVAL_CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] && orchestrator_on=1
+mode_on orchestrator && orchestrator_on=1
 
 tiered=0
-[ "${CLAUDE_PLUGIN_OPTION_TIERED:-false}" = "true" ] || [ "${CLAUDE_1337_TIERED:-0}" = "1" ] || [ "${EVAL_CLAUDE_1337_TIERED:-0}" = "1" ] && tiered=1
+mode_on tiered && tiered=1
 
 [ "$orchestrator_on" = "1" ] || [ "$tiered" = "1" ] || exit 0
 

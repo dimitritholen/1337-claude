@@ -83,7 +83,8 @@ set -u
 MAX_LINES="${CLAUDE_1337_MAX_LINES:-20}"
 case "$MAX_LINES" in ''|*[!0-9]*) MAX_LINES=20 ;; esac
 
-[ "${CLAUDE_PLUGIN_OPTION_ORCHESTRATOR:-false}" = "true" ] || [ "${CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] || [ "${EVAL_CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] || exit 0
+. "${0%/*}/lib/mode.sh"
+mode_on orchestrator || exit 0
 
 if [ "${1:-}" = "--rules" ]; then
   cat "$(dirname "$0")/orchestrator.md"
@@ -95,7 +96,9 @@ command -v jq >/dev/null 2>&1 || {
   exit 2
 }
 
-PLUGIN_ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)"
+PLUGIN_ROOT="$(CDPATH= cd -- "${0%/*}/.." && pwd -P)"
+. "${0%/*}/lib/read-route.sh"
+
 # Code files are builder work regardless of directory: refused even under the
 # temp-dir exemption. Data files under temp stay allowed. dispatch-nudge.sh
 # carries the same line; tests/dispatch-nudge.test.sh keeps them equal.
@@ -155,20 +158,6 @@ count_edit() { # label recorded in the state file
 }
 
 # The two ways forward out of a refused read, in the same words as
-# hooks/read-cap.sh: ripwire maps code, but says nothing useful about a JSON
-# config, a lockfile, a transcript or a prose doc, so those go to 1337:scout,
-# which reads in its own context. tests/rule-copies.test.sh keeps the copies
-# in the two files aligned.
-read_route() {
-  if command -v ripwire >/dev/null 2>&1; then
-    printf '%s' 'Free instead: `git status`, `git diff --stat`, `ls`, or `ripwire <dir> --for="<what you are after>" --legend=compact` (then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR`).
-For anything else (config, lockfile, transcript, prose), or when the file contents themselves are wanted: dispatch 1337:scout with the question; it reads in its own context.'
-  else
-    printf '%s' 'Free instead: `git status`, `git diff --stat`, `ls`.
-Dispatch 1337:scout with the question; it reads in its own context.'
-  fi
-}
-
 # Both read refusals, the git one and the generic one, say the same thing bar
 # the description of what was caught, and end on that route. Refuses on the
 # spot: there is nothing left for the caller to decide.
@@ -537,38 +526,13 @@ case "$tool" in
     # the bookkeeping subcommands. An alias cannot shadow a builtin, so `git
     # diff` stays allowed even behind a -c alias.* config.
     git_read_check() { # the words after `git` in one segment
-      local git_reader="" git_arg prev="" alias_cfg=0
-      git_subcommand "$@"
-      for git_arg in "${@:1:$git_sub_at}"; do
-        if [ "$prev" = "-c" ]; then
-          case "$(printf '%s' "$git_arg" | tr '[:upper:]' '[:lower:]')" in
-            alias.*) alias_cfg=1 ;;
-          esac
-        fi
-        prev="$git_arg"
-      done
-      case "$git_sub" in
-        show)
-          for git_arg in "${@:$((git_sub_at + 1))}"; do
-            case "$git_arg" in
-              -*) ;;
-              *:*) git_reader='git show <rev>:<path>'; break ;;
-            esac
-          done
-          ;;
-        cat-file) git_reader='git cat-file' ;;
-        grep) git_reader='git grep' ;;
-        diff) alias_cfg=0 ;;
-        -*)
-          refuse_read "may print a file's contents: git global option $git_sub is not one this guard can parse" "$bash_cmd"
-          ;;
+      git_is_read "$@" || return 0
+      case "$git_read_why" in
+        option) refuse_read "may print a file's contents: git global option $git_sub is not one this guard can parse" "$bash_cmd" ;;
+        show) refuse_read "prints a file's contents (not a diff) via git show <rev>:<path>" "$bash_cmd" ;;
+        alias) refuse_read "may print a file's contents: a git -c alias.* config can rename any subcommand" "$bash_cmd" ;;
+        *) refuse_read "prints a file's contents (not a diff) via git $git_read_why" "$bash_cmd" ;;
       esac
-      if [ -n "$git_reader" ]; then
-        refuse_read "prints a file's contents (not a diff) via $git_reader" "$bash_cmd"
-      fi
-      if [ "$alias_cfg" = 1 ]; then
-        refuse_read "may print a file's contents: a git -c alias.* config can rename any subcommand" "$bash_cmd"
-      fi
     }
     git_allowed() { # the words after `git`
       local a prev="" key

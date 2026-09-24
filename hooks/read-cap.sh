@@ -44,12 +44,14 @@
 # eval` cases may only set EVAL_* variables.
 set -u
 
-[ "${CLAUDE_PLUGIN_OPTION_ORCHESTRATOR:-false}" = "true" ] || [ "${CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] || [ "${EVAL_CLAUDE_1337_ORCHESTRATOR:-0}" = "1" ] || exit 0
+. "${0%/*}/lib/mode.sh"
+mode_on orchestrator || exit 0
 
 command -v jq >/dev/null 2>&1 || exit 0
 
-. "$(dirname "$0")/lib/git-subcommand.sh"
-. "$(dirname "$0")/lib/tokenize.sh"
+. "${0%/*}/lib/git-subcommand.sh"
+. "${0%/*}/lib/tokenize.sh"
+. "${0%/*}/lib/read-route.sh"
 
 # A Bash call counts as a read only when it has a segment whose command word
 # is a plain file-reader with a file operand (cat, head, tail, less, more,
@@ -80,7 +82,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 # expansion, so `cat *.rs` is one literal operand, not globbed against this
 # hook's cwd.
 bash_is_read() {
-  local lex rec first nonflag arg skip_next inputs op prev alias_cfg
+  local lex rec first nonflag arg skip_next inputs op
   lex=$(printf '%s\n' "$1" | tokenize) || return 1
   while IFS= read -r rec; do
     case "$rec" in "S$TOK_US"*) ;; *) continue ;; esac
@@ -178,32 +180,15 @@ bash_is_read() {
         # Global options in front (`git -C /repo show ...`) are skipped by
         # hooks/lib/git-subcommand.sh; one it cannot parse (git_sub
         # starting with -) counts as a possible read.
-        git_subcommand "$@"
-        # A -c alias.* config can rename any subcommand into a read; an
-        # alias cannot shadow a builtin, so `git diff` stays uncounted.
-        prev="" alias_cfg=0
-        for arg in "${@:1:$git_sub_at}"; do
-          if [ "$prev" = "-c" ]; then
-            case "$arg" in [aA][lL][iI][aA][sS].*) alias_cfg=1 ;; esac
-          fi
-          prev="$arg"
-        done
-        [ "$alias_cfg" = 1 ] && [ "$git_sub" != diff ] && return 0
-        case "$git_sub" in
-          cat-file|grep|-*) return 0 ;;
-          show)
-            # `git show <rev>` / `--stat` etc is metadata, same as `git
-            # diff`: allowed. Only the rev:path form dumps a file's
-            # contents, so it counts — an operand after `show` containing a
-            # colon.
-            shift "$git_sub_at"
-            for arg in "$@"; do
-              case "$arg" in
-                *:*) return 0 ;;
-              esac
-            done
-            ;;
-        esac
+        git_is_read "$@" && return 0
+        # Stricter than hooks/orchestrator-guard.sh: an option after `show`
+        # holding a colon (`--format=%h:%s`) also counts.
+        if [ "$git_sub" = show ]; then
+          shift "$git_sub_at"
+          for arg in "$@"; do
+            case "$arg" in -*:*) return 0 ;; esac
+          done
+        fi
         ;;
     esac
   done <<<"$lex"
@@ -361,16 +346,7 @@ fi
 
 [ "$count" -le "$cap" ] && exit 0
 
-# Two ways forward: ripwire maps code, but says nothing useful about a JSON
-# config, a lockfile, a transcript or a prose doc — for those, or for wanting
-# a file's literal contents, dispatch 1337:scout instead.
-if command -v ripwire >/dev/null 2>&1; then
-  route='Free instead: `git status`, `git diff --stat`, `ls`, or `ripwire <dir> --for="<what you are after>" --legend=compact` (then `--expand=SYM`, `--callers=SYM`, `--impact=SYM`, `--uses=SYM`, `--grep=STR`).
-For anything else (config, lockfile, transcript, prose), or when the file contents themselves are wanted: dispatch 1337:scout with the question; it reads in its own context.'
-else
-  route='Free instead: `git status`, `git diff --stat`, `ls`.
-Dispatch 1337:scout with the question; it reads in its own context.'
-fi
+route=$(read_route)
 
 if [ "$kind" = "read" ]; then
   printf 'blocked (1337 orchestrator mode): Read #%d this turn (cap %d).\n%s\nCLAUDE_1337_READ_CAP=off disables.\n' "$count" "$cap" "$route" >&2

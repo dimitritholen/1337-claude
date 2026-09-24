@@ -60,4 +60,28 @@ check version 1 "-v is the version subcommand" -v
 check help 1 "--help is the help subcommand" --help show
 check help 1 "-h is the help subcommand" -h
 
+
+# git_is_read: 0 and the shape in git_read_why for a file-content read.
+check_read() { # want-why ("" = not a read) description words...
+  local want="$1" desc="$2" got
+  shift 2
+  if git_is_read "$@"; then got="$git_read_why"; else got=""; fi
+  if [ "$got" = "$want" ]; then
+    printf 'ok   %s\n' "$desc"
+  else
+    printf 'FAIL %s (got why=%s, want why=%s)\n' "$desc" "$got" "$want"
+    fail=1
+  fi
+}
+
+check_read show "show <rev>:<path> is a read" -C /repo show HEAD:a.py
+check_read "" "show <rev> is metadata" show --stat HEAD
+check_read "" "an option holding a colon after show is not a path" show --format=%h:%s HEAD
+check_read cat-file "cat-file is a read" cat-file -p X
+check_read grep "grep is a read" --no-pager grep foo
+check_read option "an unparsable global option is a read" --frobnicate log
+check_read alias "a -c alias.* config is a read" -c ALIAS.x=show log
+check_read "" "diff stays a non-read behind -c alias.*" -c alias.x=show diff
+check_read "" "log is not a read" log --oneline
+
 exit $fail
