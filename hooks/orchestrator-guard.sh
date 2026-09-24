@@ -73,11 +73,14 @@
 # --edit-plan with --dry-run only preflights: neither writes nor counts.
 #
 # With --rules it prints hooks/orchestrator.md instead (SessionStart), under
-# the same on/off condition.
+# the same on/off condition; jq missing at that point only prepends a
+# warning (see jq_off_hint/jq_missing_body below), since --rules needs no jq
+# itself and the session should still get its context.
 #
 # Exit 2 + stderr refuses; exit 0 allows. jq missing in orchestrator mode
-# refuses (the guard cannot read the call, so it fails closed); a payload jq
-# cannot parse passes.
+# refuses every later PreToolUse call with an actionable message (install
+# instructions per OS, how to turn orchestrator mode off) — the guard cannot
+# read the call, so it fails closed; a payload jq cannot parse passes.
 set -u
 
 MAX_LINES="${CLAUDE_1337_MAX_LINES:-20}"
@@ -86,13 +89,39 @@ case "$MAX_LINES" in ''|*[!0-9]*) MAX_LINES=20 ;; esac
 . "${0%/*}/lib/mode.sh"
 mode_on orchestrator || exit 0
 
+# How to turn orchestrator mode off, accurate to lib/mode.sh: the plugin
+# option and the env vars are OR'd together, so once the plugin option is
+# on, CLAUDE_1337_ORCHESTRATOR cannot override it back off — only /plugin can.
+jq_off_hint() {
+  if [ "${CLAUDE_PLUGIN_OPTION_ORCHESTRATOR:-false}" = "true" ]; then
+    echo 'Or turn orchestrator mode off: the plugin option "orchestrator" is on (change it via /plugin) — CLAUDE_1337_ORCHESTRATOR alone cannot override a plugin option that is on.'
+  else
+    echo 'Or turn orchestrator mode off: unset CLAUDE_1337_ORCHESTRATOR (or EVAL_CLAUDE_1337_ORCHESTRATOR, whichever is set).'
+  fi
+}
+
+# Shared body for the SessionStart warning and the hard refusal below;
+# tests/orchestrator-guard.test.sh checks both.
+jq_missing_body() {
+  cat <<'EOF'
+jq is required for 1337 orchestrator mode. Install it:
+  macOS:          brew install jq
+  Debian/Ubuntu:  sudo apt install jq
+  Fedora:         sudo dnf install jq
+EOF
+  jq_off_hint
+}
+
 if [ "${1:-}" = "--rules" ]; then
+  command -v jq >/dev/null 2>&1 || {
+    echo "WARNING (1337 orchestrator mode): $(jq_missing_body | tr '\n' ' ')"
+  }
   cat "$(dirname "$0")/orchestrator.md"
   exit 0
 fi
 
 command -v jq >/dev/null 2>&1 || {
-  echo 'blocked (1337 orchestrator mode): jq is missing from PATH, so the guard cannot read this tool call and refuses it; install jq or turn orchestrator mode off.' >&2
+  echo "blocked (1337 orchestrator mode): jq is missing from PATH, so the guard cannot read this tool call and refuses it. $(jq_missing_body | tr '\n' ' ')" >&2
   exit 2
 }
 
@@ -359,7 +388,7 @@ case "$tool" in
       return 1
     }
     mk_scan="$bash_cmd"
-    mk_re='([A-Za-z_][A-Za-z0-9_]*)=\$\([[:space:]]*mktemp\b([^)]*)\)'
+    mk_re='([A-Za-z_][A-Za-z0-9_]*)=\$\([[:space:]]*mktemp(([^A-Za-z0-9_)][^)]*)?)\)'
     while [[ $mk_scan =~ $mk_re ]]; do
       mk_var="${BASH_REMATCH[1]}"; mk_argstr="${BASH_REMATCH[2]}"
       mk_scan="${mk_scan#*"${BASH_REMATCH[0]}"}"

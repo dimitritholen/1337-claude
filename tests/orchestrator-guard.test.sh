@@ -776,15 +776,33 @@ CLAUDE_1337_SUBAGENT_GIT_GUARD=off check 0 "subagent git checkout -- x allowed w
 # the subagent guard, which never runs for a payload with no agent_id.
 check_err 2 "$allow_err" "main session: git checkout -- x is still refused by the allowlist" "$(bash_payload 'git checkout -- x')"
 
-# No jq: the guard cannot read the call, so it refuses instead of passing.
+# No jq: the guard cannot read the call, so it refuses instead of passing,
+# with an actionable message (what's missing, how to install it, how to
+# turn orchestrator mode off). PATH carries bash and coreutils (cat,
+# dirname, needed by --rules) but not jq.
 nojq_bin="$edit_cap_tmpdir/nojq-bin"
-mkdir -p "$nojq_bin" && ln -s "$(command -v bash)" "$nojq_bin/bash"
+mkdir -p "$nojq_bin"
+for tool in bash cat dirname mkdir ln printf grep tr; do
+  ln -s "$(command -v "$tool")" "$nojq_bin/$tool"
+done
 nojq_err=$(printf '%s' "$(bash_payload 'cat src/lib.rs')" | PATH="$nojq_bin" "$HOOK" 2>&1 >/dev/null)
 nojq_exit=$?
-if [ "$nojq_exit" -eq 2 ] && printf '%s' "$nojq_err" | grep -q 'jq is missing'; then
-  echo "ok   jq missing: refuses with a one-line message"
+if [ "$nojq_exit" -eq 2 ] && printf '%s' "$nojq_err" | grep -q 'jq' && printf '%s' "$nojq_err" | grep -q 'brew install jq'; then
+  echo "ok   jq missing: refuses with an actionable message"
 else
   echo "FAIL jq missing (exit $nojq_exit: $nojq_err)"; fail=1
+fi
+
+# SessionStart (--rules) needs no jq itself, so it still prints the normal
+# orchestrator context, plus a warning up front when jq is missing.
+nojq_rules_out=$(PATH="$nojq_bin" "$HOOK" --rules 2>&1)
+nojq_rules_exit=$?
+if [ "$nojq_rules_exit" -eq 0 ] \
+  && printf '%s' "$nojq_rules_out" | grep -q 'brew install jq' \
+  && printf '%s' "$nojq_rules_out" | grep -q '# Orchestrator mode'; then
+  echo "ok   jq missing: SessionStart still prints context, plus a warning"
+else
+  echo "FAIL jq missing SessionStart (exit $nojq_rules_exit: $nojq_rules_out)"; fail=1
 fi
 
 exit $fail

@@ -57,6 +57,14 @@ Or load it straight from a checkout:
 claude --plugin-dir ~/projects/1337-claude
 ```
 
+## Platforms and Requirements
+
+**Supported:** Linux, macOS, and Windows through WSL. Native Windows is not supported: without Git Bash, Claude Code runs hooks in PowerShell, and with Git Bash the hooks still assume POSIX paths and refuse Windows-style `C:\` paths. Use WSL.
+
+**Required:** bash, jq, git and python3 3.9 or newer. Without jq, orchestrator mode refuses every edit and Bash call.
+
+**Optional:** Google Chrome or Chromium for `/1337:visual` previews and SVG critique. Without a browser, previews fall back to an HTML file.
+
 ## Visual work through OpenRouter
 
 ```mermaid

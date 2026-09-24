@@ -172,8 +172,12 @@ work when the plugin is installed and used in any folder, not only this one.
   self-contained HTML contact sheet showing each file twice, on GitHub dark
   (`#0d1117`) and white (`#ffffff`), with name and dimensions when known
   (`lib/png.py` for PNG, the SVG's `viewBox`), images embedded as data URLs.
-  Renders it through whichever of `google-chrome`, `google-chrome-stable`,
-  `chromium`, `chromium-browser` is first on PATH
+  Renders it through `find_browser()`: `CLAUDE_1337_BROWSER` (an explicit
+  path) when set, else whichever of `google-chrome`, `google-chrome-stable`,
+  `chromium`, `chromium-browser` is first on PATH, else a well-known
+  absolute install location (macOS app bundles under `/Applications` or
+  `~/Applications`, Windows `chrome.exe` under Program Files or Local
+  AppData)
   (`--headless=new --screenshot=... --window-size=... --allow-file-access-from-files
   --hide-scrollbars --default-background-color=00000000`, 30 s timeout) into
   one PNG. Default output a `tempfile.mkdtemp(prefix="1337-preview-")`
@@ -291,7 +295,11 @@ work when the plugin is installed and used in any folder, not only this one.
   state — config,
   hooks, agents, skills, commands and the installed plugin under
   `~/.claude/plugins` stay off-limits) and temp dirs, with code files refused
-  even under temp dirs (Write too). jq missing refuses.
+  even under temp dirs (Write too). jq missing refuses every later
+  Edit/Write/Bash call, with an actionable message (per-OS install command,
+  how to turn orchestrator mode off); a SessionStart run (`--rules`) needs
+  no jq itself, so it still prints `hooks/orchestrator.md`, with that same
+  warning prepended when jq is missing.
   A relative target is resolved against a preceding literal `cd`/`pushd` only
   while every operator since it is `&&` (a failed `cd` after `;` or `||` would
   leave the shell in the repo) (#726).

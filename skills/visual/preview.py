@@ -9,9 +9,12 @@ the file name and, when known, its dimensions (PNG via lib/png.py's
 decode(), SVG via its viewBox). Every file is embedded as a data URL,
 so the HTML needs nothing next to it.
 
-The HTML is then rendered through headless Chrome/Chromium, whichever
-is first on PATH out of google-chrome, google-chrome-stable, chromium,
-chromium-browser:
+The HTML is then rendered through headless Chrome/Chromium, found via
+CLAUDE_1337_BROWSER (an explicit path, checked first) when set, else
+whichever is first on PATH out of google-chrome, google-chrome-stable,
+chromium, chromium-browser, else a well-known absolute install location
+(macOS app bundles under /Applications or ~/Applications, Windows
+Program Files/Local AppData chrome.exe):
 
     <browser> --headless=new --screenshot=<png> --window-size=<w>,<h>
               --allow-file-access-from-files --hide-scrollbars
@@ -43,6 +46,43 @@ from lib import png  # noqa: E402
 
 BROWSERS = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
 BROWSER_TIMEOUT = 30
+
+
+def _fallback_browser_paths():
+    """Well-known absolute browser locations for platforms that don't put
+    Chrome/Chromium on PATH: macOS app bundles, Windows Program Files."""
+    paths = []
+    if sys.platform == "darwin":
+        for root in ("/Applications", os.path.expanduser("~/Applications")):
+            paths.append(os.path.join(root, "Google Chrome.app", "Contents", "MacOS", "Google Chrome"))
+            paths.append(os.path.join(root, "Chromium.app", "Contents", "MacOS", "Chromium"))
+    elif sys.platform == "win32":
+        for var in ("PROGRAMFILES", "PROGRAMFILES(X86)"):
+            root = os.environ.get(var)
+            if root:
+                paths.append(os.path.join(root, "Google", "Chrome", "Application", "chrome.exe"))
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            paths.append(os.path.join(local, "Google", "Chrome", "Application", "chrome.exe"))
+    return paths
+
+
+def find_browser():
+    """Locate a headless-capable Chrome/Chromium: an explicit
+    CLAUDE_1337_BROWSER path first, then BROWSERS on PATH, then well-known
+    absolute install locations (macOS app bundles, Windows Program Files).
+    Returns the executable path, or None."""
+    override = os.environ.get("CLAUDE_1337_BROWSER")
+    if override and os.path.isfile(override) and os.access(override, os.X_OK):
+        return override
+    for name in BROWSERS:
+        found = shutil.which(name)
+        if found:
+            return found
+    for candidate in _fallback_browser_paths():
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
 PANE_SIZE = 320  # max width/height of one embedded image, px
 ROW_HEIGHT = 420  # px reserved per file (both panes plus caption)
 SHEET_WIDTH = 820
@@ -146,12 +186,7 @@ def render(html_path, png_path, width, height):
     actually written, False otherwise (no browser, non-zero exit,
     nothing written) — the caller falls back to the HTML path either
     way, so this never raises for that."""
-    browser = None
-    for name in BROWSERS:
-        found = shutil.which(name)
-        if found:
-            browser = found
-            break
+    browser = find_browser()
     if not browser:
         return False
     command = [

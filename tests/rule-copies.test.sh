@@ -206,5 +206,25 @@ fi
 
 [ "$fail" -eq 0 ] && printf 'ok   plugin.json descriptions mention line limit and allowlist\n'
 
+# Portability lint: bash's =~ uses the system regcomp, and on macOS (BSD libc)
+# the GNU escapes \b \w \s \d \< \> are not special, so a match silently fails.
+# Checks inline =~ literals and the assignments of every variable used as
+# `=~ $name`. jq regexes (Oniguruma) are not affected and not checked.
+gnu_esc='\\[bwsd<>]'
+lint_fail=0
+for f in "$ROOT"/hooks/*.sh "$ROOT"/hooks/lib/*.sh; do
+  rel="${f#"$ROOT"/}"
+  while IFS= read -r hit; do
+    printf 'FAIL %s: GNU-only regex escape after =~: %s\n' "$rel" "$hit"; lint_fail=1
+  done < <(grep -nE '=~ +[^$ ]' "$f" | grep -E "$gnu_esc")
+  for v in $(grep -oE '=~ +\$\{?[A-Za-z_][A-Za-z0-9_]*' "$f" | sed -E 's/.*\$\{?//' | sort -u); do
+    while IFS= read -r hit; do
+      printf 'FAIL %s: GNU-only regex escape in $%s: %s\n' "$rel" "$v" "$hit"; lint_fail=1
+    done < <(grep -nE "(^|[^A-Za-z0-9_])$v=" "$f" | grep -E "$gnu_esc")
+  done
+done
+[ "$lint_fail" -eq 0 ] && printf 'ok   no GNU-only escapes in =~ regexes under hooks/\n'
+[ "$lint_fail" -eq 0 ] || fail=1
+
 [ "$fail" -eq 0 ] && printf 'ok   all shared rule copies aligned\n'
 exit $fail

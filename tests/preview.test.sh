@@ -78,6 +78,34 @@ check_eq "failing browser: prints the HTML path" "$out" "$work/sheet3.html"
 check_ge1 "failing browser: one stderr note" "$(wc -l < "$work/stderr")"
 [ ! -e "$work/sheet3.png" ] && printf 'ok   failing browser: no PNG written\n' || { printf 'FAIL failing browser wrote a PNG anyway\n'; fail=1; }
 
+# --- CLAUDE_1337_BROWSER override, dir name has a space -----------------------
+mkdir -p "$work/bin with space"
+cat > "$work/bin with space/fake-browser" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$work/override-args"
+for arg in "\$@"; do
+  case "\$arg" in
+    --screenshot=*) printf '%s' "$TINY_PNG_B64" | base64 -d > "\${arg#--screenshot=}" ;;
+  esac
+done
+exit 0
+EOF
+chmod +x "$work/bin with space/fake-browser"
+
+out=$(CLAUDE_1337_BROWSER="$work/bin with space/fake-browser" PATH="$work/bin-empty:$PATH" "$SCRIPT" "$work/one.png" --out "$work/sheet4.png" 2>"$work/stderr")
+code=$?
+check_code "CLAUDE_1337_BROWSER: exit 0" "$code" 0
+check_eq "CLAUDE_1337_BROWSER: prints the PNG path" "$out" "$work/sheet4.png"
+[ -s "$work/sheet4.png" ] && printf 'ok   CLAUDE_1337_BROWSER: PNG was written\n' || { printf 'FAIL CLAUDE_1337_BROWSER: PNG missing\n'; fail=1; }
+[ -s "$work/override-args" ] && printf 'ok   CLAUDE_1337_BROWSER: fake browser (space in path) was actually invoked\n' || { printf 'FAIL CLAUDE_1337_BROWSER: fake browser was not invoked\n'; fail=1; }
+
+# --- CLAUDE_1337_BROWSER pointing at a nonexistent path falls back -------------
+out=$(CLAUDE_1337_BROWSER="$work/no-such-browser" PATH="$work/bin-empty:$py_dir" "$SCRIPT" "$work/one.png" --out "$work/sheet5.png" 2>"$work/stderr")
+code=$?
+check_code "CLAUDE_1337_BROWSER nonexistent: exit 0" "$code" 0
+check_eq "CLAUDE_1337_BROWSER nonexistent: falls back to no-browser HTML" "$out" "$work/sheet5.html"
+[ ! -e "$work/sheet5.png" ] && printf 'ok   CLAUDE_1337_BROWSER nonexistent: no PNG written\n' || { printf 'FAIL CLAUDE_1337_BROWSER nonexistent wrote a PNG anyway\n'; fail=1; }
+
 # --- missing input -------------------------------------------------------------
 out=$(PATH="$work/bin-ok:$PATH" "$SCRIPT" "$work/no-such-file.png" 2>"$work/stderr")
 code=$?
