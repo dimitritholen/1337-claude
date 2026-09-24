@@ -102,6 +102,8 @@ SCORE_KEYS = ["correctness", "design", "maintainability"]
 FINAL_MESSAGE_CAP = 2048
 QUALITY_TEXT_CAP = 4096
 REVIEW_DIFF_CAP = 100_000
+FAIL_LINES_CAP = 40
+RAW_TEXT_CAP = 4096
 
 # Env of the child `claude` runs and their tests: the parent session's own
 # variables out, both env switches of every mode (hooks/lib/mode.sh) off.
@@ -314,24 +316,45 @@ def usage_fields(result, prefix):
 
 def count_lines(text):
     lines = text.splitlines()
-    return (sum(1 for l in lines if l.startswith("ok ")),
-            sum(1 for l in lines if l.startswith("FAIL ")))
+    fails = [l for l in lines if l.startswith("FAIL ")]
+    return (sum(1 for l in lines if l.startswith("ok ")), len(fails),
+            [l[:RAW_TEXT_CAP] for l in fails[:FAIL_LINES_CAP]])
+
+
+def _valid_scores(data):
+    if not isinstance(data, dict):
+        return None
+    scores = {k: data.get(k) for k in SCORE_KEYS}
+    if not all(isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 5 for v in scores.values()):
+        return None
+    notes = data.get("notes")
+    scores["notes"] = notes if isinstance(notes, str) else ""
+    return scores
 
 
 def parse_scores(text):
-    """{correctness, design, maintainability, notes} from a reply, or None."""
+    """{correctness, design, maintainability, notes} from a reply, or None.
+
+    A `}` inside notes breaks a non-greedy regex match, so the whole text is
+    tried first (after stripping code fences), then the substring from the
+    first `{` to the last `}`.
+    """
     if not isinstance(text, str):
         return None
-    for match in re.finditer(r"\{.*?\}", text, re.S):
-        try:
-            data = json.loads(match.group(0))
-        except ValueError:
-            continue
-        scores = {k: data.get(k) for k in SCORE_KEYS}
-        if all(isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 5 for v in scores.values()):
-            notes = data.get("notes")
-            scores["notes"] = notes if isinstance(notes, str) else ""
+    stripped = text.strip()
+    stripped = re.sub(r"^```(?:json)?\s*|\s*```$", "", stripped, flags=re.S)
+    try:
+        scores = _valid_scores(json.loads(stripped))
+        if scores:
             return scores
+    except ValueError:
+        pass
+    start, end = stripped.find("{"), stripped.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return _valid_scores(json.loads(stripped[start:end + 1]))
+        except ValueError:
+            pass
     return None
 
 
@@ -347,8 +370,8 @@ def parse_quality(stdout):
 
 def run_tests(row, wt, env, timeout):
     code, out, err = run(row["test_cmd"], wt, timeout, env=env, shell=True)
-    ok, failed = count_lines(out + "\n" + err)
-    return code, ok, failed
+    ok, failed, fail_lines = count_lines(out + "\n" + err)
+    return code, ok, failed, fail_lines
 
 
 def worktree_diff(row, wt):
@@ -385,23 +408,33 @@ def review_prompt(row, diff, retry):
     return f"{ask}\n\n# Brief\n\n{row['brief'].strip()}\n\n# Diff\n\n```diff\n{diff}```\n"
 
 
-def blind_review(row, diff, args, env, cwd):
-    record = {"review": None, **usage_fields({}, "reviewer")}
+def blind_review(row, diff, args, env):
+    record = {"review": None, "review_attempts": [], **usage_fields({}, "reviewer")}
     tokens = defaultdict(int)
-    for retry in (False, True):
-        _, out, _ = run(reviewer_argv(args.reviewer, args.run_budget), cwd, args.run_timeout,
-                        env=env, stdin=review_prompt(row, diff, retry))
-        result = parse_claude_json(out)
-        fields = usage_fields(result, "reviewer")
-        for key, value in fields.items():  # both attempts count toward spend
-            if value is not None and key != "reviewer_is_error":
-                tokens[key] += value
-        record.update(fields)
-        record.update(tokens)
-        scores = parse_scores(result.get("result"))
-        if scores:
-            record["review"] = scores
-            break
+    review_dir = tempfile.mkdtemp(prefix="1337-outcome-review-")
+    try:
+        for retry in (False, True):
+            code, out, err = run(reviewer_argv(args.reviewer, args.review_budget), review_dir,
+                                 args.run_timeout, env=env, stdin=review_prompt(row, diff, retry))
+            result = parse_claude_json(out)
+            fields = usage_fields(result, "reviewer")
+            record["review_attempts"].append({
+                "exit": code, "is_error": fields.get("reviewer_is_error"),
+                "subtype": result.get("subtype") if isinstance(result.get("subtype"), str) else None,
+                "cost_usd": fields.get("reviewer_cost_usd"), "num_turns": fields.get("reviewer_turns"),
+                "stdout": (out or "")[:RAW_TEXT_CAP], "stderr": (err or "")[:RAW_TEXT_CAP],
+            })
+            for key, value in fields.items():  # both attempts count toward spend
+                if value is not None and key != "reviewer_is_error":
+                    tokens[key] += value
+            record.update(fields)
+            record.update(tokens)
+            scores = parse_scores(result.get("result"))
+            if scores:
+                record["review"] = scores
+                break
+    finally:
+        shutil.rmtree(review_dir, ignore_errors=True)
     return record
 
 
@@ -430,21 +463,22 @@ def run_one(row, tier, routed, args, tmp, env):
                                    if l[:1] in "+-" and not l.startswith(("+++", "---")))
         record.update(quality_delta(wt))
 
-        code, ok, failed = run_tests(row, wt, env, args.run_timeout)
+        code, ok, failed, fail_lines = run_tests(row, wt, env, args.run_timeout)
         record.update({"visible_exit": code, "visible_ok": ok, "visible_fail": failed,
-                       "visible_pass": code == 0 and failed == 0})
+                       "visible_pass": code == 0 and failed == 0, "visible_fail_lines": fail_lines})
 
         code, _, err = git("checkout", row["commit"], "--", *row["hidden_tests"], cwd=wt)
         if code != 0:
             record.update({"hidden_exit": None, "hidden_ok": None, "hidden_fail": None,
-                           "hidden_pass": None, "error": f"hidden checkout: {err.strip()}"})
+                           "hidden_pass": None, "hidden_fail_lines": [],
+                           "error": f"hidden checkout: {err.strip()}"})
         else:
-            code, ok, failed = run_tests(row, wt, env, args.run_timeout)
+            code, ok, failed, fail_lines = run_tests(row, wt, env, args.run_timeout)
             record.update({"hidden_exit": code, "hidden_ok": ok, "hidden_fail": failed,
-                           "hidden_pass": code == 0 and failed == 0})
+                           "hidden_pass": code == 0 and failed == 0, "hidden_fail_lines": fail_lines})
 
         if not args.no_review:
-            record.update(blind_review(row, diff, args, env, tmp))
+            record.update(blind_review(row, diff, args, env))
     except Interrupted:
         record["error"] = "interrupted"
     except Exception as e:  # one broken row x tier must not sink the rest
@@ -641,7 +675,8 @@ def parse_args(argv):
     p.add_argument("--limit", type=int)
     p.add_argument("--only", help="comma-separated row ids")
     p.add_argument("--jobs", type=int, default=1)
-    p.add_argument("--run-budget", type=float, default=2.0, help="USD cap per claude run")
+    p.add_argument("--run-budget", type=float, default=2.0, help="USD cap per builder claude run")
+    p.add_argument("--review-budget", type=float, default=0.25, help="USD cap per reviewer claude run")
     p.add_argument("--run-timeout", type=float, default=900, help="seconds per claude run or test run")
     p.add_argument("--reviewer", default="opus")
     p.add_argument("--out")
@@ -655,8 +690,8 @@ def parse_args(argv):
         p.error(f"--tiers takes a comma-separated subset of {TIERS}")
     if args.jobs < 1 or (args.limit is not None and args.limit < 1):
         p.error("--jobs and --limit must be at least 1")
-    if args.run_budget <= 0 or args.run_timeout <= 0:
-        p.error("--run-budget and --run-timeout must be positive")
+    if args.run_budget <= 0 or args.review_budget <= 0 or args.run_timeout <= 0:
+        p.error("--run-budget, --review-budget and --run-timeout must be positive")
     return args
 
 
@@ -682,7 +717,7 @@ def dry_run(rows, args):
                 "worktree": wt,
                 "builder_argv": builder_argv(builder_prompt(row), tier, args.run_budget,
                                              f"<contents of {wt}/CLAUDE.md, when present>"),
-                "reviewer_argv": None if args.no_review else reviewer_argv(args.reviewer, args.run_budget),
+                "reviewer_argv": None if args.no_review else reviewer_argv(args.reviewer, args.review_budget),
                 "env": overrides,
             }))
     if not args.no_route:

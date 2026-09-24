@@ -20,6 +20,14 @@ fail=0
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+# A private TMPDIR for every harness invocation below: the "no leftover
+# worktree/temp dir" checks at the end must not be fooled by (or fail
+# because of) an unrelated live run elsewhere on the machine sharing the
+# system temp dir. tempfile.mkdtemp in the harness honours $TMPDIR with no
+# dir= override, so this alone redirects its 1337-outcome-* dirs here.
+export TMPDIR="$work/tmp"
+mkdir -p "$TMPDIR"
+
 check_code() { # description got want
   if [ "$2" -eq "$3" ]; then printf 'ok   %s\n' "$1"; else printf 'FAIL %s (exit %s, want %s): %s\n' "$1" "$2" "$3" "$(cat "$work/stderr" 2>/dev/null)"; fail=1; fi
 }
@@ -58,6 +66,9 @@ for t in haiku sonnet opus; do
   check_eq "dry-run: mentions --model for $t" \
     "$([ "$(printf '%s' "$dry_out" | grep -c "\"$t\"")" -ge 1 ] && echo yes || echo no)" "yes"
 done
+
+check_eq "dry-run: reviewer_argv carries the review budget (default 0.25)" \
+  "$([ "$(printf '%s' "$dry_out" | grep -c -- '"--max-budget-usd", "0.25"')" -ge 1 ] && echo yes || echo no)" "yes"
 
 # --- 2: missing fixture / bad sha -------------------------------------------
 
@@ -142,6 +153,16 @@ check_eq "haiku: builder_timeout true" \
 check_eq "haiku: builder_cost_usd is null" \
   "$(jq -r 'select(.tier=="haiku") | .builder_cost_usd' "$raw")" "null"
 
+check_eq "haiku: hidden_fail_lines is non-empty for the failing tier" \
+  "$([ "$(jq -r 'select(.tier=="haiku") | .hidden_fail_lines | length' "$raw")" -gt 0 ] && echo yes || echo no)" "yes"
+check_eq "haiku: every hidden_fail_lines entry starts with FAIL " \
+  "$(jq -r 'select(.tier=="haiku") | .hidden_fail_lines[] | startswith("FAIL ")' "$raw" | grep -c false)" "0"
+
+check_eq "sonnet: review_attempts has at least one entry" \
+  "$([ "$(jq -r 'select(.tier=="sonnet") | .review_attempts | length' "$raw")" -ge 1 ] && echo yes || echo no)" "yes"
+check_eq "sonnet: review_attempts[0] carries exit/cost_usd/num_turns/stdout" \
+  "$(jq -r 'select(.tier=="sonnet") | .review_attempts[0] | (.exit != null and .cost_usd != null and .num_turns != null and (.stdout | length) > 0)' "$raw")" "true"
+
 # --- 5: report text --------------------------------------------------------
 
 check_eq "report: err/timeout count is 1 for haiku" \
@@ -156,10 +177,41 @@ check_code "--report: exits 0" "$?" 0
 check_eq "--report: re-prints the total \$ line" \
   "$(printf '%s\n' "$report_out" | grep -c '^total \$:')" "1"
 
-# --- 7: no worktree or temp-dir leftovers -----------------------------------
+# --- parse_scores: a `}` inside notes must not break the non-greedy match --
 
-check_eq "no leftover git worktrees" "$(git -C "$ROOT" worktree list | wc -l | tr -d ' ')" "1"
-leftover=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name '1337-outcome-*' 2>/dev/null | wc -l | tr -d ' ')
-check_eq "no leftover 1337-outcome-* temp dirs" "$leftover" "0"
+parse_out=$(python3 - "$SCRIPT" <<'EOF_PY'
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("tier_outcome_eval", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+text = '{"correctness": 4, "design": 3, "maintainability": 5, "notes": "ok (see {x}) fine"}'
+scores = mod.parse_scores(text)
+assert scores == {"correctness": 4, "design": 3, "maintainability": 5, "notes": "ok (see {x}) fine"}, scores
+
+fenced = "```json\n" + text + "\n```"
+assert mod.parse_scores(fenced) == scores
+
+prefixed = 'here you go: ' + text
+assert mod.parse_scores(prefixed) == scores
+
+assert mod.parse_scores("not json") is None
+assert mod.parse_scores(None) is None
+print("ok")
+EOF_PY
+)
+check_eq "parse_scores: '}' inside notes, fenced and prefixed replies all parse" "$parse_out" "ok"
+
+# --- 7: no worktree or temp-dir leftovers -----------------------------------
+# Scoped to this run's own private TMPDIR (see above), not the whole
+# machine: a live run elsewhere must not make these checks flaky.
+
+leftover_wt=$(git -C "$ROOT" worktree list --porcelain | awk -v t="$TMPDIR" \
+  '$1=="worktree" && index($2, t)==1 {n++} END{print n+0}')
+check_eq "no leftover git worktrees under this run's TMPDIR" "$leftover_wt" "0"
+leftover=$(find "$TMPDIR" -maxdepth 1 -name '1337-outcome-*' 2>/dev/null | wc -l | tr -d ' ')
+check_eq "no leftover 1337-outcome-* temp dirs under this run's TMPDIR" "$leftover" "0"
 
 exit $fail
