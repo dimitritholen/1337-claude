@@ -83,5 +83,13 @@ check_read option "an unparsable global option is a read" --frobnicate log
 check_read alias "a -c alias.* config is a read" -c ALIAS.x=show log
 check_read "" "diff stays a non-read behind -c alias.*" -c alias.x=show diff
 check_read "" "log is not a read" log --oneline
+check_read no-index "diff --no-index /dev/null f is a read" diff --no-index /dev/null f
+check_read no-index "-C x diff --no-index a b is a read" -C x diff --no-index a b
+check_read no-index "--no-index after other diff options is a read" diff --stat -U3 --no-index a b
+check_read no-index "diff of two paths, one outside the repo, is an implicit --no-index" diff /dev/null f
+check_read "" "diff --stat is not a read" diff --stat
+check_read "" "diff HEAD -- f is not a read" diff HEAD -- f
+check_read "" "diff --cached is not a read" diff --cached
+check_read "" "diff of two revisions is not a read" diff HEAD~1 HEAD
 
 exit $fail

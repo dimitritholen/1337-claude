@@ -523,16 +523,17 @@ case "$tool" in
     }
 
     # git is split in two: git_read_check refuses the subcommands that dump a
-    # file (show <rev>:<path>, cat-file, grep, an unparsable global option or
+    # file (show <rev>:<path>, cat-file, grep, diff --no-index, an unparsable global option or
     # a -c alias.* that can rename one of them); git_allowed then admits only
     # the bookkeeping subcommands. An alias cannot shadow a builtin, so `git
-    # diff` stays allowed even behind a -c alias.* config.
+    # diff` (short of --no-index) stays allowed even behind a -c alias.* config.
     git_read_check() { # the words after `git` in one segment
       git_is_read "$@" || return 0
       case "$git_read_why" in
         option) refuse_read "may print a file's contents: git global option $git_sub is not one this guard can parse" "$bash_cmd" ;;
         show) refuse_read "prints a file's contents (not a diff) via git show <rev>:<path>" "$bash_cmd" ;;
         alias) refuse_read "may print a file's contents: a git -c alias.* config can rename any subcommand" "$bash_cmd" ;;
+        no-index) refuse_read "prints arbitrary files' contents: git diff --no-index (or two paths, one outside the repo) compares any two paths" "$bash_cmd" ;;
         *) refuse_read "prints a file's contents (not a diff) via git $git_read_why" "$bash_cmd" ;;
       esac
     }

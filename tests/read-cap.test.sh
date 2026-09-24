@@ -362,6 +362,10 @@ CLAUDE_1337_READ_CAP=1 check_grep 2 'Read #2' "git -c alias.* fills the cap, nex
 # An alias cannot shadow a builtin: git diff behind one never counts.
 CLAUDE_1337_READ_CAP=1 check 0 "git -c alias.d=log diff HEAD (1st) allowed" "$(bashcall "$sid" p36m 'git -c alias.d=log diff HEAD')"
 CLAUDE_1337_READ_CAP=1 check 0 "git -c alias.d=log diff HEAD (2nd) allowed" "$(bashcall "$sid" p36m 'git -c alias.d=log diff HEAD')"
+# git diff --no-index compares any two paths, so it counts as a read; plain
+# git diff does not.
+CLAUDE_1337_READ_CAP=0 check_grep 2 'Read #1' "git diff --no-index /dev/null tools/x.py refused at cap 0" "$(bashcall "$sid" p36n 'git diff --no-index /dev/null tools/x.py')"
+CLAUDE_1337_READ_CAP=0 check 0 "plain git diff not a read at cap 0" "$(bashcall "$sid" p36o 'git diff')"
 
 # mcp__codebase-memory-mcp__search_graph counts as a read.
 CLAUDE_1337_READ_CAP=1 check 0 "mcp search_graph: first call in p37 allowed" "$(mcpcall_named "$sid" p37 mcp__codebase-memory-mcp__search_graph)"

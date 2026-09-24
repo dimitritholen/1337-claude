@@ -21,8 +21,9 @@ reliably.
   allows that many; `off`, not `0`, disables the cap). Bash that dumps file
   contents (`cat`, `head`, `sed -n`, a pathless `rg`/`grep -r`, `cp`/`mv` out
   of the tree, an inline interpreter opening a file, `git show
-  <rev>:<path>`, `git cat-file`, `git grep`) is refused the same way; every
-  `git diff` form stays allowed. Independent questions go to parallel
+  <rev>:<path>`, `git cat-file`, `git grep`, `git diff --no-index`) is
+  refused the same way; every `git diff` form except `--no-index` stays
+  allowed. Independent questions go to parallel
   scouts in one message.
 - Implement through `1337:builder`, choosing the model on each call:
   - `haiku`: trivial and fully specified (rename, one-spot fix, config value).

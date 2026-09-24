@@ -346,6 +346,14 @@ check 0 "bash git diff with revision and path stays allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"git diff HEAD~1 -- src/lib.rs"}}'
 check 0 "bash git diff --stat stays allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"git diff --stat"}}'
+check 0 "bash git diff HEAD stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git diff HEAD"}}'
+check 2 "bash git diff --no-index dumps an arbitrary file" \
+  '{"tool_name":"Bash","tool_input":{"command":"git diff --no-index /dev/null tools/x.py"}}'
+check 2 "bash git -C . diff --stat --no-index is refused too" \
+  '{"tool_name":"Bash","tool_input":{"command":"git -C . diff --stat --no-index a b"}}'
+check 2 "bash git diff /dev/null <file> (implicit --no-index) dumps a file" \
+  '{"tool_name":"Bash","tool_input":{"command":"git diff /dev/null tools/x.py"}}'
 check 0 "bash git show HEAD (no colon operand) stays allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"git show HEAD"}}'
 check 0 "bash git show --stat HEAD stays allowed" \

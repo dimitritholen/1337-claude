@@ -299,7 +299,8 @@ work when the plugin is installed and used in any folder, not only this one.
   (`cat`, `head`, `sed -n`, a pathless `rg` or `grep -r`, `cp`/`mv` out of
   the tree, an inline interpreter opening a file, and, inside the git
   allowlist, `git show <rev>:<path>`, `git cat-file`, `git grep` or a
-  `-c alias.*` config; every `git diff` form stays allowed), in every
+  `-c alias.*` config; every `git diff` form except `--no-index` stays
+  allowed), in every
   segment and behind `command`/`builtin`/`exec`/`env`, the same way `hooks/read-cap.sh` refuses
   Read/Grep/Glob. Small allowed edits are capped at 3 per session
   (`CLAUDE_1337_EDIT_CAP`), a budget ripwire's own symbol edit (the one
@@ -363,7 +364,9 @@ work when the plugin is installed and used in any folder, not only this one.
   back as `git_sub` starting with `-`, which `hooks/orchestrator-guard.sh`
   refuses and `hooks/read-cap.sh` counts as a read. `git_is_read WORD...`
   returns 0 for the git shapes that dump a file (an unparsable option,
-  `show <rev>:<path>`, `cat-file`, `grep`, a `-c alias.*` config), naming
+  `show <rev>:<path>`, `cat-file`, `grep`, `diff --no-index` or a `git
+  diff` of exactly two paths one of which is absolute or climbs out through
+  `..` (git turns that into `--no-index` itself), a `-c alias.*` config), naming
   which in `git_read_why`; both hooks call it. Test:
   `tests/git-subcommand.test.sh`.
 - `hooks/lib/mode.sh`: sourced helper; `mode_on orchestrator|tiered` is true

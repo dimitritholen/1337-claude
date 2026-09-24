@@ -61,10 +61,23 @@ git_subcommand() {
 # Returns 0 when the command may print a file's contents rather than a diff,
 # with git_read_why naming the shape, checked in this order: `option` (an
 # unparsable global option, see above), `show` (git show <rev>:<path>: a
-# non-option operand after show holding a colon), `cat-file`, `grep`, and
-# `alias` (a -c alias.* config, which can rename any subcommand into a read;
-# an alias cannot shadow a builtin, so `git diff` stays a non-read). Leaves
-# git_sub and git_sub_at set by its git_subcommand call.
+# non-option operand after show holding a colon), `cat-file`, `grep`,
+# `no-index` (git diff comparing arbitrary paths, see below), and `alias` (a
+# -c alias.* config, which can rename any subcommand into a read; an alias
+# cannot shadow a builtin, so `git diff` stays a non-read). Leaves git_sub
+# and git_sub_at set by its git_subcommand call.
+#
+# git diff --no-index compares two arbitrary paths, so `git diff --no-index
+# /dev/null f` prints all of f, tracked or not. Every --no-index form counts,
+# including --stat/--numstat that only print a summary: telling the summary
+# options apart from the ones that still print content (-p after --stat,
+# --patch-with-stat, ...) is more parser than it is worth, and a summary of
+# an arbitrary file is not the kind of repo metadata git diff is allowed for.
+# git also turns a plain `git diff a b` into --no-index on its own when one of
+# exactly two paths lies outside the repository (`git diff /dev/null f`), so
+# two operands with no `--`, one of them absolute or climbing out through
+# `..`, count the same way; that can also catch a two-path diff inside the
+# repo written with absolute paths, which is rare and errs on the safe side.
 git_is_read() {
   local arg prev="" alias_cfg=0
   git_read_why=""
@@ -86,7 +99,25 @@ git_is_read() {
       done
       ;;
     cat-file|grep) git_read_why="$git_sub" ;;
-    diff) alias_cfg=0 ;;
+    diff)
+      alias_cfg=0
+      local ops=() dashdash=0
+      for arg in "${@:$((git_sub_at + 1))}"; do
+        case "$arg" in
+          --no-index) git_read_why=no-index; break ;;
+          --) dashdash=1 ;;
+          -*) ;;
+          *) [ "$dashdash" = 0 ] && ops+=("$arg") ;;
+        esac
+      done
+      if [ -z "$git_read_why" ] && [ "$dashdash" = 0 ] && [ "${#ops[@]}" -eq 2 ]; then
+        for arg in "${ops[@]}"; do
+          case "$arg" in
+            /* | .. | ../* | */../* | */..) git_read_why=no-index; break ;;
+          esac
+        done
+      fi
+      ;;
   esac
   [ -z "$git_read_why" ] && [ "$alias_cfg" = 1 ] && git_read_why=alias
   [ -n "$git_read_why" ]

@@ -66,7 +66,8 @@ command -v jq >/dev/null 2>&1 || exit 0
 # second non-flag operand past the filter, same as sed/grep/awk), or `git
 # cat-file`/`git grep`/`git show <rev>:<path>` (a `git show` operand
 # containing a colon; plain `git show HEAD` or `--stat` is metadata, same
-# as `git diff`, and does not count), also behind git global options; git
+# as `git diff`, and does not count) or `git diff --no-index` (any two
+# paths, so any file), also behind git global options; git
 # behind a global option it cannot parse, or behind a `-c alias.*` config,
 # counts too. An input redirect (`< file`) counts as one operand. Any
 # other Bash command passes uncounted.
