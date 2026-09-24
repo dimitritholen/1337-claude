@@ -32,6 +32,11 @@ Lazy about the solution, never about reading: rung 2 is unreachable without
 searching the repo first. Grep for existing helpers, similar components, and
 config before claiming something is a rewrite.
 
+A cut merging near-duplicates into a shared helper saves only net lines: the
+duplicates removed, minus the helper's body, comment, and the extra source/import
+line at every call site. When that net is zero or negative, list it under Shrink
+as "single definition" and leave it out of the Verdict's line count.
+
 # Never flag
 
 Validation, error handling, security checks, data-loss guards, accessibility,

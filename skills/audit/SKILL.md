@@ -36,6 +36,11 @@ For every candidate, read the callers before judging. Over-engineering in
 code with two callers and one use site is a quick win; the same shape under
 a public API is a decision, and goes to Ask.
 
+A cut merging near-duplicates into a shared helper saves only net lines: the
+duplicates removed, minus the helper's body, comment, and the extra source/import
+line at every call site. When that net is zero or negative, list it under
+Simplify as "single definition" and leave it out of the Verdict's line count.
+
 # Never flag
 
 Validation, error handling, security, data-loss guards, accessibility, and
