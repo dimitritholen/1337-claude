@@ -47,7 +47,8 @@ reliably.
   any inline interpreter script) is a `1337:builder` or `1337:checker` dispatch;
   `CLAUDE_1337_BASH_ALLOW="make cargo"` adds first words. Redirects and `tee` may
   write only under the ~/.claude data allowlist (`~/.claude/projects`,
-  `~/.claude/todos`, `~/.claude/.1337-*` state) and temp directories — config,
+  `~/.claude/todos`, `~/.claude/plans`, `~/.claude/.1337-*` state) and temp
+  directories — config,
   hooks, agents, skills, commands and the installed plugin under
   `~/.claude/plugins` stay off-limits — and scripts (`.py`, `.sh`, `.js` and
   the like) are refused even there; only data files may be written. The

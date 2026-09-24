@@ -117,7 +117,8 @@ is_code() { # path
 # to rewrite the router or turn this guard off. Only the data locations the
 # main session and this plugin's own scripts legitimately write to are
 # exempt: session scratch and per-project memory files under
-# ~/.claude/projects/, ~/.claude/todos/, and this plugin's own state files
+# ~/.claude/projects/, ~/.claude/todos/, ~/.claude/plans/ (plan mode writes its
+# plan file there), and this plugin's own state files
 # (~/.claude/.1337-*, e.g. .1337-terse written by /1337:terse). Everything
 # else under ~/.claude is refused like any other tree write. Used by the
 # Write/Edit path check, judge_target (Bash redirect/tee/mkdir/mktemp/sort
@@ -128,7 +129,8 @@ is_code() { # path
 # fallback in target_class before this ever runs.
 is_claude_data() { # resolved absolute path
   case "$1" in
-    "${HOME:-/nonexistent}"/.claude/projects/* | "${HOME:-/nonexistent}"/.claude/todos/*) return 0 ;;
+    "${HOME:-/nonexistent}"/.claude/projects/* | "${HOME:-/nonexistent}"/.claude/todos/* \
+      | "${HOME:-/nonexistent}"/.claude/plans/*) return 0 ;;
     "${HOME:-/nonexistent}"/.claude/.1337-*) return 0 ;;
   esac
   return 1
@@ -195,7 +197,7 @@ refuse_var_target() { # command
 # the router or turn this guard off. Named separately from refuse_write so
 # the message points at the narrower cause.
 refuse_claude_config() { # command
-  printf 'blocked (1337 orchestrator mode): Bash command writes under ~/.claude outside the data allowlist (%.80s). Config, hooks, agents, skills, commands and the installed plugin under ~/.claude are off-limits in orchestrator mode; only ~/.claude/projects, ~/.claude/todos and ~/.claude/.1337-* state files are writable. Dispatch it to 1337:builder with a self-contained brief.\n' "$1" >&2
+  printf 'blocked (1337 orchestrator mode): Bash command writes under ~/.claude outside the data allowlist (%.80s). Config, hooks, agents, skills, commands and the installed plugin under ~/.claude are off-limits in orchestrator mode; only ~/.claude/projects, ~/.claude/todos, ~/.claude/plans and ~/.claude/.1337-* state files are writable. Dispatch it to 1337:builder with a self-contained brief.\n' "$1" >&2
   exit 2
 }
 
@@ -278,7 +280,7 @@ case "$file" in
     is_claude_data "$file" && exit 0
     case "$file" in
       "${HOME:-/nonexistent}"/.claude/*)
-        printf 'blocked (1337 orchestrator mode): %s on %s writes under ~/.claude outside the data allowlist. Config, hooks, agents, skills, commands and the installed plugin under ~/.claude are off-limits in orchestrator mode; only ~/.claude/projects, ~/.claude/todos and ~/.claude/.1337-* state files are writable. Dispatch it to 1337:builder with a self-contained brief.\n' \
+        printf 'blocked (1337 orchestrator mode): %s on %s writes under ~/.claude outside the data allowlist. Config, hooks, agents, skills, commands and the installed plugin under ~/.claude are off-limits in orchestrator mode; only ~/.claude/projects, ~/.claude/todos, ~/.claude/plans and ~/.claude/.1337-* state files are writable. Dispatch it to 1337:builder with a self-contained brief.\n' \
           "$tool" "$file" >&2
         exit 2
         ;;

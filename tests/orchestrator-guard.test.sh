@@ -56,6 +56,15 @@ check 0 "bash redirect into a temp claude-* scratch dir stays allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"echo x > /tmp/claude-1000/s/msg.txt"}}'
 check 0 "bash redirect to a ~/.claude/.1337-* state file stays allowed" \
   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo on > $HOME/.claude/.1337-terse\"}}"
+# Plan mode writes its plan file under ~/.claude/plans.
+check 0 "write to a ~/.claude/plans plan file is allowed" \
+  "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/plans/x.md\",\"content\":\"x\"}}"
+check 0 "bash redirect to ~/.claude/plans is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo hi > ~/.claude/plans/x.md"}}'
+check 2 "a .. step out of ~/.claude/plans to settings.json is refused (Write)" \
+  "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/plans/../settings.json\",\"content\":\"x\"}}"
+check 2 "a .. step out of ~/.claude/plans to settings.json is refused (Bash)" \
+  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo x > $HOME/.claude/plans/../settings.json\"}}"
 
 # Bash writes are refused in the main session, reads are not.
 check 2 "bash redirect to a file in main session" \
