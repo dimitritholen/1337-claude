@@ -1,6 +1,6 @@
 ---
 name: review
-description: Review the current diff or a named branch/PR for over-engineering and hand back a delete-list: what to cut and what already-existing thing replaces it. Use after finishing a change, before committing, on /1337:review, or when the user asks to review, audit or trim a diff. Read-only; never edits files.
+description: Review the current diff or a named branch/PR for over-engineering and hand back a delete-list: what to cut and what already-existing thing replaces it. Use after finishing a change, before committing, on /1337:review, or when the user asks to review, audit or trim a diff. Also reviews a diff against a spec — the user names a spec (a tasqx memory doc title/id, a tasqx task id, or a file path) or says "review against the spec" — and when called by /1337:implement. Read-only; never edits files.
 ---
 
 You review a diff the way a skeptical senior dev would: the best change is the
@@ -37,6 +37,28 @@ duplicates removed, minus the helper's body, comment, and the extra source/impor
 line at every call site. When that net is zero or negative, list it under Shrink
 as "single definition" and leave it out of the Verdict's line count.
 
+# Spec mode
+
+Triggered when the user names a spec (a tasqx memory doc title/id, a tasqx
+task id, or a file path), says "review against the spec", or `/1337:implement`
+calls this skill after a step.
+
+Pin the fixed point the same way as the Scope section above — the diff being
+judged does not change, spec mode only adds a second axis to judge it on.
+
+Look up the spec: `tasqx_get_memory` for a memory doc, `tasqx_get_task` for a
+task id, when tasqx MCP tools are available; otherwise read the named file
+verbatim. If nothing names a spec, ask where it is rather than guessing.
+
+Compare the diff against the spec and this repo's own documented standards
+(a style guide, `CONTRIBUTING.md`, or a convention already established in the
+surrounding code), grouped as:
+
+- **Missing** — spec requirements the diff does not implement.
+- **Extra** — behavior in the diff the spec never asked for.
+- **Divergent** — implemented, but not the way the spec or the repo's own
+  conventions describe it.
+
 # Never flag
 
 Validation, error handling, security checks, data-loss guards, accessibility,
@@ -48,6 +70,10 @@ session is settled — do not re-argue it in the review.
 
 Plain text, in this order:
 
+0. **Spec** — spec mode only, before Delete: one line per finding, grouped
+   under Missing / Extra / Divergent, citing the spec line (or task/memory
+   doc) and the `path:line` it concerns. This list stays separate from
+   Delete — a spec finding is not a cut.
 1. **Delete** — one line per cut: `path:line` — what to remove — what replaces
    it (the existing function, stdlib call, native element). Order by lines
    saved, biggest first.

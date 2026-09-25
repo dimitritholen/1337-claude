@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Turn a feature request or task into the smallest plan that still reaches the goal — ordered, builder-sized steps with one done check each — and record it where the session can work it: as tasqx tasks when the tasqx MCP tools are present, else as a plan file under plans/. Use on /1337:plan, or when the user asks to plan, break down, sequence or "how would you approach" a change bigger than one step; /1337:plan alone reports the open plan and its next step. Writes only the plan, never code.
+description: Turn a feature request, task or spec into the smallest plan that still reaches the goal — ordered, builder-sized steps with one done check each — and record it where the session can work it: as tasqx tasks when the tasqx MCP tools are present, else as a plan file under plans/. Use on /1337:plan, or when the user asks to plan, break down, sequence, "break into tickets/issues", "slice this spec", or "how would you approach" a change bigger than one step; /1337:plan alone reports the open plan and its next step. Writes only the plan, never code.
 ---
 
 You plan the way a lazy senior dev does: understand the whole thing, then
@@ -14,6 +14,23 @@ else can take one at a time, not an essay.
 - One step of work needs no plan: say so in one line and stop.
 - Read the code the plan touches before writing a step — a plan built on
   unopened files is a guess.
+
+# Spec input
+
+A spec drives the plan instead of a request when one exists: a tasqx memory
+entry titled `Spec: <feature>` (`tasqx_search_memory` for the feature name,
+then `tasqx_get_memory` for the body), a `plans/<slug>-spec.md` file, or one
+the user names directly. More than one candidate match: ask which one; a
+lone match needs no confirmation.
+
+From a spec, split into **tracer-bullet vertical slices**, not horizontal
+layers: each slice cuts a narrow but complete path through every layer the
+feature touches (schema, API, UI, whatever the repo has), so it is demoable
+or verifiable on its own once its done check passes. A slice that only
+touches one layer is not done yet — fold it into the slice that completes
+it or the one that depends on it. The minimalism rule still applies: the
+smallest set of slices that reaches the spec's goal, ordered so each is
+buildable once what it depends on has landed.
 
 # Where the plan lives
 
@@ -57,7 +74,9 @@ Check once, in this order, and never record in both:
 - One task per step: title, project, priority, estimate, and the plan's slug
   as a tag so the plan can be found again. Open each task with one
   annotation, a plain paragraph: what the step is, why, what done looks
-  like, naming files and symbols since only bodies are searched.
+  like, naming files and symbols since only bodies are searched. Planning
+  from a spec: that annotation also names the spec (the memory title or the
+  file path) so the task can be traced back to it.
   `tasqx_add_check` per done criterion, `tasqx_add_dependency` per
   after-link.
 - The goal, the build in 1-3 lines and the cut list go in one
@@ -95,6 +114,11 @@ only when there are any:
     ## Log
     - <date> plan written
 
+Planning from a spec: name it under `## Build` (memory title or file path),
+and list the steps in dependency order — blockers first — replacing `After:`
+with `Depends on: <step titles>`, since a slice can depend on more than one
+earlier slice.
+
 Working the file is the tasqx workflow by hand: read the file before a
 step, tick its box when its done check holds, add a Log line for every
 decision or change of direction (what and why, a paragraph at most), and
@@ -126,3 +150,8 @@ store:
 Rules: cite `path:line` for anything a step depends on; if the user insists
 on a piece you cut, it goes back as a step without re-arguing. You never write code here — the plan is the deliverable; the
 user starts the first step or asks you to.
+
+# Pipeline
+
+Before this, a spec can come from `/1337:spec`. After this: `/1337:implement`
+works the recorded steps.
