@@ -32,6 +32,7 @@ never fails the run.
 - `tests/stop-review.test.sh`
 - `tests/subagent-rules.test.sh`
 - `tests/terse-governor.test.sh`
+- `tests/terse-rules.test.sh`
 - `tests/tier-eval.test.sh`
 - `tests/tier-outcome-eval.test.sh`
 - `tests/tier-route.test.sh`

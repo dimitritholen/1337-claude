@@ -18,6 +18,11 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/tiered-rules.sh\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/terse-rules.sh\"",
+            "timeout": 5
           }
         ]
       }
@@ -103,6 +108,11 @@
             "type": "command",
             "command": "command -v python3 >/dev/null 2>&1 || exit 0; python3 \"${CLAUDE_PLUGIN_ROOT}/skills/visual/route.py\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/terse-governor.sh\" --nudge",
+            "timeout": 5
           }
         ]
       }

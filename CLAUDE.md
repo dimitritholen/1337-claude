@@ -257,10 +257,25 @@ work when the plugin is installed and used in any folder, not only this one.
   that once per session nudges to dispatch when the main session codes three
   times without dispatching 1337:builder (`CLAUDE_1337_DISPATCH_NUDGE=0` opts
   out). Test: `tests/dispatch-nudge.test.sh`.
-- `hooks/terse-governor.sh`: Stop hook that measures the last reply and blocks
-  over-budget ones (mode in `~/.claude/.1337-terse`, set by `/1337:terse`;
-  `CLAUDE_1337_TERSE=0|on|hard` overrides). Test:
-  `tests/terse-governor.test.sh`.
+- `hooks/terse-governor.sh`: Stop hook that measures the last reply against a
+  budget (mode in `~/.claude/.1337-terse`, set by `/1337:terse`;
+  `CLAUDE_1337_TERSE=0|on|hard` overrides). Over-budget replies write a marker
+  (`${TMPDIR:-/tmp}/claude-1337-terse-overrun-<sanitized_session_id>`) instead
+  of blocking (the tokens are already spent). UserPromptSubmit mode (`--nudge`)
+  reads that marker and nudges the model once, then clears it. Exemptions:
+  explanation-seeking prompts, replies with two or more numbered steps, and
+  security or irreversible wording. Test: `tests/terse-governor.test.sh`.
+- `hooks/terse-rules.sh`: SessionStart hook that prints terse-mode rules from
+  `hooks/terse.md`, injecting the budget up front instead of only policing
+  after the fact. Silent when the mode is off; on/hard set the detail level.
+  Test: `tests/terse-rules.test.sh`.
+- `hooks/terse.md`: the rules digest printed by `hooks/terse-rules.sh`: common
+  (no filler, answer first, keep paths and error text), hard (fragments okay),
+  and exemptions (security, irreversible actions, steps whose order matters,
+  persisted artifacts).
+- `hooks/lib/terse-mode.sh`: sourced helper that resolves the terse mode
+  (off|on|hard): `CLAUDE_1337_TERSE` env, else the mode file
+  (`${CLAUDE_1337_TERSE_FILE:-$HOME/.claude/.1337-terse}`), else `on`.
 - `hooks/subagent-rules.sh` + `hooks/subagent.md`: SubagentStart hook that
   injects a compact rule digest into every spawned subagent
   (`CLAUDE_1337_SUBAGENT_MATCHER` scopes by agent type,
@@ -268,7 +283,9 @@ work when the plugin is installed and used in any folder, not only this one.
   (`CLAUDE_1337_SUBAGENT_READONLY`, default `scout|checker|explore`, an
   empty string giving nobody the short digest) gets the digest with its
   "Work on the minimum" and "Evaluate the task briefly" sections cut, since
-  it has nothing to build or evaluate for scope. Test:
+  it has nothing to build or evaluate for scope. Its "Reply tight" section
+  caps reports at about 150 words, with failing output, error text and
+  requested diffs quoted verbatim outside that count. Test:
   `tests/subagent-rules.test.sh`.
 - `tests/rule-copies.test.sh`: drift check that shared rule sentences (the
   brevity blocks, the build ladder, the never-cut rule) stay aligned across

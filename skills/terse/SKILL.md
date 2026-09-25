@@ -3,8 +3,10 @@ name: terse
 description: Set or report the terse mode level that the verbosity governor enforces (off, on, hard). Use on /1337:terse, or when the user says replies are too long or chatty, to stop explaining so much, be terser, or keep answers short from now on.
 ---
 
-You manage the terse mode flag that `hooks/terse-governor.sh` reads. One-word
-confirmations only.
+You manage the terse mode flag that `hooks/terse-governor.sh` and
+`hooks/terse-rules.sh` read. One-word confirmations only. On/hard also inject
+rules at SessionStart, and over-budget replies are nudged next turn, not
+blocked.
 
 # Levels
 

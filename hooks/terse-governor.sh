@@ -1,30 +1,48 @@
 #!/usr/bin/env bash
-# Stop hook: the verbosity governor. Measures the last assistant reply in the
-# transcript; if it exceeds the mode's word budget and the user did not ask for
-# an explanation, blocks the stop so the agent resends the answer only. Code
-# fences do not count. Enforces, where an output style only instructs.
+# Stop hook (default) / UserPromptSubmit nudge (--nudge): the verbosity
+# governor. Enforces, where an output style only instructs.
 #
-# Mode (highest first): CLAUDE_1337_TERSE env (0/off/on/hard), then the mode
-# file (default $HOME/.claude/.1337-terse, set by /1337:terse), then "on".
-# Budgets: on = 40 words, hard = 12, off = no check.
+# Stop mode measures the last assistant reply in the transcript. An
+# over-budget reply is never blocked any more -- the tokens are already
+# spent, so a forced resend only adds output tokens. Instead it writes a
+# per-session marker (the counted words and budget) and exits 0 silently.
+# Code fences do not count; why/how/explain-style prompts lift the budget
+# for that turn.
 #
-# stop_hook_active=true never blocks again, so the resend happens once.
-# Exit 2 + stderr blocks; every failure path exits 0 and never blocks a session.
+# --nudge mode (UserPromptSubmit) reads that marker for the session, if
+# any: prints one line of context reminding the model of the budget, then
+# deletes the marker. No marker, or terse mode off, means silence (and off
+# also clears a stale marker).
+#
+# Marker: ${TMPDIR:-/tmp}/claude-1337-terse-overrun-<session_id>, holding
+# "<words> <budget>". Every failure path exits 0 and never blocks a session.
 set -u
 
 command -v jq >/dev/null 2>&1 || exit 0
 
-env_mode="${CLAUDE_1337_TERSE:-}"
-if [ -n "$env_mode" ]; then
-  mode="$env_mode"
-else
-  mode_file="${CLAUDE_1337_TERSE_FILE:-$HOME/.claude/.1337-terse}"
-  mode=$(cat "$mode_file" 2>/dev/null || printf 'on')
+. "${0%/*}/lib/terse-mode.sh"
+
+payload="$(cat)"
+
+session_id=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null) || exit 0
+session_id=$(printf '%s' "$session_id" | tr -cd 'A-Za-z0-9_-')
+[ -n "$session_id" ] || session_id="default"
+marker="${TMPDIR:-/tmp}/claude-1337-terse-overrun-$session_id"
+
+if [ "${1:-}" = "--nudge" ]; then
+  mode=$(terse_mode)
+  if [ "$mode" = "off" ] || [ ! -e "$marker" ]; then
+    rm -f "$marker" 2>/dev/null
+    exit 0
+  fi
+  read -r words budget < "$marker" 2>/dev/null
+  rm -f "$marker" 2>/dev/null
+  [ -n "${words:-}" ] && [ -n "${budget:-}" ] || exit 0
+  printf 'Terse: your last reply was %s words (budget %s). Keep this one within budget.\n' "$words" "$budget"
+  exit 0
 fi
-mode=$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')
-[ "$mode" = "0" ] && mode="off"
-# A truncated or empty mode file means the default, never a silent off.
-[ -n "$mode" ] || mode="on"
+
+mode=$(terse_mode)
 
 case "$mode" in
   on) budget=40 ;;
@@ -32,8 +50,6 @@ case "$mode" in
   off) exit 0 ;;
   *) exit 0 ;;
 esac
-
-payload="$(cat)"
 
 active=$(printf '%s' "$payload" | jq -r '.stop_hook_active // false' 2>/dev/null) || exit 0
 [ "$active" = "true" ] && exit 0
@@ -62,6 +78,15 @@ fi
 last_reply=$(text_of assistant "$transcript")
 [ -n "$last_reply" ] || exit 0
 
+# Exempt an ordered list of steps (order matters) and security/irreversible
+# wording, per hooks/terse.md's exemptions block: write normally there.
+list_steps=$(printf '%s\n' "$last_reply" | grep -cE '^[[:space:]]*[0-9]+\.[[:space:]]')
+[ "$list_steps" -ge 2 ] && exit 0
+
+if printf '%s' "$last_reply" | grep -iqE '(security|vulnerab|irreversible|cannot be undone|destructive|data loss)'; then
+  exit 0
+fi
+
 # Words outside code fences.
 words=$(printf '%s\n' "$last_reply" | awk '
   /^```/ { fenced = !fenced; next }
@@ -70,9 +95,5 @@ words=$(printf '%s\n' "$last_reply" | awk '
 
 [ "$words" -le "$budget" ] && exit 0
 
-if [ "$mode" = "hard" ]; then
-  printf 'Reply was %d words (budget %d). Resend it as one line: the answer, nothing else.\n' "$words" "$budget" >&2
-else
-  printf 'Reply was %d words (budget %d). Resend the answer only: the result, `path:line` where it matters, nothing else. Do not narrate tool calls.\n' "$words" "$budget" >&2
-fi
-exit 2
+printf '%s %s\n' "$words" "$budget" > "$marker" 2>/dev/null
+exit 0

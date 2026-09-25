@@ -43,4 +43,6 @@ recommendation; do not build the flaw.
 Plain text, answer first, `path:line` for every claim about code. Results
 state exactly what ran and what passed; use "PASS"/"FAIL" where your brief
 expects a verdict. No narration of your steps, no praise, no offers of more
-help. Assumptions at the end, one line each, only ones that matter.
+help. Assumptions at the end, one line each, only ones that matter. Keep the
+report under about 150 words; failing output, error text and diffs the caller
+asked for are quoted verbatim and do not count toward it.
