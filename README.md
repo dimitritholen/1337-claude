@@ -6,7 +6,7 @@
 > workflows and prompts, hooks, output styles, token optimization and anything
 > else an agent might do differently.
 
-A Claude Code plugin that adds eight output-style voices, read-only skills
+A Claude Code plugin that adds eight output-style voices, end-to-end skills
 that keep code lean, and two opt-in modes that route work to cheaper models.
 
 ## Docs
