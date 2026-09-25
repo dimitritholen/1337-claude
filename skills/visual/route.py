@@ -33,7 +33,12 @@ gets what is left of an internal 9-second deadline, at most 2.5 seconds
 each. Any failure exits 0 silently: a routing miss costs nothing, a
 blocked prompt would.
 
-CLAUDE_1337_VISUAL=0 disables the hook. CLAUDE_1337_VISUAL_FLOOR moves
+CLAUDE_1337_VISUAL=0 disables the hook; with it unset, the plugin option
+visual_routing=false (CLAUDE_PLUGIN_OPTION_VISUAL_ROUTING) does too.
+When visual_critique resolves off (CLAUDE_1337_CRITIQUE, else
+CLAUDE_PLUGIN_OPTION_VISUAL_CRITIQUE), every suggested raster/vector
+generate.py command carries --no-critique, since generate.py itself runs
+from a Bash call that may not see the plugin option. CLAUDE_1337_VISUAL_FLOOR moves
 the confidence floor (0.5), CLAUDE_1337_VISUAL_MULTI the probability from
 which a further modality counts as requested (0.3). Stdlib only, through
 lib/ and catalogue.py.
@@ -52,6 +57,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, HERE)
 from lib import jev, keys  # noqa: E402
+from lib.options import opt_on  # noqa: E402
 import catalogue  # noqa: E402
 import ranking  # noqa: E402
 
@@ -121,9 +127,12 @@ def context(prompt, picks, transparent=False, request_path=None):
     """picks: [(modality, ranked, recommended)], likeliest modality first."""
     generate = os.path.join(HERE, "generate.py")
     request_flag = f" --request-file {shlex.quote(request_path)}" if request_path else ""
+    critique_on = opt_on("CLAUDE_1337_CRITIQUE", "CLAUDE_PLUGIN_OPTION_VISUAL_CRITIQUE")
 
     def command(modality):
         extra = " --transparent" if transparent and modality == "raster_image" else ""
+        if not critique_on and modality in ("raster_image", "vector_svg"):
+            extra += " --no-critique"
         return (f"python3 \"{generate}\" --model <chosen id> --modality {modality} "
                 f"--prompt-file <path to the design brief>{extra}{request_flag} "
                 "[--out <path named in the prompt>] "
@@ -251,7 +260,7 @@ def route(prompt, started):
 
 
 def main():
-    if os.environ.get("CLAUDE_1337_VISUAL", "1").lower() in ("0", "off", "false"):
+    if not opt_on("CLAUDE_1337_VISUAL", "CLAUDE_PLUGIN_OPTION_VISUAL_ROUTING"):
         return 0
     started = time.monotonic()
     try:

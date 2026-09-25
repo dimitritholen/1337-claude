@@ -54,9 +54,11 @@ set -u
 . "${0%/*}/lib/mode.sh"
 mode_on orchestrator || exit 0
 
-# `off` (any case) disables this hook entirely.
-gate_lc=$(printf '%s' "${CLAUDE_1337_REVIEW_GATE:-}" | tr '[:upper:]' '[:lower:]')
-[ "$gate_lc" != "off" ] || exit 0
+# An explicit CLAUDE_1337_REVIEW_GATE=off (any case) disables this hook
+# entirely, an explicit =on forces it even over enforce_gates=false; unset
+# falls to the plugin option `enforce_gates`
+# (CLAUDE_PLUGIN_OPTION_ENFORCE_GATES=false), else on by default.
+opt_on CLAUDE_1337_REVIEW_GATE CLAUDE_PLUGIN_OPTION_ENFORCE_GATES true || exit 0
 
 command -v jq >/dev/null 2>&1 || exit 0
 

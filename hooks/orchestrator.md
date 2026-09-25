@@ -37,7 +37,8 @@ reliably.
 - Do it yourself when delegating costs more than doing: an edit of about 20 lines or
   fewer in a file already in context, and corrections faster to make than to
   explain. The orchestrator guard refuses larger edits (the larger of old and new
-  text counts, `CLAUDE_1337_MAX_LINES`) and new files from the main session; a
+  text counts, `CLAUDE_1337_MAX_LINES` or `max_edit_lines` in `/config`) and new
+  files from the main session; a
   refusal means dispatch, never a workaround through Bash. Main-session Bash runs
   from an allowlist of first words, checked in every segment: read-only
   inspection (`ls`, `cat`, `grep`, `rg`, `jq`, `awk`, `sed` without `-i`, `find`

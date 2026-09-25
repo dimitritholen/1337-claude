@@ -6,7 +6,12 @@ work when the plugin is installed and used in any folder, not only this one.
 ## Layout
 
 - `.claude-plugin/plugin.json`: plugin manifest; the name `1337` gives every
-  skill the `/1337:` prefix.
+  skill the `/1337:` prefix. `userConfig` besides `orchestrator` and `tiered`
+  adds one choice (`terse`: off/on/hard, default on), four booleans
+  (`visual_routing`, `visual_critique`, `review_nudge`, `enforce_gates`,
+  all default true) and one number (`max_edit_lines`, default 20, 5–200).
+  Precedence everywhere: explicit `CLAUDE_1337_*` env var wins, then `/config`
+  option, then default.
 - `.claude-plugin/marketplace.json`: makes this repo the `1337-claude` marketplace,
   so the plugin installs as `1337@1337-claude`.
 - `skills/<name>/SKILL.md`: one folder per skill.
@@ -59,8 +64,9 @@ work when the plugin is installed and used in any folder, not only this one.
   command carries `--request-file <path>` (a write failure drops the flag
   silently, never the hook), so the critique pass sees the user's own
   words even when the brief Claude writes drops a detail.
-  `CLAUDE_1337_VISUAL=0` disables. Test:
-  `tests/visual-route.test.sh` (stand-in Jev and catalogue).
+  Option `visual_routing` (env `CLAUDE_1337_VISUAL`, default true) disables the
+  hook. When `visual_critique` is off, adds `--no-critique` to the generate.py
+  command. Test: `tests/visual-route.test.sh` (stand-in Jev and catalogue).
 - `skills/visual/generate.py`: makes the file once a model is chosen:
   raster and vector through chat completions with the image modality
   (extension from the data URL's media type, so Recraft vector gives
@@ -94,7 +100,8 @@ work when the plugin is installed and used in any folder, not only this one.
   A raster or vector write (not video, not speech) is always followed by a
   `critique.run()` call in-process (imported lazily, since `critique.py`
   imports this module): `--rounds N` (default 2) and `--critic <model id>`
-  pass through, `--no-critique` or `CLAUDE_1337_CRITIQUE=0` skip it. The
+  pass through, `--no-critique` or option `visual_critique` / env `CLAUDE_1337_CRITIQUE`
+  (default true) skip it. The
   JSON line gains the critique result under `critique` and a top-level
   `final`; `path` and `cost` stay the original generation's, so `cost` plus
   `critique.cost` is the total spend. `--trim` runs before the critique, so
@@ -251,31 +258,31 @@ work when the plugin is installed and used in any folder, not only this one.
   does not help because the default `~/.docker` is always scanned. Make
   `~/.docker/contexts` a plain directory or run those cases elsewhere.
 - `hooks/stop-review.sh`: Stop hook that once per session offers a
-  `/1337:review` pass when the session diff adds 30+ lines
-  (`CLAUDE_1337_REVIEW_NUDGE=0` opts out). Test: `tests/stop-review.test.sh`.
+  `/1337:review` pass when the session diff adds 30+ lines. Option `review_nudge`
+  (env `CLAUDE_1337_REVIEW_NUDGE`, default true). Test: `tests/stop-review.test.sh`.
 - `hooks/dispatch-nudge.sh`: Stop hook, active in orchestrator or tiered mode,
   that once per session nudges to dispatch when the main session codes three
   times without dispatching 1337:builder (`CLAUDE_1337_DISPATCH_NUDGE=0` opts
   out). Test: `tests/dispatch-nudge.test.sh`.
-- `hooks/terse-governor.sh`: Stop hook that measures the last reply against a
-  budget (mode in `~/.claude/.1337-terse`, set by `/1337:terse`;
-  `CLAUDE_1337_TERSE=0|on|hard` overrides). Over-budget replies write a marker
+- `hooks/terse-governor.sh`: Stop hook that measures the last reply against
+  a budget, mode from env (`CLAUDE_1337_TERSE`) or /config option (`terse`),
+  else default `on`. Over-budget replies write a marker
   (`${TMPDIR:-/tmp}/claude-1337-terse-overrun-<sanitized_session_id>`) instead
-  of blocking (the tokens are already spent). UserPromptSubmit mode (`--nudge`)
-  reads that marker and nudges the model once, then clears it. Exemptions:
+  of blocking. UserPromptSubmit mode nudges next turn, then clears it. Exemptions:
   explanation-seeking prompts, replies with two or more numbered steps, and
   security or irreversible wording. Test: `tests/terse-governor.test.sh`.
 - `hooks/terse-rules.sh`: SessionStart hook that prints terse-mode rules from
-  `hooks/terse.md`, injecting the budget up front instead of only policing
-  after the fact. Silent when the mode is off; on/hard set the detail level.
+  `hooks/terse.md`, injecting the budget up front. Mode is resolved the same way
+  as `terse-governor.sh`. Silent when the mode is off; on/hard set the detail level.
   Test: `tests/terse-rules.test.sh`.
 - `hooks/terse.md`: the rules digest printed by `hooks/terse-rules.sh`: common
   (no filler, answer first, keep paths and error text), hard (fragments okay),
   and exemptions (security, irreversible actions, steps whose order matters,
   persisted artifacts).
-- `hooks/lib/terse-mode.sh`: sourced helper that resolves the terse mode
-  (off|on|hard): `CLAUDE_1337_TERSE` env, else the mode file
-  (`${CLAUDE_1337_TERSE_FILE:-$HOME/.claude/.1337-terse}`), else `on`.
+- `hooks/lib/terse-mode.sh`: sourced helper, `terse_mode` echoes off|on|hard:
+  `CLAUDE_1337_TERSE` env, else `CLAUDE_PLUGIN_OPTION_TERSE` (the `terse`
+  option in /config), else `on`; `0` means off, an unknown value means on.
+  Sourced by `hooks/terse-governor.sh` and `hooks/terse-rules.sh`.
 - `hooks/subagent-rules.sh` + `hooks/subagent.md`: SubagentStart hook that
   injects a compact rule digest into every spawned subagent
   (`CLAUDE_1337_SUBAGENT_MATCHER` scopes by agent type,
@@ -301,7 +308,7 @@ work when the plugin is installed and used in any folder, not only this one.
   for eval cases): `agents/` holds `scout`,
   `builder` and `checker`; `hooks/orchestrator-guard.sh` injects
   `hooks/orchestrator.md` at SessionStart and refuses large main-session
-  edits (max of old and new lines, `CLAUDE_1337_MAX_LINES`, default 20) and
+  edits (max of old and new lines, option `max_edit_lines` or env `CLAUDE_1337_MAX_LINES`, default 20) and
   any main-session Bash segment whose first word is off an allowlist
   (read-only inspection, git bookkeeping subcommands, `sed` without `-i`,
   the plugin's own scripts, the test runners, `claude`, `tasqx`, `ripwire`;
@@ -360,8 +367,8 @@ work when the plugin is installed and used in any folder, not only this one.
   `skills/tier/route.py` prints; once a step's slot is spent it allows
   exactly one further dispatch at that step's routed tier plus one (Opus
   steps get none), consumed the same way and never stacking with an owed
-  tier's own priority. `CLAUDE_1337_ROUTE_GUARD=off` disables it.
-  Test: `tests/route-guard.test.sh`.
+  tier's own priority. Option `enforce_gates` (env `CLAUDE_1337_ROUTE_GUARD`,
+  default true). Test: `tests/route-guard.test.sh`.
 - `hooks/review-gate.sh`: PreToolUse hook on Bash|Agent|Task, orchestrator
   mode only, that enforces a review checkpoint: after a `1337:builder`
   dispatch, it refuses to `git commit` or dispatch another builder until a
@@ -374,8 +381,8 @@ work when the plugin is installed and used in any folder, not only this one.
   read from the matching `<task-notification>`'s `<result>` instead. A `git
   diff` with git global options in front (`git -C <path> diff`) counts. The gate anchors on the last dispatch that
   actually ran from `hooks/lib/builder-dispatches.jq`, ignoring ones a
-  PreToolUse hook refused. `CLAUDE_1337_REVIEW_GATE=off` disables it. Test:
-  `tests/review-gate.test.sh`.
+  PreToolUse hook refused. Option `enforce_gates` (env `CLAUDE_1337_REVIEW_GATE`,
+  default true). Test: `tests/review-gate.test.sh`.
 - `hooks/lib/builder-dispatches.jq`: shared jq filter that lists
   `1337:builder` dispatches (Agent or Task tool_use) from a transcript slice,
   excluding ones a PreToolUse hook refused before they ran. Both
@@ -394,12 +401,12 @@ work when the plugin is installed and used in any folder, not only this one.
   `..` (git turns that into `--no-index` itself), a `-c alias.*` config), naming
   which in `git_read_why`; both hooks call it. Test:
   `tests/git-subcommand.test.sh`.
-- `hooks/lib/mode.sh`: sourced helper; `mode_on orchestrator|tiered` is true
-  when any of that mode's three switches is set (the plugin option, the
-  `CLAUDE_1337_*` env var, or the `EVAL_CLAUDE_1337_*` one eval cases use).
-  Sourced by `hooks/orchestrator-guard.sh`, `hooks/review-gate.sh`,
-  `hooks/read-cap.sh`, `hooks/route-guard.sh`, `hooks/tiered-rules.sh` and
-  `hooks/dispatch-nudge.sh` in place of repeating the three-way check.
+- `hooks/lib/mode.sh`: sourced helper with `mode_on orchestrator|tiered` (true
+  when any of that mode's three switches is set) and `opt_on ENV_VAR OPTION_VAR DEFAULT`
+  (resolves one boolean switch: env var wins, then /config option, then default).
+  Sourced by every hook that needs mode or option resolution.
+- `lib/options.py`: Python twin of `opt_on`, same precedence. Used by skills
+  that need boolean switch resolution.
 - `hooks/lib/read-route.sh`: sourced helper that outputs routing text when a
   read or Grep/Glob call is refused, telling the user to try `ripwire` for
   code discovery or dispatch `1337:scout` for other file types (config, prose,

@@ -700,6 +700,18 @@ check 2 "a MultiEdit of two 12-line edits sums to 24" \
   "{\"tool_name\":\"MultiEdit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"edits\":[{\"old_string\":\"a\",\"new_string\":$body12},{\"old_string\":\"b\",\"new_string\":$body12}]}}"
 CLAUDE_1337_MAX_LINES=40 CLAUDE_1337_EDIT_CAP=0 check 0 "CLAUDE_1337_MAX_LINES raises the edit limit" \
   "{\"tool_name\":\"MultiEdit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"edits\":[{\"old_string\":\"a\",\"new_string\":$body12},{\"old_string\":\"b\",\"new_string\":$body12}]}}"
+
+# max_edit_lines plugin option: same effect as CLAUDE_1337_MAX_LINES when the
+# env var is unset; the env var still wins when both are set; an absent (or
+# non-positive-integer) option keeps today's default of 20.
+CLAUDE_PLUGIN_OPTION_MAX_EDIT_LINES=40 CLAUDE_1337_EDIT_CAP=0 check 0 "max_edit_lines option raises the edit limit (24 lines, cap 40)" \
+  "{\"tool_name\":\"MultiEdit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"edits\":[{\"old_string\":\"a\",\"new_string\":$body12},{\"old_string\":\"b\",\"new_string\":$body12}]}}"
+CLAUDE_1337_MAX_LINES=10 CLAUDE_PLUGIN_OPTION_MAX_EDIT_LINES=40 CLAUDE_1337_EDIT_CAP=0 check 2 "CLAUDE_1337_MAX_LINES beats max_edit_lines option" \
+  "{\"tool_name\":\"MultiEdit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"edits\":[{\"old_string\":\"a\",\"new_string\":$body12},{\"old_string\":\"b\",\"new_string\":$body12}]}}"
+CLAUDE_PLUGIN_OPTION_MAX_EDIT_LINES=0 CLAUDE_1337_EDIT_CAP=0 check 2 "max_edit_lines=0 (not a positive integer) keeps the 20-line default" \
+  "{\"tool_name\":\"MultiEdit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"edits\":[{\"old_string\":\"a\",\"new_string\":$body12},{\"old_string\":\"b\",\"new_string\":$body12}]}}"
+CLAUDE_1337_EDIT_CAP=0 check 2 "max_edit_lines option absent: keeps today's default (20-line cap)" \
+  "{\"tool_name\":\"MultiEdit\",\"tool_input\":{\"file_path\":\"/repo/a.py\",\"edits\":[{\"old_string\":\"a\",\"new_string\":$body12},{\"old_string\":\"b\",\"new_string\":$body12}]}}"
 check_err 2 "writes a code file" "Write of a code file under /tmp" \
   '{"tool_name":"Write","tool_input":{"file_path":"/tmp/x.py","content":"print(1)"}}'
 check 0 "Write of a data file under /tmp" \

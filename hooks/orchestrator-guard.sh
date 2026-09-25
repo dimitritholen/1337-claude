@@ -8,7 +8,8 @@
 # stash, reset, clean or overwrite another parallel builder's finished work
 # in the shared tree (#723; see subagent_git_guard below,
 # CLAUDE_1337_SUBAGENT_GIT_GUARD=off disables it); the main session may make
-# edits of <= MAX_LINES lines (CLAUDE_1337_MAX_LINES, default 20; an edit
+# edits of <= MAX_LINES lines (CLAUDE_1337_MAX_LINES, else the plugin option
+# max_edit_lines in /config, else 20; an edit
 # counts the larger of its old and new text, a MultiEdit the sum over its
 # edits) and write under ~/.claude or a temp dir, where a code file is still
 # refused.
@@ -83,7 +84,15 @@
 # read the call, so it fails closed; a payload jq cannot parse passes.
 set -u
 
+# CLAUDE_1337_MAX_LINES wins when set; else the plugin option `max_edit_lines`
+# (CLAUDE_PLUGIN_OPTION_MAX_EDIT_LINES) when it is a positive integer; else 20.
 MAX_LINES="${CLAUDE_1337_MAX_LINES:-20}"
+if [ -z "${CLAUDE_1337_MAX_LINES:-}" ]; then
+  case "${CLAUDE_PLUGIN_OPTION_MAX_EDIT_LINES:-}" in
+    ''|*[!0-9]*|0) ;;
+    *) MAX_LINES="$CLAUDE_PLUGIN_OPTION_MAX_EDIT_LINES" ;;
+  esac
+fi
 case "$MAX_LINES" in ''|*[!0-9]*) MAX_LINES=20 ;; esac
 
 . "${0%/*}/lib/mode.sh"

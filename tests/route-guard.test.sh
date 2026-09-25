@@ -360,4 +360,22 @@ t_tool "$(quote_line mcp__tasqx__tasqx_annotate_task "ran skills/tier/route.py f
 check_grep 2 'still owes this step (none)' "prose naming route.py after a marker: not a router call, spent budget refused" \
   "$MODE_TIERED" "$(payload 1337:builder opus "$tr31" "$sid31")"
 
+# --- case 32: plugin option `enforce_gates=false` disables the guard, same
+# as CLAUDE_1337_ROUTE_GUARD=off ---
+sid32="rg-32"
+check 0 "enforce_gates=false (option): allowed even with no marker" \
+  "CLAUDE_PLUGIN_OPTION_TIERED=false CLAUDE_1337_TIERED=1 EVAL_CLAUDE_1337_TIERED=0 CLAUDE_PLUGIN_OPTION_ENFORCE_GATES=false" \
+  "$(payload 1337:builder haiku "$tr1" "$sid32")"
+
+# --- case 33: an explicit CLAUDE_1337_ROUTE_GUARD=on beats enforce_gates=false ---
+sid33="rg-33"
+check_grep 2 'no tier routing this session' "CLAUDE_1337_ROUTE_GUARD=on beats enforce_gates=false" \
+  "CLAUDE_PLUGIN_OPTION_TIERED=false CLAUDE_1337_TIERED=1 EVAL_CLAUDE_1337_TIERED=0 CLAUDE_PLUGIN_OPTION_ENFORCE_GATES=false CLAUDE_1337_ROUTE_GUARD=on" \
+  "$(payload 1337:builder haiku "$tr1" "$sid33")"
+
+# --- case 34: enforce_gates option absent keeps today's default (guard on) ---
+sid34="rg-34"
+check_grep 2 'no tier routing this session' "enforce_gates option absent: keeps today's default (guard on)" \
+  "$MODE_TIERED" "$(payload 1337:builder haiku "$tr1" "$sid34")"
+
 exit $fail

@@ -1,16 +1,16 @@
 # Sourced by the terse hooks. `terse_mode` echoes the resolved mode
-# (off|on|hard): CLAUDE_1337_TERSE env, else the mode file
-# (${CLAUDE_1337_TERSE_FILE:-$HOME/.claude/.1337-terse}, set by
-# /1337:terse), else "on". A truncated or empty file means the default,
-# never a silent off.
+# (off|on|hard): CLAUDE_1337_TERSE env, else CLAUDE_PLUGIN_OPTION_TERSE
+# (the "Terse mode" row in /config), else "on". Case-insensitive, "0"
+# means off; an empty or unknown value means the default, never a silent
+# off.
 terse_mode() {
   local mode
-  mode="${CLAUDE_1337_TERSE:-}"
-  if [ -z "$mode" ]; then
-    mode=$(cat "${CLAUDE_1337_TERSE_FILE:-$HOME/.claude/.1337-terse}" 2>/dev/null || printf 'on')
-  fi
+  mode="${CLAUDE_1337_TERSE:-${CLAUDE_PLUGIN_OPTION_TERSE:-on}}"
   mode=$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')
   [ "$mode" = "0" ] && mode="off"
-  [ -n "$mode" ] || mode="on"
+  case "$mode" in
+    off|on|hard) ;;
+    *) mode="on" ;;
+  esac
   printf '%s' "$mode"
 }

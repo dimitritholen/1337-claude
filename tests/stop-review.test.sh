@@ -67,4 +67,22 @@ CLAUDE_1337_REVIEW_NUDGE=0 check 0 "CLAUDE_1337_REVIEW_NUDGE=0: quiet" "$(payloa
 # Outside any git repo (and under a temp path) it stays quiet.
 check 0 "non-git temp dir: quiet" "$(payload "$sid-tmp" "$work")"
 
+# Plugin option `review_nudge`: false disables (same as the env var), env
+# still wins over the option, and an absent option keeps today's default (on).
+sid_optfalse="$sid-optfalse"
+seq 1 40 > "$repo/a.txt"
+CLAUDE_PLUGIN_OPTION_REVIEW_NUDGE=false check 0 "review_nudge=false (option): quiet" \
+  "$(payload "$sid_optfalse" "$repo")"
+
+sid_envbeats="$sid-envbeats"
+seq 1 40 > "$repo/a.txt"
+CLAUDE_1337_REVIEW_NUDGE=1 CLAUDE_PLUGIN_OPTION_REVIEW_NUDGE=false \
+  check 2 "CLAUDE_1337_REVIEW_NUDGE=1 beats review_nudge=false (option)" \
+  "$(payload "$sid_envbeats" "$repo")"
+
+sid_optabsent="$sid-optabsent"
+seq 1 40 > "$repo/a.txt"
+check 2 "review_nudge option absent: keeps today's default (nudge fires)" \
+  "$(payload "$sid_optabsent" "$repo")"
+
 exit $fail

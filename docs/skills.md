@@ -56,8 +56,8 @@ The `/1337:` commands this plugin adds.
 - `/1337:handoff` — writes a handoff document so a fresh session can pick up
   the work: a tasqx memory entry when tasqx is available, else
   `plans/handoff-<date>.md`. You call it yourself; Claude never starts it.
-- `/1337:terse` — sets or reports the [terse mode](terse-mode.md) level
-  (`off`, `on`, `hard`) that caps reply length. On/hard inject the rules at
+- `/1337:terse` — reports or changes the [terse mode](terse-mode.md) level
+  (`off`, `on`, `hard`) set in /config. On/hard inject the rules at
   SessionStart; overruns are nudged next turn, not blocked.
 - `/1337:visual` — makes image, SVG, video and speech files through an
   OpenRouter model; see [visual generation](visual-generation.md).

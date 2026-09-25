@@ -177,4 +177,13 @@ check_code "no key anywhere: MissingKey" "$code" 1
 check_eq "no key names OPENROUTER_API_KEY" "$(grep -c 'MissingKey: OPENROUTER_API_KEY' "$work/stderr")" "1"
 check_eq "no request sent without a key" "$(requests_count)" "0"
 
+# lib/options.py: env wins (0/off/1/on, any case), else the plugin option, else the default.
+opt() { (cd "$ROOT" && env -u CLAUDE_1337_X -u CLAUDE_PLUGIN_OPTION_X "$@" python3 -c 'from lib import options; print(options.opt_on("CLAUDE_1337_X", "CLAUDE_PLUGIN_OPTION_X", True), options.opt_on("CLAUDE_1337_X", "CLAUDE_PLUGIN_OPTION_X", False))'); }
+check_eq "options: unset falls to default" "$(opt)" "True False"
+check_eq "options: option false" "$(opt CLAUDE_PLUGIN_OPTION_X=false)" "False False"
+check_eq "options: option true" "$(opt CLAUDE_PLUGIN_OPTION_X=true)" "True True"
+check_eq "options: env OFF beats option true" "$(opt CLAUDE_1337_X=OFF CLAUDE_PLUGIN_OPTION_X=true)" "False False"
+check_eq "options: env 1 beats option false" "$(opt CLAUDE_1337_X=1 CLAUDE_PLUGIN_OPTION_X=false)" "True True"
+check_eq "options: junk env falls to option" "$(opt CLAUDE_1337_X=maybe CLAUDE_PLUGIN_OPTION_X=false)" "False False"
+
 exit $fail

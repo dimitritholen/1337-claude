@@ -116,7 +116,8 @@ for _ in $(seq 50); do [ -s "$work/port" ] && break; sleep 0.1; done
 export OPENROUTER_BASE_URL="http://127.0.0.1:$(cat "$work/port")"
 export CLAUDE_1337_CREDENTIALS="$work/no-such-file"
 export OPENROUTER_API_KEY="test-key"
-unset TYPESAFE_API_KEY CLAUDE_1337_VISUAL CLAUDE_1337_VISUAL_FLOOR
+unset TYPESAFE_API_KEY CLAUDE_1337_VISUAL CLAUDE_1337_VISUAL_FLOOR CLAUDE_1337_CRITIQUE
+unset CLAUDE_PLUGIN_OPTION_VISUAL_ROUTING CLAUDE_PLUGIN_OPTION_VISUAL_CRITIQUE
 
 check_code() { if [ "$2" -eq "$3" ]; then printf 'ok   %s\n' "$1"; else printf 'FAIL %s (exit %s, want %s): %s\n' "$1" "$2" "$3" "$(cat "$work/stderr")"; fail=1; fi; }
 check_eq() { if [ "$2" = "$3" ]; then printf 'ok   %s\n' "$1"; else printf 'FAIL %s (got %s, want %s)\n' "$1" "$2" "$3"; fail=1; fi; }
@@ -222,6 +223,27 @@ rm -f "$work/flags"
 CLAUDE_1337_VISUAL=0 run "an svg of a cat"
 check_eq "CLAUDE_1337_VISUAL=0: silent" "$out" ""
 check_eq "CLAUDE_1337_VISUAL=0: no request" "$(requests)" "0"
+
+CLAUDE_PLUGIN_OPTION_VISUAL_ROUTING=false run "an svg of a cat"
+check_code "visual_routing option false: exit 0" "$code" 0
+check_eq "visual_routing option false: silent" "$out" ""
+check_eq "visual_routing option false: no request" "$(requests)" "0"
+
+CLAUDE_1337_VISUAL=1 CLAUDE_PLUGIN_OPTION_VISUAL_ROUTING=false run "an svg of a cat"
+check_eq "CLAUDE_1337_VISUAL=1 beats visual_routing option false: routes" "$(ctx | grep -c 'asks for a vector svg')" "1"
+
+CLAUDE_PLUGIN_OPTION_VISUAL_ROUTING=true run "an svg of a cat"
+check_eq "visual_routing option true: routes" "$(ctx | grep -c 'asks for a vector svg')" "1"
+check_eq "default critique: no --no-critique in the command" "$(ctx | grep -c -- '--no-critique')" "0"
+
+CLAUDE_PLUGIN_OPTION_VISUAL_CRITIQUE=false run "an svg of a cat"
+check_eq "visual_critique option false: vector command carries --no-critique" "$(ctx | grep -c 'modality vector_svg.*--no-critique')" "1"
+
+CLAUDE_1337_CRITIQUE=1 CLAUDE_PLUGIN_OPTION_VISUAL_CRITIQUE=false run "an svg of a cat"
+check_eq "CLAUDE_1337_CRITIQUE=1 beats visual_critique option false: no --no-critique" "$(ctx | grep -c -- '--no-critique')" "0"
+
+CLAUDE_1337_CRITIQUE=0 run "Make a short video of a sunrise"
+check_eq "critique off: video command gets no --no-critique" "$(ctx | grep -c -- '--no-critique')" "0"
 
 OPENROUTER_API_KEY= run "an svg of a cat"
 check_code "no key: exit 0" "$code" 0

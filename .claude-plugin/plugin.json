@@ -14,6 +14,49 @@
       "title": "Tiered mode",
       "description": "Before every 1337:builder dispatch, ask Jev (TypeSafe's decision model, through skills/tier/route.py) which model tier the step needs: Haiku, Sonnet or Opus. Needs a stored OpenRouter or TypeSafe key; without one the session sizes steps by hand.",
       "default": false
+    },
+    "terse": {
+      "type": "string",
+      "title": "Terse mode",
+      "description": "Reply word budget (on: 40 words, hard: 12) plus the rule block injected at session start; off disables both. CLAUDE_1337_TERSE overrides it for one shell.",
+      "options": [
+        "off",
+        "on",
+        "hard"
+      ],
+      "default": "on"
+    },
+    "visual_routing": {
+      "type": "boolean",
+      "title": "Visual routing",
+      "description": "UserPromptSubmit hook that suggests an image, SVG, video or speech model for a visual prompt. Each suggestion makes paid Jev and catalogue calls.",
+      "default": true
+    },
+    "visual_critique": {
+      "type": "boolean",
+      "title": "Visual critique",
+      "description": "Vision-model critic pass after every generated image or SVG, with up to two fix rounds. Paid.",
+      "default": true
+    },
+    "review_nudge": {
+      "type": "boolean",
+      "title": "Review nudge",
+      "description": "At the end of a session whose diff is large, offer a /1337:review pass once.",
+      "default": true
+    },
+    "enforce_gates": {
+      "type": "boolean",
+      "title": "Enforce gates",
+      "description": "Route-guard and review-gate refuse builder dispatches and commits that skip the tier router or the review checkpoint. Off leaves those rules as guidance only.",
+      "default": true
+    },
+    "max_edit_lines": {
+      "type": "number",
+      "title": "Max edit lines",
+      "description": "Orchestrator mode's cap on a single main-session edit, in lines; larger edits go to 1337:builder.",
+      "min": 5,
+      "max": 200,
+      "default": 20
     }
   }
 }

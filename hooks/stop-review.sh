@@ -10,11 +10,16 @@
 #
 # Exit 2 + stderr blocks the stop and feeds the nudge to the agent; exit 0 in
 # every other path. Failure never blocks a session.
+#
+# Off switch precedence: an explicit CLAUDE_1337_REVIEW_NUDGE=0 wins, else the
+# plugin option `review_nudge` (CLAUDE_PLUGIN_OPTION_REVIEW_NUDGE=false), else
+# on by default (hooks/lib/mode.sh's opt_on).
 set -u
 
 NUDGE_LINES=30
 
-[ "${CLAUDE_1337_REVIEW_NUDGE:-1}" != "0" ] || exit 0
+. "${0%/*}/lib/mode.sh"
+opt_on CLAUDE_1337_REVIEW_NUDGE CLAUDE_PLUGIN_OPTION_REVIEW_NUDGE true || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 command -v git >/dev/null 2>&1 || exit 0
 

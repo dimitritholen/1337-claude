@@ -463,4 +463,17 @@ t_tool "$(skill_review_line)" "$tr26"
 check_grep 2 '`git diff` has not run since' "diff_re: git difftool: not a diff, refused" \
   "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr26")"
 
+# --- case 27: plugin option `enforce_gates=false` disables the gate, same
+# as CLAUDE_1337_REVIEW_GATE=off ---
+check 0 "enforce_gates=false (option): allowed" \
+  "$MODE_ORCH CLAUDE_PLUGIN_OPTION_ENFORCE_GATES=false" "$(commit_payload "$tr1")"
+
+# --- case 28: an explicit CLAUDE_1337_REVIEW_GATE=on beats enforce_gates=false ---
+check_grep 2 'run since' "CLAUDE_1337_REVIEW_GATE=on beats enforce_gates=false" \
+  "$MODE_ORCH CLAUDE_PLUGIN_OPTION_ENFORCE_GATES=false CLAUDE_1337_REVIEW_GATE=on" "$(commit_payload "$tr1")"
+
+# --- case 29: enforce_gates option absent keeps today's default (gate on) ---
+check_grep 2 'run since' "enforce_gates option absent: keeps today's default (gate on)" \
+  "$MODE_ORCH" "$(commit_payload "$tr1")"
+
 exit $fail

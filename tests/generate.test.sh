@@ -208,6 +208,7 @@ export CLAUDE_1337_POLL_SECONDS=0
 # only the generation call they were written for. The "--- critique (#?) ---"
 # section near the end turns it back on to test the wiring itself.
 export CLAUDE_1337_CRITIQUE=0
+unset CLAUDE_PLUGIN_OPTION_VISUAL_CRITIQUE
 mkdir -p "$work/cwd" && cd "$work/cwd"
 
 check_code() { if [ "$2" -eq "$3" ]; then printf 'ok   %s\n' "$1"; else printf 'FAIL %s (exit %s, want %s): %s\n' "$1" "$2" "$3" "$(cat "$work/stderr")"; fail=1; fi; }
@@ -561,6 +562,14 @@ CLAUDE_1337_CRITIQUE=1 run --model acme/paint --modality raster_image --prompt "
 check_code "--no-critique: still written" "$code" 0
 check_eq "--no-critique: no critique key" "$(field 'has("critique")')" "false"
 check_eq "--no-critique: no critic call" "$(jq -c 'select(.body.messages[0].role=="system")' "$work/requests.jsonl" | wc -l | tr -d ' ')" "0"
+
+CLAUDE_1337_CRITIQUE= CLAUDE_PLUGIN_OPTION_VISUAL_CRITIQUE=false run --model acme/paint --modality raster_image --prompt "A fox, critique option off"
+check_code "visual_critique option false: still written" "$code" 0
+check_eq "visual_critique option false: no critique key" "$(field 'has("critique")')" "false"
+check_eq "visual_critique option false: no critic call" "$(jq -c 'select(.body.messages[0].role=="system")' "$work/requests.jsonl" | wc -l | tr -d ' ')" "0"
+
+CLAUDE_1337_CRITIQUE=1 CLAUDE_PLUGIN_OPTION_VISUAL_CRITIQUE=false run --model acme/paint --modality raster_image --prompt "A fox, env beats option"
+check_eq "CLAUDE_1337_CRITIQUE=1 beats visual_critique option false: critic called" "$(jq -c 'select(.body.messages[0].role=="system")' "$work/requests.jsonl" | wc -l | tr -d ' ')" "1"
 
 CLAUDE_1337_CRITIQUE=1 run --model acme/paint --modality raster_image --prompt "A fox, one fix round" --critic acme/critic-fail-then-pass --rounds 1
 check_code "--rounds 1, failing then passing critic: exit 0" "$code" 0

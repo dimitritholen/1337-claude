@@ -55,6 +55,14 @@ guardrails and the routing to fix that, without changing how you prompt.
 
 **Optional:** Google Chrome or Chromium for `/1337:visual` previews and SVG critique. Without a browser, previews fall back to an HTML file.
 
+## Configuration
+
+Six settings in `/config` control terse mode, visual features, review nudges, and enforcement gates. `CLAUDE_1337_*` env vars override them for one shell.
+
+- `terse` (off/on/hard, default on): reply word budget.
+- `visual_routing`, `visual_critique`, `review_nudge`, `enforce_gates` (all default true): enable features.
+- `max_edit_lines` (5–200, default 20): orchestrator mode edit limit.
+
 ## Install
 
 ```bash

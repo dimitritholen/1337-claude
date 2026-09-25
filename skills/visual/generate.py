@@ -70,7 +70,9 @@ output is not trimmed.
 The stdout JSON gains a "critique" key (critique.run()'s result) and a
 top-level "final" (the critique's final path); "path" and "cost" stay
 the original generation's, so "cost" plus "critique.cost" is the total
-spend. Opt out with --no-critique or CLAUDE_1337_CRITIQUE=0. A critique
+spend. Opt out with --no-critique, CLAUDE_1337_CRITIQUE=0 or, with that
+unset, the plugin option visual_critique=false when its
+CLAUDE_PLUGIN_OPTION_VISUAL_CRITIQUE reaches this process. A critique
 failure (no key, API error, ...) never fails the command: it is a
 stderr note and a {"error": "..."} under "critique".
 
@@ -118,7 +120,7 @@ from datetime import datetime, timedelta, timezone
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, HERE)
-from lib import keys, png  # noqa: E402
+from lib import keys, options, png  # noqa: E402
 import catalogue  # noqa: E402
 import preview  # noqa: E402
 
@@ -699,7 +701,8 @@ def main(argv):
     result = {"path": path, "model": args.model, "modality": args.modality,
               "media_type": media_type, "bytes": len(raw), "cost": cost}
 
-    critique_disabled = args.no_critique or os.environ.get("CLAUDE_1337_CRITIQUE", "1").lower() in ("0", "off", "false")
+    critique_disabled = args.no_critique or not options.opt_on(
+        "CLAUDE_1337_CRITIQUE", "CLAUDE_PLUGIN_OPTION_VISUAL_CRITIQUE")
     preview_target = [path]
     if args.modality in ("raster_image", "vector_svg") and not critique_disabled:
         try:
