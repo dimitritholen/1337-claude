@@ -367,7 +367,10 @@ work when the plugin is installed and used in any folder, not only this one.
   `skills/tier/route.py` prints; once a step's slot is spent it allows
   exactly one further dispatch at that step's routed tier plus one (Opus
   steps get none), consumed the same way and never stacking with an owed
-  tier's own priority. Option `enforce_gates` (env `CLAUDE_1337_ROUTE_GUARD`,
+  tier's own priority. The dispatch whose id is the payload's
+  `tool_use_id`, when already on disk, is not counted as spent; a pending
+  sibling of the same batch is (#781). Option `enforce_gates` (env
+  `CLAUDE_1337_ROUTE_GUARD`,
   default true). Test: `tests/route-guard.test.sh`.
 - `hooks/review-gate.sh`: PreToolUse hook on Bash|Agent|Task, orchestrator
   mode only, that enforces a review checkpoint: after a `1337:builder`
@@ -381,11 +384,17 @@ work when the plugin is installed and used in any folder, not only this one.
   read from the matching `<task-notification>`'s `<result>` instead. A `git
   diff` with git global options in front (`git -C <path> diff`) counts. The gate anchors on the last dispatch that
   actually ran from `hooks/lib/builder-dispatches.jq`, ignoring ones a
-  PreToolUse hook refused. Option `enforce_gates` (env `CLAUDE_1337_REVIEW_GATE`,
+  PreToolUse hook refused, pending ones (no tool_result yet) and, when the
+  payload's `tool_use_id` is among them, every dispatch of its own assistant
+  message, since Claude Code can write the call being judged to the
+  transcript first and a parallel batch is one checkpoint (#781).
+  Option `enforce_gates` (env `CLAUDE_1337_REVIEW_GATE`,
   default true). Test: `tests/review-gate.test.sh`.
 - `hooks/lib/builder-dispatches.jq`: shared jq filter that lists
   `1337:builder` dispatches (Agent or Task tool_use) from a transcript slice,
-  excluding ones a PreToolUse hook refused before they ran. Both
+  excluding ones a PreToolUse hook refused before they ran; each entry
+  carries `pending` (no tool_result yet) and the `message_id` of its
+  assistant line. Both
   `hooks/review-gate.sh` and `hooks/route-guard.sh` call it to anchor on the
   last dispatch that actually spent the slot. Test:
   `tests/builder-dispatches.test.sh`.

@@ -113,10 +113,20 @@ case "$diff_lines" in ''|*[!0-9]*) diff_lines=0 ;; esac
 # hooks/lib/builder-dispatches.jq drops a dispatch a PreToolUse hook
 # refused (it never ran, so grepping the raw tool_use text — the old
 # approach — kept re-anchoring on refusals and never opened the gate
-# again), and keeps pending and self-failed ones.
+# again), and keeps pending and self-failed ones. Claude Code can write the
+# tool_use being judged to the transcript before this hook runs (#781), so
+# the anchor skips pending dispatches and, when the payload's tool_use_id is
+# among them, every dispatch of its own assistant message (a parallel batch
+# is one checkpoint): a previous message's dispatch always has its
+# tool_result before the next assistant message, so a pending dispatch
+# belongs to the current message.
+cur_id=$(printf '%s' "$payload" | jq -r '.tool_use_id // empty' 2>/dev/null) || exit 0
 dispatches_jq="$(dirname "$0")/lib/builder-dispatches.jq"
 builder_ln=$(jq -R -s --argjson offset 0 -f "$dispatches_jq" "$transcript" 2>/dev/null \
-  | jq -r '(last // empty) | .line // empty' 2>/dev/null) || exit 0
+  | jq -r --arg cur "$cur_id" '
+      (if $cur == "" then null else (map(select(.id == $cur)) | .[0].message_id // null) end) as $mid
+      | [.[] | select((.pending | not) and ($mid == null or .message_id != $mid))]
+      | (last // empty) | .line // empty' 2>/dev/null) || exit 0
 
 # No 1337:builder dispatch yet this session: nothing to review.
 [ -n "$builder_ln" ] || exit 0

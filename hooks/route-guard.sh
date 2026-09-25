@@ -204,11 +204,15 @@ fi
 # Only the tail after the marker line matters: dispatches spend the budget
 # in file order. hooks/lib/builder-dispatches.jq drops a dispatch another
 # PreToolUse hook refused (it never ran, so it spent nothing) and keeps
-# pending and self-failed ones.
+# pending and self-failed ones. The dispatch being judged can already be on
+# disk before this hook runs (#781): the one whose id is the payload's
+# tool_use_id has not spent a slot yet and is skipped; a pending sibling
+# from the same parallel batch still counts as spent.
+cur_id=$(printf '%s' "$payload" | jq -r '.tool_use_id // empty' 2>/dev/null) || exit 0
 dispatches_jq="$(dirname "$0")/lib/builder-dispatches.jq"
 dispatched=$(tail -n "+$((marker_ln + 1))" "$transcript" \
   | jq -R -s --argjson offset "$marker_ln" -f "$dispatches_jq" 2>/dev/null \
-  | jq -c '[.[] | (.model // "")]' 2>/dev/null) || exit 0
+  | jq -c --arg cur "$cur_id" '[.[] | select($cur == "" or .id != $cur) | (.model // "")]' 2>/dev/null) || exit 0
 [ -n "$dispatched" ] || exit 0
 
 # Replay the dispatches since the last marker to get the current budget: an

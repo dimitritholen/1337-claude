@@ -378,4 +378,30 @@ sid34="rg-34"
 check_grep 2 'no tier routing this session' "enforce_gates option absent: keeps today's default (guard on)" \
   "$MODE_TIERED" "$(payload 1337:builder haiku "$tr1" "$sid34")"
 
+# --- case 35 (#781): Claude Code can write the dispatch being judged to
+# the transcript before this hook runs. The one whose id is the payload's
+# tool_use_id has spent nothing yet; a pending sibling of the same batch
+# has. ---
+STEPS_OPUS='[{"id":1,"tier":"opus","confidence":0.8,"escalated":false}]'
+msg_agent_line() { # message-id tool-use-id model
+  jq -c -n --arg mid "$1" --arg id "$2" --arg m "$3" \
+    '{type:"assistant",message:{id:$mid,role:"assistant",content:[{type:"tool_use",id:$id,name:"Agent",input:{subagent_type:"1337:builder",model:$m}}]}}'
+}
+payload_id() { # tool-use-id model transcript_path
+  jq -c -n --arg id "$1" --arg m "$2" --arg tr "$3" \
+    '{tool_name:"Agent",tool_use_id:$id,tool_input:{subagent_type:"1337:builder",model:$m},transcript_path:$tr,session_id:"rg-35"}'
+}
+tr35="$TMPDIR/tr35.jsonl"
+t_tool "$(marker_line "$STEPS_OPUS")" "$tr35"
+t_tool "$(msg_agent_line m1 d1 opus)" "$tr35"
+check 0 "#781: current dispatch already on disk is not double-counted: allowed" \
+  "$MODE_TIERED" "$(payload_id d1 opus "$tr35")"
+
+tr35b="$TMPDIR/tr35b.jsonl"
+t_tool "$(marker_line "$STEPS_OPUS")" "$tr35b"
+t_tool "$(msg_agent_line m1 d1 opus)" "$tr35b"
+t_tool "$(msg_agent_line m1 d2 opus)" "$tr35b"
+check_grep 2 'still owes this step (none)' "#781: pending sibling of the same batch still counts as spent: refused" \
+  "$MODE_TIERED" "$(payload_id d2 opus "$tr35b")"
+
 exit $fail

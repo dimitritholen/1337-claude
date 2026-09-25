@@ -27,7 +27,14 @@
 # OUTPUT: a JSON array, oldest dispatch first, one entry per KEPT builder
 # dispatch:
 #   {"id": "<tool_use id>", "name": "Agent"|"Task",
-#    "model": <string|null>, "line": <1-based line number>}
+#    "model": <string|null>, "line": <1-based line number>,
+#    "pending": <bool>, "message_id": <string|null>}
+# `pending` is true when the dispatch has no tool_result yet; `message_id`
+# is the `message.id` of the assistant line holding the tool_use (several
+# tool_uses of one parallel batch share it, each on its own line). Claude
+# Code can write the tool_use line being judged to the transcript before
+# its PreToolUse hook runs (#781), so a caller that anchors on "the last
+# dispatch" must skip pending ones and its own batch itself.
 #
 # KEPT:
 #   - a dispatch with no tool_result yet at all (pending: the call being
@@ -74,10 +81,12 @@ def is_hook_refusal(text):
 # Every builder tool_use, in file order, with its line number.
 ([$lines[] | select(.entry.type == "assistant")
    | .n as $n
+   | (.entry.message.id? // null) as $mid
    | (.entry.message.content? // [])[]?
    | select(.type == "tool_use" and (.name == "Agent" or .name == "Task")
        and ((.input.subagent_type // "") == "1337:builder"))
-   | {id: .id, name: .name, model: (.input.model // null), line: $n}]
+   | {id: .id, name: .name, model: (.input.model // null), line: $n,
+      message_id: (if ($mid | type) == "string" then $mid else null end)}]
 ) as $dispatches
 |
 # A tool_use without an id, or a tool_result without a tool_use_id, cannot
@@ -94,7 +103,7 @@ def is_hook_refusal(text):
  | from_entries
 ) as $results
 |
-[$dispatches[] | select(
-    (if (.id | type) == "string" then $results[.id] else null end) as $text
-    | ($text == null) or (is_hook_refusal($text) | not)
-  )]
+[$dispatches[]
+  | (if (.id | type) == "string" then $results[.id] else null end) as $text
+  | select(($text == null) or (is_hook_refusal($text) | not))
+  | . + {pending: ($text == null)}]
