@@ -107,4 +107,31 @@ else
   fail=1
 fi
 
+# --- pending flag and message_id emitted (#781) ----------------------------
+# Two tool_uses of one assistant message (same message.id, one per line);
+# the first came back, the second is still pending.
+msg_use_line() { # message-id tool-use-id
+  jq -c -n --arg mid "$1" --arg id "$2" \
+    '{type:"assistant",message:{id:$mid,role:"assistant",content:[
+      {type:"tool_use",id:$id,name:"Agent",input:{subagent_type:"1337:builder",model:"sonnet"}}]}}'
+}
+t=$(printf '%s\n%s\n%s\n' "$(msg_use_line m1 id1)" "$(ok_result_line id1)" "$(msg_use_line m1 id2)")
+got=$(run_filter "$t" 0 | jq -c '[.[] | {id, pending, message_id}]')
+want='[{"id":"id1","pending":false,"message_id":"m1"},{"id":"id2","pending":true,"message_id":"m1"}]'
+if [ "$got" = "$want" ]; then
+  printf 'ok   %s\n' "pending flag and message_id emitted"
+else
+  printf 'FAIL %s (got %s, want %s)\n' "pending flag and message_id emitted" "$got" "$want"
+  fail=1
+fi
+
+# A line with no message.id gives message_id null, not a crash.
+got=$(run_filter "$(use_line Agent id1 haiku 1337:builder)" 0 | jq -c '[.[] | {pending, message_id}]')
+if [ "$got" = '[{"pending":true,"message_id":null}]' ]; then
+  printf 'ok   %s\n' "missing message.id gives message_id null"
+else
+  printf 'FAIL %s (got %s)\n' "missing message.id gives message_id null" "$got"
+  fail=1
+fi
+
 exit $fail

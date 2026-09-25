@@ -476,4 +476,70 @@ check_grep 2 'run since' "CLAUDE_1337_REVIEW_GATE=on beats enforce_gates=false" 
 check_grep 2 'run since' "enforce_gates option absent: keeps today's default (gate on)" \
   "$MODE_ORCH" "$(commit_payload "$tr1")"
 
+# --- #781: Claude Code can write the dispatch being judged to the
+# transcript before this hook runs. Lines carry message.id like the real
+# transcript does (one tool_use per line, a parallel batch sharing it). ---
+msg_builder_line() { # message-id tool-use-id
+  jq -c -n --arg mid "$1" --arg id "$2" \
+    '{type:"assistant",message:{id:$mid,role:"assistant",content:[{type:"tool_use",id:$id,name:"Agent",input:{subagent_type:"1337:builder",model:"sonnet"}}]}}'
+}
+dispatch_payload_id() { # tool-use-id transcript_path
+  jq -c -n --arg id "$1" --arg tr "$2" '{tool_name:"Agent",tool_use_id:$id,tool_input:{subagent_type:"1337:builder",model:"sonnet"},transcript_path:$tr,session_id:"s"}'
+}
+
+# --- case 30a: reviewed prior dispatch, the current dispatch already on
+# disk (pending, same tool_use_id as the payload) -> allowed ---
+tr30a="$TMPDIR/tr30a.jsonl"
+t_tool "$(msg_builder_line m1 b1)" "$tr30a"
+t_tool "$(builder_success_result_line b1)" "$tr30a"
+t_tool "$(git_diff_line)" "$tr30a"
+t_tool "$(skill_review_line)" "$tr30a"
+t_tool "$(msg_builder_line m2 b2)" "$tr30a"
+check 0 "#781: current dispatch already on disk after a reviewed one: allowed" \
+  "$MODE_ORCH" "$(dispatch_payload_id b2 "$tr30a")"
+
+# --- case 30b: three dispatches in one message, payload is the third, the
+# first two already came back with launch results -> allowed ---
+tr30b="$TMPDIR/tr30b.jsonl"
+t_tool "$(msg_builder_line m1 b1)" "$tr30b"
+t_tool "$(builder_success_result_line b1)" "$tr30b"
+t_tool "$(git_diff_line)" "$tr30b"
+t_tool "$(skill_review_line)" "$tr30b"
+t_tool "$(msg_builder_line m2 b2)" "$tr30b"
+t_tool "$(builder_success_result_line b2)" "$tr30b"
+t_tool "$(msg_builder_line m2 b3)" "$tr30b"
+t_tool "$(builder_success_result_line b3)" "$tr30b"
+t_tool "$(msg_builder_line m2 b4)" "$tr30b"
+check 0 "#781: third dispatch of one parallel batch, siblings launched: allowed" \
+  "$MODE_ORCH" "$(dispatch_payload_id b4 "$tr30b")"
+
+# --- case 30c: same as 30a but the payload has no tool_use_id -> the
+# pending dispatch is still skipped, allowed ---
+check 0 "#781: current dispatch on disk, payload without tool_use_id: allowed" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr30a")"
+
+# --- case 30d: a prior message's dispatch ran, nothing reviewed it, then a
+# new dispatch (already on disk) -> still refused ---
+tr30d="$TMPDIR/tr30d.jsonl"
+t_tool "$(msg_builder_line m1 b1)" "$tr30d"
+t_tool "$(builder_success_result_line b1)" "$tr30d"
+t_tool "$(msg_builder_line m2 b2)" "$tr30d"
+check_grep 2 'unreviewed' "#781: unreviewed prior message's dispatch: still refused" \
+  "$MODE_ORCH" "$(dispatch_payload_id b2 "$tr30d")"
+
+# --- case 30e: a reviewed batch, then a later message's dispatch that ran
+# unreviewed -> the anchor moves to it, refused ---
+tr30e="$TMPDIR/tr30e.jsonl"
+t_tool "$(msg_builder_line m1 b1)" "$tr30e"
+t_tool "$(builder_success_result_line b1)" "$tr30e"
+t_tool "$(msg_builder_line m1 b2)" "$tr30e"
+t_tool "$(builder_success_result_line b2)" "$tr30e"
+t_tool "$(git_diff_line)" "$tr30e"
+t_tool "$(skill_review_line)" "$tr30e"
+t_tool "$(msg_builder_line m2 b3)" "$tr30e"
+t_tool "$(builder_success_result_line b3)" "$tr30e"
+t_tool "$(msg_builder_line m3 b4)" "$tr30e"
+check_grep 2 'unreviewed' "#781: later message's dispatch after a reviewed batch, unreviewed: refused" \
+  "$MODE_ORCH" "$(dispatch_payload_id b4 "$tr30e")"
+
 exit $fail
