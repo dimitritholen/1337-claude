@@ -60,7 +60,7 @@ guardrails and the routing to fix that, without changing how you prompt.
 Six settings in `/config` control terse mode, visual features, review nudges, and enforcement gates. `CLAUDE_1337_*` env vars override them for one shell.
 
 - `terse` (off/on/hard, default on): reply word budget.
-- `visual_routing`, `visual_critique`, `review_nudge`, `enforce_gates` (all default true): enable features.
+- `visual_routing`, `visual_critique`, `review_nudge`, `enforce_gates` (off/on, all default on): enable features.
 - `max_edit_lines` (5–200, default 20): orchestrator mode edit limit.
 
 ## Install

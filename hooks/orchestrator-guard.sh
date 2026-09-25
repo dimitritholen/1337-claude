@@ -102,7 +102,7 @@ mode_on orchestrator || exit 0
 # option and the env vars are OR'd together, so once the plugin option is
 # on, CLAUDE_1337_ORCHESTRATOR cannot override it back off — only /plugin can.
 jq_off_hint() {
-  if [ "${CLAUDE_PLUGIN_OPTION_ORCHESTRATOR:-false}" = "true" ]; then
+  if _opt_is_on "${CLAUDE_PLUGIN_OPTION_ORCHESTRATOR:-}"; then
     echo 'Or turn orchestrator mode off: the plugin option "orchestrator" is on (change it via /plugin) — CLAUDE_1337_ORCHESTRATOR alone cannot override a plugin option that is on.'
   else
     echo 'Or turn orchestrator mode off: unset CLAUDE_1337_ORCHESTRATOR (or EVAL_CLAUDE_1337_ORCHESTRATOR, whichever is set).'

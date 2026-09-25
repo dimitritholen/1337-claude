@@ -185,5 +185,8 @@ check_eq "options: option true" "$(opt CLAUDE_PLUGIN_OPTION_X=true)" "True True"
 check_eq "options: env OFF beats option true" "$(opt CLAUDE_1337_X=OFF CLAUDE_PLUGIN_OPTION_X=true)" "False False"
 check_eq "options: env 1 beats option false" "$(opt CLAUDE_1337_X=1 CLAUDE_PLUGIN_OPTION_X=false)" "True True"
 check_eq "options: junk env falls to option" "$(opt CLAUDE_1337_X=maybe CLAUDE_PLUGIN_OPTION_X=false)" "False False"
+check_eq "options: option off" "$(opt CLAUDE_PLUGIN_OPTION_X=off)" "False False"
+check_eq "options: option on" "$(opt CLAUDE_PLUGIN_OPTION_X=on)" "True True"
+check_eq "options: option ON any case" "$(opt CLAUDE_PLUGIN_OPTION_X=ON)" "True True"
 
 exit $fail

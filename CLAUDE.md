@@ -6,10 +6,12 @@ work when the plugin is installed and used in any folder, not only this one.
 ## Layout
 
 - `.claude-plugin/plugin.json`: plugin manifest; the name `1337` gives every
-  skill the `/1337:` prefix. `userConfig` besides `orchestrator` and `tiered`
-  adds one choice (`terse`: off/on/hard, default on), four booleans
+  skill the `/1337:` prefix. `userConfig`'s `orchestrator` and `tiered` are
+  off/on choices (both default off, so the /config picker renders a
+  `< off >` toggle instead of free text), alongside one three-way choice
+  (`terse`: off/on/hard, default on), four more off/on choices
   (`visual_routing`, `visual_critique`, `review_nudge`, `enforce_gates`,
-  all default true) and one number (`max_edit_lines`, default 20, 5–200).
+  all default on) and one number (`max_edit_lines`, default 20, 5–200).
   Precedence everywhere: explicit `CLAUDE_1337_*` env var wins, then `/config`
   option, then default.
 - `.claude-plugin/marketplace.json`: makes this repo the `1337-claude` marketplace,

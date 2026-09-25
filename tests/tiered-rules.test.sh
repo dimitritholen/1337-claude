@@ -50,4 +50,12 @@ check nonempty "CLAUDE_1337_TIERED=1 with plugin option false: rules printed" \
 check nonempty "EVAL_CLAUDE_1337_TIERED=1 alone: rules printed" \
   CLAUDE_PLUGIN_OPTION_TIERED=false CLAUDE_1337_TIERED=0 EVAL_CLAUDE_1337_TIERED=1
 
+check empty "plugin option off: stdout empty" CLAUDE_PLUGIN_OPTION_TIERED=off CLAUDE_1337_TIERED=0
+
+out=$(env CLAUDE_PLUGIN_OPTION_TIERED=on "$HOOK" 2>/dev/null)
+case "$out" in
+  '# Tiered mode'*) printf 'ok   %s\n' "plugin option on (string): starts with '# Tiered mode'" ;;
+  *) printf 'FAIL %s\n' "plugin option on (string): starts with '# Tiered mode'"; fail=1 ;;
+esac
+
 exit $fail

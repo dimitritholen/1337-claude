@@ -74,6 +74,16 @@ seq 1 40 > "$repo/a.txt"
 CLAUDE_PLUGIN_OPTION_REVIEW_NUDGE=false check 0 "review_nudge=false (option): quiet" \
   "$(payload "$sid_optfalse" "$repo")"
 
+sid_optoff="$sid-optoff"
+seq 1 40 > "$repo/a.txt"
+CLAUDE_PLUGIN_OPTION_REVIEW_NUDGE=off check 0 "review_nudge=off (option): quiet" \
+  "$(payload "$sid_optoff" "$repo")"
+
+sid_opton="$sid-opton"
+seq 1 40 > "$repo/a.txt"
+CLAUDE_PLUGIN_OPTION_REVIEW_NUDGE=on check 2 "review_nudge=on (option): nudge fires" \
+  "$(payload "$sid_opton" "$repo")"
+
 sid_envbeats="$sid-envbeats"
 seq 1 40 > "$repo/a.txt"
 CLAUDE_1337_REVIEW_NUDGE=1 CLAUDE_PLUGIN_OPTION_REVIEW_NUDGE=false \

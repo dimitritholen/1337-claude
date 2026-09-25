@@ -1,6 +1,7 @@
 """Boolean plugin switches: env var (0/off/false off; 1/on/true on, case-insensitive)
-wins, else CLAUDE_PLUGIN_OPTION_<KEY>, else default. Python twin of hooks/lib/mode.sh.
-Stdlib only."""
+wins, else CLAUDE_PLUGIN_OPTION_<KEY> (on/off, or true/false from a config saved
+before the userConfig picker switched to strings), else default. Python twin of
+hooks/lib/mode.sh. Stdlib only."""
 
 import os
 
@@ -15,9 +16,9 @@ def opt_on(env_name, option_name, default=True):
         return False
     if env_val in _ON:
         return True
-    opt_val = os.environ.get(option_name, "")
-    if opt_val == "true":
+    opt_val = os.environ.get(option_name, "").strip().lower()
+    if opt_val in _ON:
         return True
-    if opt_val == "false":
+    if opt_val in _OFF:
         return False
     return bool(default)
