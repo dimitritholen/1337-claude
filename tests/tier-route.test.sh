@@ -322,6 +322,17 @@ check_code "openrouter transport: routed" "$code" 0
 check_eq "openrouter path" "$(cat "$work/last-path.txt")" "/api/alpha/decisions"
 check_eq "openrouter model in the request" "$(jq -r .model "$work/last-request.json")" "typesafe/jev-1.13"
 
+# "off" falls through to Jev, in every source. Placed here, before the
+# slow/delayed-server tests below: the stand-in is single-threaded, and a
+# request issued while an earlier slow handler is still sleeping server-side
+# would itself hang.
+rm -f "$work/last-request.json"
+CLAUDE_1337_TIER_MODEL=off run "$three"
+check_code "off falls through to Jev: routed" "$code" 0
+check_eq "off routes normally" "$(printf '%s' "$out" | jq -c '[.steps[].tier]')" '["haiku","sonnet","opus"]'
+check_eq "off reaches the API" "$([ -f "$work/last-request.json" ] && echo yes || echo no)" "yes"
+check_eq "no override key when off" "$(printf '%s' "$out" | jq 'has("override")')" "false"
+
 # Timeout behaviour: delayed ~6s succeeds with the default 20s timeout.
 delayed='{"task":"t","steps":[{"id":1,"title":"Delayed step"}]}'
 run "$delayed"
@@ -366,5 +377,62 @@ for f in "$ROOT/skills/tier/route.py" "$ROOT/hooks/tiered.md" "$ROOT/skills/tier
     printf 'FAIL %s\n' "exit-3 setup path named in $(basename "$f")"; fail=1
   fi
 done
+
+# --- forced-tier override --------------------------------------------
+
+rm -f "$work/last-request.json"
+override_input='{"task":"t","steps":[{"id":1,"title":"Rename helper"},{"id":2,"title":"Concurrency lock"}],"model":"opus"}'
+run "$override_input"
+check_code "override via input field: routed" "$code" 0
+check_eq "override forces every step to opus" "$(printf '%s' "$out" | jq -c '[.steps[].tier]')" '["opus","opus"]'
+check_eq "override confidence is 1.0" "$(printf '%s' "$out" | jq -c '[.steps[].confidence]')" '[1.0,1.0]'
+check_eq "override never escalates" "$(printf '%s' "$out" | jq -c '[.steps[].escalated]')" '[false,false]'
+check_eq "override key in main output" "$(printf '%s' "$out" | jq -r '.override')" "opus"
+check_eq "no request reached the stand-in API (input override)" "$([ -f "$work/last-request.json" ] && echo yes || echo no)" "no"
+check_eq "marker carries the override" "$(printf '%s' "$marker" | sed 's/^1337-tier-route: //' | jq -r '.override')" "opus"
+check_eq "marker forces every step" "$(printf '%s' "$marker" | sed 's/^1337-tier-route: //' | jq -c '[.steps[].tier]')" '["opus","opus"]'
+check_no_failure_marker "override via input: no failure marker"
+
+# Override needs no key at all.
+rm -f "$work/last-request.json"
+TYPESAFE_API_KEY= OPENROUTER_API_KEY= CLAUDE_1337_CREDENTIALS="$work/no-such-credentials" run "$override_input"
+check_code "override needs no key" "$code" 0
+check_eq "no request reached the API without a key" "$([ -f "$work/last-request.json" ] && echo yes || echo no)" "no"
+
+# Override via env.
+rm -f "$work/last-request.json"
+CLAUDE_1337_TIER_MODEL=haiku run "$three"
+check_code "override via env: routed" "$code" 0
+check_eq "env override forces haiku" "$(printf '%s' "$out" | jq -c '[.steps[].tier]')" '["haiku","haiku","haiku"]'
+check_eq "no request reached the API (env override)" "$([ -f "$work/last-request.json" ] && echo yes || echo no)" "no"
+
+# Override via /config option.
+rm -f "$work/last-request.json"
+CLAUDE_PLUGIN_OPTION_TIER_MODEL=sonnet run "$three"
+check_code "override via option: routed" "$code" 0
+check_eq "option override forces sonnet" "$(printf '%s' "$out" | jq -c '[.steps[].tier]')" '["sonnet","sonnet","sonnet"]'
+check_eq "no request reached the API (option override)" "$([ -f "$work/last-request.json" ] && echo yes || echo no)" "no"
+
+# Precedence: input beats env beats option.
+override_and_env='{"task":"t","steps":[{"id":1,"title":"x"}],"model":"haiku"}'
+CLAUDE_1337_TIER_MODEL=opus CLAUDE_PLUGIN_OPTION_TIER_MODEL=sonnet run "$override_and_env"
+check_eq "input override wins over env and option" "$(printf '%s' "$out" | jq -r '.steps[0].tier')" "haiku"
+
+CLAUDE_1337_TIER_MODEL=opus CLAUDE_PLUGIN_OPTION_TIER_MODEL=sonnet run "$three"
+check_eq "env override wins over option" "$(printf '%s' "$out" | jq -r '.steps[0].tier')" "opus"
+
+# A bad value in each source exits 2.
+badinput='{"task":"t","steps":[{"id":1,"title":"x"}],"model":"medium"}'
+run "$badinput"
+check_code "bad override in input: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (bad input override)" 2
+
+CLAUDE_1337_TIER_MODEL=medium run "$three"
+check_code "bad override in env: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (bad env override)" 2
+
+CLAUDE_PLUGIN_OPTION_TIER_MODEL=medium run "$three"
+check_code "bad override in option: exit 2" "$code" 2
+check_failure_marker "failure marker printed on exit 2 (bad option override)" 2
 
 exit $fail

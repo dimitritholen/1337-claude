@@ -88,6 +88,12 @@ from collections import defaultdict
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROUTE_PY = os.path.join(PLUGIN_ROOT, "skills", "tier", "route.py")
 
+# This eval measures Jev, never a forced tier: a user's own override left in
+# the environment must not leak into route.py's own subprocess call below
+# (env=None there inherits this process's environment as-is).
+os.environ.pop("CLAUDE_1337_TIER_MODEL", None)
+os.environ.pop("CLAUDE_PLUGIN_OPTION_TIER_MODEL", None)
+
 # route.py has no package to import from; loaded by path, as tools/tier-eval.py does.
 _route_spec = importlib.util.spec_from_file_location("tier_route", ROUTE_PY)
 tier_route = importlib.util.module_from_spec(_route_spec)

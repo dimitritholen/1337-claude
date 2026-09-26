@@ -209,4 +209,14 @@ check_code "gold outside TIERS: exit 2" "$?" 2
 python3 "$SCRIPT" --fixture "$fixture" --dry-run --variant nonsense >/dev/null 2>"$work/stderr"
 check_code "unknown variant: exit 2" "$?" 2
 
+# A forced-tier override left in the environment must not survive loading
+# this eval: it measures Jev, never a forced tier.
+override_cleared=$(CLAUDE_1337_TIER_MODEL=opus CLAUDE_PLUGIN_OPTION_TIER_MODEL=opus python3 -c "
+import os, runpy
+runpy.run_path('$SCRIPT')
+print('cleared' if 'CLAUDE_1337_TIER_MODEL' not in os.environ
+      and 'CLAUDE_PLUGIN_OPTION_TIER_MODEL' not in os.environ else 'leaked')
+")
+check_eq "loading tier-eval.py clears the forced-tier override vars" "$override_cleared" "cleared"
+
 exit $fail

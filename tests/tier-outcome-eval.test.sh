@@ -214,4 +214,14 @@ check_eq "no leftover git worktrees under this run's TMPDIR" "$leftover_wt" "0"
 leftover=$(find "$TMPDIR" -maxdepth 1 -name '1337-outcome-*' 2>/dev/null | wc -l | tr -d ' ')
 check_eq "no leftover 1337-outcome-* temp dirs under this run's TMPDIR" "$leftover" "0"
 
+# A forced-tier override left in the environment must not reach route.py's
+# own subprocess call: this harness measures Jev, never a forced tier.
+override_cleared=$(CLAUDE_1337_TIER_MODEL=opus CLAUDE_PLUGIN_OPTION_TIER_MODEL=opus python3 -c "
+import os, runpy
+runpy.run_path('$SCRIPT')
+print('cleared' if 'CLAUDE_1337_TIER_MODEL' not in os.environ
+      and 'CLAUDE_PLUGIN_OPTION_TIER_MODEL' not in os.environ else 'leaked')
+")
+check_eq "loading tier-outcome-eval.py clears the forced-tier override vars" "$override_cleared" "cleared"
+
 exit $fail

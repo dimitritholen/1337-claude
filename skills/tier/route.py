@@ -13,6 +13,14 @@ At most five steps, and ids (when given) must be unique; a step without an
 id falls back to its position. `previous_attempt` is optional; when given,
 its `tier` must be one of "haiku", "sonnet", "opus".
 
+An optional top-level `"model"` field forces every step to one tier, no Jev
+call and no key needed: "haiku", "sonnet" or "opus", case-insensitive.
+CLAUDE_1337_TIER_MODEL and then CLAUDE_PLUGIN_OPTION_TIER_MODEL (the /config
+option) are the same override from the environment; first one set wins.
+"off" or empty means no override. Under an override the output gains a
+top-level `"override"` key and every step comes back with confidence 1.0,
+unescalated, `previous_attempt` ignored.
+
 Output: JSON on stdout, one entry per step in input order:
 
     {"model": "jev-1.12",
@@ -120,6 +128,7 @@ def read_input(argv):
 
     task = data.get("task") if isinstance(data, dict) else None
     steps = data.get("steps") if isinstance(data, dict) else None
+    model_override = data.get("model") if isinstance(data, dict) else None
     if not isinstance(task, str) or not task.strip():
         fail(2, 'input needs a non-empty "task" string')
     if not isinstance(steps, list) or not steps:
@@ -141,23 +150,52 @@ def read_input(argv):
         if step_id in seen_ids:
             fail(2, f"duplicate step id: {step_id!r}")
         seen_ids.add(step_id)
-    return task, steps
+    return task, steps, model_override
 
 
 def escalate(tier):
     return TIERS[min(TIERS.index(tier) + 1, len(TIERS) - 1)]
 
 
-def main(argv):
-    task, steps = read_input(argv)
+def resolve_override(input_override):
+    """A forced-tier override that skips Jev entirely: every step runs on
+    the one tier named here. First source that is set wins, whatever its
+    value: the input's own top-level "model" field, then
+    CLAUDE_1337_TIER_MODEL, then CLAUDE_PLUGIN_OPTION_TIER_MODEL (the
+    /config option, added later). "off" or empty means no override --
+    route through Jev as usual. Anything else must be a bare tier name
+    (case- and whitespace-insensitive, like a Jev answer); anything else
+    fails the same way a bad previous_attempt.tier does."""
+    for source, raw in (
+        ('the input\'s "model" field', input_override),
+        ("CLAUDE_1337_TIER_MODEL", os.environ.get("CLAUDE_1337_TIER_MODEL")),
+        ("CLAUDE_PLUGIN_OPTION_TIER_MODEL", os.environ.get("CLAUDE_PLUGIN_OPTION_TIER_MODEL")),
+    ):
+        if raw is None:
+            continue
+        if not isinstance(raw, str):
+            fail(2, f"{source} must be a string, got {raw!r}")
+        value = raw.strip().lower()
+        if value in ("", "off"):
+            return None
+        if value not in TIERS:
+            fail(2, f'{source} must be one of {TIERS} or "off", got {raw!r}')
+        return value
+    return None
 
-    try:
-        jev.transport()
-    except keys.MissingKey:
-        fail(3, "no key: run /1337:visual setup once, or export "
-                "OPENROUTER_API_KEY (or TYPESAFE_API_KEY)")
-    except keys.UnsafeFile as e:
-        fail(3, str(e))
+
+def main(argv):
+    task, steps, input_override = read_input(argv)
+    override = resolve_override(input_override)
+
+    if override is None:
+        try:
+            jev.transport()
+        except keys.MissingKey:
+            fail(3, "no key: run /1337:visual setup once, or export "
+                    "OPENROUTER_API_KEY (or TYPESAFE_API_KEY)")
+        except keys.UnsafeFile as e:
+            fail(3, str(e))
 
     floor_raw = os.environ.get("CLAUDE_1337_TIER_FLOOR", str(DEFAULT_FLOOR))
     try:
@@ -175,64 +213,82 @@ def main(argv):
     except ValueError:
         timeout = 20.0
 
-    # Every step goes into one state so each question can name its own step
-    # and still see the others: the same rename is haiku in a script and
-    # sonnet next to a public API.
-    step_keys = [f"step_{i}" for i in range(len(steps))]
-    steps_state = {}
-    for key, step in zip(step_keys, steps):
-        entry = {"title": step["title"], "brief": step.get("brief", "")}
-        if step.get("previous_attempt"):
-            entry["previous_attempt"] = step["previous_attempt"]
-        steps_state[key] = entry
-    state = {"task": task, "steps": steps_state}
-    questions = {key: jev.choice(instructions(key), CRITERIA) for key in step_keys}
-
-    try:
-        response = jev.decide(state, questions, timeout=timeout)
-    except jev.JevError as e:
-        fail(4, f"Jev call failed: {e}")
-    if not response.get("model"):
-        fail(4, f"Jev response had no model: {response!r}")
-
-    routed = []
-    for key, step in zip(step_keys, steps):
-        answer = response["answers"][key]
-        if not isinstance(answer, dict):
-            fail(4, f"Jev answered {key} with {answer!r}, not an answer object")
-        tier = answer.get("choice")
-        if isinstance(tier, str):
-            tier = tier.strip().lower()
-        if tier not in TIERS:
-            fail(4, f"Jev answered {key} with {answer.get('choice')!r}, not one of {TIERS}")
-        raw_confidence = answer.get("confidence")
-        if raw_confidence is None:
-            print(f"tier-route: {key} came back with no confidence; not escalating it",
-                  file=sys.stderr)
-            confidence = None
-            escalated = False
-        else:
-            try:
-                confidence = float(raw_confidence)
-            except (TypeError, ValueError):
-                fail(4, f"Jev answered {key} with a non-numeric confidence: {raw_confidence!r}")
-            escalated = confidence < floor and tier != TIERS[-1]
-        if escalated:
-            tier = escalate(tier)
-        probabilities = answer.get("probabilities") or {}
-        routed.append(
+    if override is not None:
+        # No Jev call at all: every step is forced to the override tier,
+        # full confidence, never escalated, previous_attempt ignored.
+        reported_model = "override"
+        routed = [
             {
-                "id": step.get("id", step_keys.index(key) + 1),
-                "tier": tier,
-                "confidence": round(confidence, 3) if confidence is not None else None,
-                "probabilities": {
-                    t: round(float(probabilities.get(t, 0.0)), 3) for t in TIERS
-                },
-                "escalated": escalated,
+                "id": step.get("id", i + 1),
+                "tier": override,
+                "confidence": 1.0,
+                "probabilities": {t: (1.0 if t == override else 0.0) for t in TIERS},
+                "escalated": False,
             }
-        )
+            for i, step in enumerate(steps)
+        ]
+    else:
+        # Every step goes into one state so each question can name its own
+        # step and still see the others: the same rename is haiku in a
+        # script and sonnet next to a public API.
+        step_keys = [f"step_{i}" for i in range(len(steps))]
+        steps_state = {}
+        for key, step in zip(step_keys, steps):
+            entry = {"title": step["title"], "brief": step.get("brief", "")}
+            if step.get("previous_attempt"):
+                entry["previous_attempt"] = step["previous_attempt"]
+            steps_state[key] = entry
+        state = {"task": task, "steps": steps_state}
+        questions = {key: jev.choice(instructions(key), CRITERIA) for key in step_keys}
 
-    main_output = {"model": response["model"], "floor": floor, "steps": routed}
+        try:
+            response = jev.decide(state, questions, timeout=timeout)
+        except jev.JevError as e:
+            fail(4, f"Jev call failed: {e}")
+        if not response.get("model"):
+            fail(4, f"Jev response had no model: {response!r}")
+        reported_model = response["model"]
+
+        routed = []
+        for key, step in zip(step_keys, steps):
+            answer = response["answers"][key]
+            if not isinstance(answer, dict):
+                fail(4, f"Jev answered {key} with {answer!r}, not an answer object")
+            tier = answer.get("choice")
+            if isinstance(tier, str):
+                tier = tier.strip().lower()
+            if tier not in TIERS:
+                fail(4, f"Jev answered {key} with {answer.get('choice')!r}, not one of {TIERS}")
+            raw_confidence = answer.get("confidence")
+            if raw_confidence is None:
+                print(f"tier-route: {key} came back with no confidence; not escalating it",
+                      file=sys.stderr)
+                confidence = None
+                escalated = False
+            else:
+                try:
+                    confidence = float(raw_confidence)
+                except (TypeError, ValueError):
+                    fail(4, f"Jev answered {key} with a non-numeric confidence: {raw_confidence!r}")
+                escalated = confidence < floor and tier != TIERS[-1]
+            if escalated:
+                tier = escalate(tier)
+            probabilities = answer.get("probabilities") or {}
+            routed.append(
+                {
+                    "id": step.get("id", step_keys.index(key) + 1),
+                    "tier": tier,
+                    "confidence": round(confidence, 3) if confidence is not None else None,
+                    "probabilities": {
+                        t: round(float(probabilities.get(t, 0.0)), 3) for t in TIERS
+                    },
+                    "escalated": escalated,
+                }
+            )
+
+    main_output = {"model": reported_model, "floor": floor, "steps": routed}
+    if override is not None:
+        main_output["override"] = override
     json.dump(main_output, sys.stdout)
     print()
 
@@ -247,10 +303,12 @@ def main(argv):
         for step in routed
     ]
     marker = {
-        "model": response["model"],
+        "model": reported_model,
         "floor": floor,
         "steps": marker_steps,
     }
+    if override is not None:
+        marker["override"] = override
     print(f"1337-tier-route: {json.dumps(marker, separators=(',', ':'))}")
 
 

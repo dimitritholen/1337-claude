@@ -55,6 +55,11 @@ PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PLUGIN_ROOT)
 from lib import jev, keys  # noqa: E402
 
+# This eval measures Jev, never a forced tier: a user's own override left in
+# the environment must not leak in here.
+os.environ.pop("CLAUDE_1337_TIER_MODEL", None)
+os.environ.pop("CLAUDE_PLUGIN_OPTION_TIER_MODEL", None)
+
 # route.py lives under skills/tier/ with no __init__.py, so it is loaded by
 # path rather than imported as a package -- this is the "import, don't copy"
 # route the brief asks for, without turning skills/tier into a package.

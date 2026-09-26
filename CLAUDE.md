@@ -218,8 +218,14 @@ work when the plugin is installed and used in any folder, not only this one.
   carry an optional `previous_attempt: {"tier": ..., "outcome": "..."}`,
   forwarded into that step's state as-is; a bad `tier` there exits 2. Needs a
   stored OpenRouter or TypeSafe key. The API timeout is 20 seconds by default;
-  `CLAUDE_1337_TIER_TIMEOUT` (seconds, float) overrides it. Test:
-  `tests/tier-route.test.sh` (stand-in API, no key).
+  `CLAUDE_1337_TIER_TIMEOUT` (seconds, float) overrides it. A forced-tier
+  override skips Jev entirely and needs no key: the input's own top-level
+  `"model"` field, else `CLAUDE_1337_TIER_MODEL`, else
+  `CLAUDE_PLUGIN_OPTION_TIER_MODEL` (the /config option), first one set
+  wins; `off` or empty falls through to Jev as usual. `tools/tier-eval.py`
+  and `tools/tier-outcome-eval.py` clear both override env vars on import,
+  so they always measure Jev. Test: `tests/tier-route.test.sh` (stand-in
+  API, no key).
 - `tools/tier-eval.py`: offline eval harness that scores question-design
   variants for `skills/tier/route.py` against a fixture of known-tier steps
   before a wording change goes live. `current` imports route.py's own
