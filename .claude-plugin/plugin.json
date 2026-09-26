@@ -23,6 +23,18 @@
       ],
       "default": "off"
     },
+    "tier_model": {
+      "type": "string",
+      "title": "Tier model override",
+      "description": "One model for every tiered-mode builder dispatch instead of Jev's pick; off lets Jev route.",
+      "options": [
+        "off",
+        "haiku",
+        "sonnet",
+        "opus"
+      ],
+      "default": "off"
+    },
     "terse": {
       "type": "string",
       "title": "Terse mode",

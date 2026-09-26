@@ -9,7 +9,8 @@ work when the plugin is installed and used in any folder, not only this one.
   skill the `/1337:` prefix. `userConfig`'s `orchestrator` and `tiered` are
   off/on choices (both default off, so the /config picker renders a
   `< off >` toggle instead of free text), alongside one three-way choice
-  (`terse`: off/on/hard, default on), four more off/on choices
+  (`terse`: off/on/hard, default on), one four-way choice (`tier_model`:
+  off/haiku/sonnet/opus, default off), four more off/on choices
   (`visual_routing`, `visual_critique`, `review_nudge`, `enforce_gates`,
   all default on) and one number (`max_edit_lines`, default 20, 5–200).
   Precedence everywhere: explicit `CLAUDE_1337_*` env var wins, then `/config`

@@ -162,7 +162,7 @@ def resolve_override(input_override):
     the one tier named here. First source that is set wins, whatever its
     value: the input's own top-level "model" field, then
     CLAUDE_1337_TIER_MODEL, then CLAUDE_PLUGIN_OPTION_TIER_MODEL (the
-    /config option, added later). "off" or empty means no override --
+    /config option). "off" or empty means no override --
     route through Jev as usual. Anything else must be a bare tier name
     (case- and whitespace-insensitive, like a Jev answer); anything else
     fails the same way a bad previous_attempt.tier does."""
