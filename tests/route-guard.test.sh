@@ -404,4 +404,46 @@ t_tool "$(msg_agent_line m1 d2 opus)" "$tr35b"
 check_grep 2 'still owes this step (none)' "#781: pending sibling of the same batch still counts as spent: refused" \
   "$MODE_TIERED" "$(payload_id d2 opus "$tr35b")"
 
+# --- case 36-39 (forced-tier override, commit 6fda24d): route.py's
+# forced-tier marker carries model:"override" and an extra top-level
+# "override" field naming the forced tier; hooks/route-guard.sh only reads
+# steps[].tier, so it accepts this unchanged. ---
+override_marker_line() { # steps-json (compact array) forced-tier
+  jq -c -n --arg steps "$1" --arg tier "$2" \
+    '{model:"override", floor:0.6, override:$tier} + {steps:($steps|fromjson)}
+     | "1337-tier-route: " + (tostring)' \
+  | jq -c -n --argjson body "$(cat)" \
+    '{type:"user",message:{role:"user",content:[{type:"tool_result",content:$body}]}}'
+}
+STEPS2_OPUS='[{"id":1,"tier":"opus","confidence":1.0,"escalated":false},{"id":2,"tier":"opus","confidence":1.0,"escalated":false}]'
+
+# case 36: override marker, no dispatches yet -> first opus dispatch allowed
+sid36="rg-36"; tr36="$TMPDIR/tr36.jsonl"
+t_tool "$(override_marker_line "$STEPS2_OPUS" opus)" "$tr36"
+check 0 "forced-tier override: first opus dispatch allowed" \
+  "$MODE_TIERED" "$(payload 1337:builder opus "$tr36" "$sid36")"
+
+# case 37: one opus dispatch already ran -> second opus dispatch allowed
+sid37="rg-37"; tr37="$TMPDIR/tr37.jsonl"
+t_tool "$(override_marker_line "$STEPS2_OPUS" opus)" "$tr37"
+t_tool "$(agent_line Agent 1337:builder opus)" "$tr37"
+check 0 "forced-tier override: second opus dispatch allowed" \
+  "$MODE_TIERED" "$(payload 1337:builder opus "$tr37" "$sid37")"
+
+# case 38: override marker, no dispatches yet -> a sonnet dispatch is
+# refused (tier not owed, no retry path either)
+sid38="rg-38"; tr38="$TMPDIR/tr38.jsonl"
+t_tool "$(override_marker_line "$STEPS2_OPUS" opus)" "$tr38"
+check_grep 2 'still owes this step (opus, opus)' "forced-tier override: sonnet dispatch refused (tier not owed)" \
+  "$MODE_TIERED" "$(payload 1337:builder sonnet "$tr38" "$sid38")"
+
+# case 39: both opus slots spent -> a third dispatch is refused, no
+# one-tier-up retry exists past opus
+sid39="rg-39"; tr39="$TMPDIR/tr39.jsonl"
+t_tool "$(override_marker_line "$STEPS2_OPUS" opus)" "$tr39"
+t_tool "$(agent_line Agent 1337:builder opus)" "$tr39"
+t_tool "$(agent_line Agent 1337:builder opus)" "$tr39"
+check_grep 2 'still owes this step (none)' "forced-tier override: both slots spent, third dispatch refused" \
+  "$MODE_TIERED" "$(payload 1337:builder opus "$tr39" "$sid39")"
+
 exit $fail
