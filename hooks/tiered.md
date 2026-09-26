@@ -16,6 +16,13 @@ model, not from your own read of the step.
 - Call `1337:builder` with `model` set to the `tier` the router printed for
   that step. A step marked `escalated: true` already moved one tier up; do
   not raise it again.
+- When the user names a model for the work ("build this on opus", "all
+  haiku"), add `"model": "<tier>"` to the router input instead of letting
+  Jev pick, and keep it on every routing call for that feature until the
+  user says otherwise; `"model": "off"` hands a /config `tier_model` default
+  back to Jev. Name the tier with "(override)" instead of Jev's confidence
+  in the dispatch line. A step forced to Opus gets no one-tier-up retry, so
+  a failed check goes straight to your own diagnosis.
 - A single-step change still goes through the router: one step, one call.
 - This is enforced, not advice: a hook refuses a `1337:builder` dispatch when
   the router never ran this session, when every routed step is already

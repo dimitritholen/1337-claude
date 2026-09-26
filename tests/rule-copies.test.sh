@@ -226,5 +226,12 @@ done
 [ "$lint_fail" -eq 0 ] && printf 'ok   no GNU-only escapes in =~ regexes under hooks/\n'
 [ "$lint_fail" -eq 0 ] || fail=1
 
+# Drift check 7: hooks/tiered.md and skills/tier/SKILL.md agree on what
+# `"model": "off"` does (the tier_model /config default handed back to Jev).
+need "hooks/tiered.md" \
+  'hands a /config `tier_model` default' "model override hand-back (tiered.md)"
+need "skills/tier/SKILL.md" \
+  'hands a /config `tier_model` default' "model override hand-back (SKILL.md)"
+
 [ "$fail" -eq 0 ] && printf 'ok   all shared rule copies aligned\n'
 exit $fail

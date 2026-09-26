@@ -54,6 +54,10 @@ that already failed once at a lower tier can carry
 alongside its title and brief, so the router weighs the failure when
 picking the next tier.
 
+When the user names a model for the work, add `"model": "<tier>"` to the
+input instead of letting Jev pick — every step comes back at that tier, no
+Jev call; `"model": "off"` hands a /config `tier_model` default back to Jev.
+
 A non-zero exit means no routing happened: 3 is a missing key (offer
 `/1337:visual setup` once, which stores it for good), 4 a failed call, and
 stderr says which. Size the steps by hand with the Tiers above and

@@ -44,6 +44,12 @@ else
   printf 'FAIL %s\n' "contains absolute route.py path"; fail=1
 fi
 
+if printf '%s' "$out" | grep -qF '"model": "<tier>"'; then
+  printf 'ok   %s\n' "mentions the model override field"
+else
+  printf 'FAIL %s\n' "mentions the model override field"; fail=1
+fi
+
 check nonempty "CLAUDE_1337_TIERED=1 with plugin option false: rules printed" \
   CLAUDE_PLUGIN_OPTION_TIERED=false CLAUDE_1337_TIERED=1
 
