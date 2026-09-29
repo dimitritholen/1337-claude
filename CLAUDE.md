@@ -10,11 +10,19 @@ work when the plugin is installed and used in any folder, not only this one.
   off/on choices (both default off, so the /config picker renders a
   `< off >` toggle instead of free text), alongside one three-way choice
   (`terse`: off/on/hard, default on), one four-way choice (`tier_model`:
-  off/haiku/sonnet/opus, default off), four more off/on choices
+  off/haiku/sonnet/opus, default off), one design-system choice
+  (`design_system`: meridian/builtin, default meridian), four more off/on choices
   (`visual_routing`, `visual_critique`, `review_nudge`, `enforce_gates`,
   all default on) and one number (`max_edit_lines`, default 20, 5–200).
   Precedence everywhere: explicit `CLAUDE_1337_*` env var wins, then `/config`
   option, then default.
+- `lib/design_system.py`: resolves `design_system`
+  (`CLAUDE_1337_DESIGN_SYSTEM`, then the option, then `meridian`). Run as
+  `python3 "${CLAUDE_PLUGIN_ROOT}/lib/design_system.py"`, it prints
+  `<name> <absolute dir>` or `builtin`, and exits 2 naming the valid values
+  for anything else. Valid: `builtin` plus every `design-systems/<name>/`
+  holding an `AI_AUTHORING.md`; a new design system also needs its name in
+  plugin.json's `options` so `/config` offers it.
 - `.claude-plugin/marketplace.json`: makes this repo the `1337-claude` marketplace,
   so the plugin installs as `1337@1337-claude`.
 - `skills/<name>/SKILL.md`: one folder per skill.

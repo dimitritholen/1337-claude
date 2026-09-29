@@ -57,9 +57,10 @@ guardrails and the routing to fix that, without changing how you prompt.
 
 ## Configuration
 
-Six settings in `/config` control terse mode, visual features, review nudges, and enforcement gates. `CLAUDE_1337_*` env vars override them for one shell.
+Seven settings in `/config` control terse mode, the design system, visual features, review nudges, and enforcement gates. `CLAUDE_1337_*` env vars override them for one shell.
 
 - `terse` (off/on/hard, default on): reply word budget.
+- `design_system` (meridian/builtin, default meridian): design system that document-producing skills such as codebase-guide build on; `builtin` keeps the skill's own template. Adding a system means a `design-systems/<name>/` folder with an `AI_AUTHORING.md` plus its name in plugin.json's `options`.
 - `visual_routing`, `visual_critique`, `review_nudge`, `enforce_gates` (off/on, all default on): enable features.
 - `max_edit_lines` (5–200, default 20): orchestrator mode edit limit.
 
