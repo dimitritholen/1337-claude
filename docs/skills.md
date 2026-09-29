@@ -18,6 +18,10 @@ The `/1337:` commands this plugin adds.
 - `/1337:audit` — audits a whole repo or module for over-engineering that is
   alive and in use: speculative generality, pass-through layers, frameworks
   where a function would do. Read-only.
+- `/1337:codebase-guide` — writes a visual, single-file HTML onboarding
+  report for the repo (what it does, how it is built, where things live),
+  always in one fixed design from `skills/codebase-guide/template.html`.
+  Writes one HTML file, `docs/codebase-guide.html` by default.
 - `/1337:tier` — splits a task into builder-sized steps and assigns the
   cheapest model tier per step (Haiku/Sonnet/Opus) for dispatch. With a
   stored OpenRouter or TypeSafe key, the tier per step comes from
