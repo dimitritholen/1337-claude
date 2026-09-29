@@ -35,6 +35,16 @@
       ],
       "default": "off"
     },
+    "design_system": {
+      "type": "string",
+      "title": "Design system",
+      "description": "Design system that document-producing skills (codebase-guide first) build on; builtin uses the skill's own template. CLAUDE_1337_DESIGN_SYSTEM overrides it for one shell.",
+      "options": [
+        "meridian",
+        "builtin"
+      ],
+      "default": "meridian"
+    },
     "terse": {
       "type": "string",
       "title": "Terse mode",
