@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Tests for design-systems/meridian/tools/export.mjs: every template exports
+# Tests for design-systems/: codebase-guide SKILL.md wiring and template
+# parity with the builtin template, then meridian/tools/export.mjs: every template exports
 # to one self-contained file, export works from a read-only copy of the
 # design-system dir, bad arguments exit non-zero, and nothing is written
 # under design-systems/. Needs node; no key, no network.
@@ -14,6 +15,33 @@ trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work"' EXIT
 pass() { printf 'ok   %s\n' "$1"; }
 flunk() { printf 'FAIL %s\n' "$1"; fail=1; }
 check_code() { if [ "$2" -eq "$3" ]; then pass "$1"; else flunk "$1 (exit $2, want $3): $(cat "$work/stderr")"; fi; }
+
+# --- codebase-guide: SKILL.md wiring and template parity (no node needed) -------
+SKILL="$ROOT/skills/codebase-guide/SKILL.md"
+BT="$ROOT/skills/codebase-guide/template.html"
+MT="$DS/templates/codebase-guide.html"
+grep -q 'python3 "${CLAUDE_PLUGIN_ROOT}/lib/design_system.py"' "$SKILL" && pass "codebase-guide SKILL.md runs lib/design_system.py" || flunk "codebase-guide SKILL.md runs lib/design_system.py"
+grep -q 'node "<dir>/tools/export.mjs" <draft> <output>' "$SKILL" && pass "codebase-guide SKILL.md exports the draft" || flunk "codebase-guide SKILL.md exports the draft"
+grep -q '<dir>/templates/codebase-guide.html' "$SKILL" && pass "codebase-guide SKILL.md reads the design-system template" || flunk "codebase-guide SKILL.md reads the design-system template"
+# Section ids: SKILL.md lists eight; Meridian ships all eight, builtin a subset
+# (SKILL.md tells the builtin path to extend it).
+skill_ids="$(grep -o '^[0-9]\. \*\*[^*]*\*\* (`[a-z-]*`)' "$SKILL" | sed 's/.*(`\(.*\)`)/\1/' | sort)"
+section_ids() { grep -o '<section class="[a-z-]*section" id="[a-z-]*"' "$1" | sed 's/.*id="\(.*\)"/\1/' | sort; }
+[ "$(printf '%s\n' "$skill_ids" | wc -l)" -eq 8 ] && pass "codebase-guide SKILL.md lists 8 section ids" || flunk "codebase-guide SKILL.md lists 8 section ids"
+[ "$(section_ids "$MT")" = "$skill_ids" ] && pass "meridian codebase-guide section ids match SKILL.md" || flunk "meridian codebase-guide section ids match SKILL.md"
+extra_ids="$(comm -13 <(printf '%s\n' "$skill_ids") <(section_ids "$BT"))"
+[ -z "$extra_ids" ] && pass "builtin codebase-guide section ids are in SKILL.md" || flunk "builtin codebase-guide section ids are in SKILL.md ($extra_ids)"
+# SLOT markers: every section is preceded by a SLOT comment in both templates,
+# and both carry the caveat, colophon and big-picture diagram slots.
+unslotted() { awk '/SLOT:/ { s = 1 } /<\/section>/ { s = 0 } /<section class="[a-z-]*section" id=/ { if (!s) { match($0, /id="[a-z-]*"/); print substr($0, RSTART, RLENGTH) } s = 0 }' "$1"; }
+for t in "$BT" "$MT"; do
+    n="${t#"$ROOT/"}"
+    u="$(unslotted "$t")"
+    [ -z "$u" ] && pass "$n: every section has a SLOT comment" || flunk "$n: every section has a SLOT comment ($u)"
+    for slot in 'SLOT: caveat' 'SLOT: colophon' 'SLOT: big-picture diagram'; do
+        grep -q "$slot" "$t" && pass "$n: has '$slot'" || flunk "$n: has '$slot'"
+    done
+done
 
 if ! command -v node >/dev/null 2>&1; then
     printf 'todo design-systems: node not installed\n'
