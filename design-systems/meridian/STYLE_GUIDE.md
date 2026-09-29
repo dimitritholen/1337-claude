@@ -142,6 +142,20 @@ The default strip has three columns. For one or two metrics, explicitly set `gri
 
 Use `.figure` with a `.figure-heading`, descriptive h3, labeled chart or diagram, and `figcaption`. Caption structure: `.figure-number` plus conclusion, source, date, and qualification. The accessible name belongs on the SVG (`title` and `desc`), not only on the surrounding box. Exact values belong in a visible table or a `details.data-disclosure`.
 
+### Dispatch with a compact table
+
+A `.dispatch` may hold one short semantic table (for example the key files of a component) after its prose; it is spaced from the text above it. Keep it to two columns and a few rows.
+
+### Structure diagram
+
+For relationships an ordered `.pipeline` cannot show (branches, feedback loops, calls over time), draw an inline `svg.diagram` inside a focusable `.chart-scroll` region within a `.figure`. Give the SVG `role="img"`, a `title` and a `desc` with unique IDs. Style it only with the diagram classes; never hard-code colors or fonts in the SVG:
+
+- Boxes: `g.node` (component), `g.node.node-focus` (the one focal component), `g.node.node-actor` (a person or outside caller), `g.node.node-data` (files, stores, external data; dashed). Each holds a square `rect`, a `text.node-title` and an optional `text.node-sub` (mono path) or `text.node-note` (short italic remark).
+- Connections: `path.edge` for calls and data flow, `path.edge.edge-alt` for returns or conditional paths, with markers filled by `.arrowhead` or `.arrowhead-alt`. Label them with `text.edge-label` (add `.edge-label-alt` beside a dashed edge).
+- Sequences: `line.lifeline` per participant, `rect.activation` for work in progress, `rect.frame` plus `path.frame-tab` and `text.frame-label` for a loop or condition, and `g.badge` (`circle` plus two-digit `text`) for step numbers that match an ordered list below the figure.
+
+Explain line styles in the caption rather than in a legend. The diagram scrolls inside its region on narrow screens (minimum 640px) and shrinks to fit in print. Branches and the order of steps must also be stated in text: the caption, a `.branch-note`, or a numbered list.
+
 ### Code and annotations
 
 Use `.code-layout` with `.code-panel` and `.annotation-list`. Code goes in `pre > code`; syntax spans use `.code-keyword`, `.code-string`, `.code-function`, and `.code-comment`. HTML-escape source code. Avoid line numbers that contaminate copied text.

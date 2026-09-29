@@ -188,6 +188,7 @@ tbody th { font-weight: 500; }
 .dispatch h3 { font-family: var(--font-display); font-size: 1.75rem; font-weight: 400; line-height: 1.2; }
 .dispatch p { font-size: .875rem; color: var(--muted); margin-top: .75rem; }
 .dispatch .takeaway { color: var(--ink); font-size: .75rem; padding-left: .75rem; border-left: 1px solid var(--accent); margin-top: 1rem; }
+.dispatch table { margin-top: 1rem; }
 .digest-aside > * + * { margin-top: 2rem; }
 .big-number { font: 400 4rem/1 var(--font-display); letter-spacing: -.06em; margin-top: 1.5rem; }
 .big-number span { font-size: 2rem; }
@@ -222,6 +223,28 @@ tbody th { font-weight: 500; }
 .pipeline .step-gate .step-id, .pipeline .step-gate strong { color: var(--accent); }
 .branch-note { border-top: 1px dashed var(--line-strong); padding-top: 1rem; margin-top: .5rem; display: flex; gap: .75rem; font-size: .6875rem; color: var(--muted); }
 .branch-note .accent { font-family: var(--font-mono); }
+/* Structure diagrams: inline SVG for relationships a .pipeline cannot show (branches, calls over time). */
+.diagram { width: 100%; min-width: 640px; height: auto; }
+.diagram text { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
+.diagram .node rect { fill: var(--paper); stroke: var(--line-strong); stroke-width: 1; }
+.diagram .node-focus rect { fill: var(--accent-soft); stroke: var(--accent); }
+.diagram .node-actor rect, .diagram .frame-tab { fill: var(--canvas); stroke: var(--line-strong); stroke-width: 1; }
+.diagram .node-data rect { fill: var(--paper); stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
+.diagram .node-title { fill: var(--ink); font-size: 14px; font-weight: 500; }
+.diagram .node-sub, .diagram .edge-label, .diagram .frame-label, .diagram .badge text { font-family: var(--font-mono); font-size: 11px; }
+.diagram .node-note { font-family: var(--font-display); font-style: italic; font-size: 13px; }
+.diagram .edge { fill: none; stroke: var(--ink); stroke-width: 1; }
+.diagram .edge-alt { stroke: var(--muted); stroke-dasharray: 5 5; }
+.diagram .arrowhead { fill: var(--ink); }
+.diagram .arrowhead-alt { fill: var(--muted); }
+.diagram .edge-label { fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: round; }
+.diagram .edge-label-alt { fill: var(--muted); }
+.diagram .lifeline { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 2 4; }
+.diagram .activation { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; }
+.diagram .frame { fill: none; stroke: var(--line-strong); stroke-width: 1; }
+.diagram .frame-label { fill: var(--muted); letter-spacing: .06em; }
+.diagram .badge circle { fill: var(--accent); }
+.diagram .badge text { fill: var(--paper); font-weight: 600; }
 .code-layout { display: grid; grid-template-columns: minmax(0, 1fr) 11rem; gap: 2rem; margin-block: 1.75rem; }
 .code-panel { min-width: 0; background: var(--dark); color: var(--on-dark); border-radius: var(--radius); }
 .code-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem 1.25rem; border-bottom: 1px solid var(--muted); font: .625rem var(--font-mono); color: var(--on-dark-muted); }
@@ -353,6 +376,8 @@ pre code { font: inherit; }
   .pipeline .step-gate { border: 2px solid Highlight; }
   .line-chart .series-main, .line-chart .series-base { stroke: CanvasText; }
   .line-chart .dot { fill: CanvasText; }
+  .diagram .edge { stroke: CanvasText; }
+  .diagram .arrowhead, .diagram .arrowhead-alt { fill: CanvasText; }
 }
 @page { margin: 16mm; size: A4; }
 @media print {
@@ -371,7 +396,7 @@ pre code { font: inherit; }
   h1, h2, h3, .section-heading, .figure-heading { break-after: avoid; }
   p, li { orphans: 3; widows: 3; }
   .chart-scroll, .table-scroll, pre { overflow: visible; }
-  .line-chart, .table-scroll table { min-width: 0; }
+  .line-chart, .diagram, .table-scroll table { min-width: 0; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 8pt; }
   .code-panel { background: var(--canvas); color: var(--ink); border: 1px solid var(--line); }
   .code-header, .code-caption, .code-comment { color: var(--muted); }

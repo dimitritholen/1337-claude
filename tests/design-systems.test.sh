@@ -31,11 +31,13 @@ check_export() { # label file
     if grep -q 'Embedded font licenses' "$2"; then pass "$1: font licenses retained"; else flunk "$1: font licenses retained"; fi
 }
 
-for t in index digest technical; do
-    (cd "$work" && node "$DS/tools/export.mjs" "$DS/templates/$t.html" "out/$t.html") >/dev/null 2>"$work/stderr"
+for f in "$DS"/templates/*.html; do
+    t="$(basename "$f" .html)"
+    (cd "$work" && node "$DS/tools/export.mjs" "$f" "out/$t.html") >/dev/null 2>"$work/stderr"
     check_code "export $t.html: exit 0" "$?" 0
     check_export "export $t.html" "$work/out/$t.html"
 done
+[ -f "$DS/templates/codebase-guide.html" ] && pass "codebase-guide.html template present" || flunk "codebase-guide.html template present"
 
 # --- read-only copy of the design-system dir -----------------------------------
 cp -R "$DS" "$work/ro"
