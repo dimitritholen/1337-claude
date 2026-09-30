@@ -55,6 +55,14 @@ The `/1337:` commands this plugin adds.
   while you design, writing them to `CONTEXT.md` and ADRs under `docs/adr/`.
 - `/1337:unslop` — an editing pass that strips AI patterns from prose (docs,
   articles, PR text) and gives it a human voice. Edits text.
+- `/1337:prompt-engineering` — source-cited reference for writing, reviewing
+  and debugging prompts and agent instructions for Claude, GPT and Gemini,
+  with per-vendor deep dives under `references/`. Also fires when you ask
+  for help with a prompt.
+- `/1337:promptimize <rough prompt>` — turns a rough prompt into one
+  optimized prompt: asks about the gaps when needed, reviews it critically,
+  rewrites it with `/1337:prompt-engineering`, and outputs only the final
+  prompt in a code block.
 - `/1337:merge-conflicts` — resolves an in-progress merge or rebase conflict
   by tracing why each side made its change. Edits the conflicting files.
 - `/1337:handoff` — writes a handoff document so a fresh session can pick up
