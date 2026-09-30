@@ -44,7 +44,8 @@ The `/1337:` commands this plugin adds.
 - `/1337:implement` — builds a plan or spec one task at a time: picks the
   tier (routed in tiered mode), has the step built test-first with
   `/1337:tdd`, verifies it, then runs `/1337:review` in spec mode before the
-  next task. You call it yourself; Claude never starts it.
+  next task. `/1337:implement --one` builds one task and stops, so you can
+  `/clear` between tasks. You call it yourself; Claude never starts it.
 - `/1337:tdd` — red-green-refactor reference for building features or fixing
   bugs test-first: what a good test is, where it goes, the anti-patterns.
   Edits tests and code.

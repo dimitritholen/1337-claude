@@ -1,12 +1,26 @@
 ---
 name: implement
-description: Implement a piece of work from a plan, a spec or a set of tickets, one task at a time with review between steps. Use on /1337:implement, or when the user wants a planned change built end to end.
+description: Implement a piece of work from a plan, a spec or a set of tickets, one task at a time with review between steps. Use on /1337:implement, or when the user wants a planned change built end to end. `--one` builds a single task and stops, so the user can /clear before the next.
+argument-hint: "[--one]"
 disable-model-invocation: true
 ---
 
 Work the open tasks of the plan one at a time, in dependency order:
 `tasqx_list_tasks` under the project (`tasqx_list_projects`) if the plan lives
 there, else the `plans/` file.
+
+`$ARGUMENTS` picks the scope. With `--one` (or the bare word `one` or
+`single`), run single-ticket mode: take the first open, unblocked task exactly
+as the loop would, run the full cycle below for it, retry and diagnose rules
+included, then stop without starting the next task. End the reply with exactly
+one line:
+
+`Ticket <id> done. Next: <id> <title> — run /clear, then /1337:implement --one.`
+
+When no open task remains, say the plan is done instead. This keeps the
+orchestrator's context from growing across tickets, and the next run resumes
+from tasqx or the plan file, so nothing needs to survive the /clear. Anything
+else in `$ARGUMENTS`, or nothing, runs the loop over every open task.
 
 For each task:
 
