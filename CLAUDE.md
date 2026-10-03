@@ -15,7 +15,10 @@ work when the plugin is installed and used in any folder, not only this one.
   (`visual_routing`, `visual_critique`, `review_nudge`, `enforce_gates`,
   all default on) and one number (`max_edit_lines`, default 20, 5–200).
   Precedence everywhere: explicit `CLAUDE_1337_*` env var wins, then `/config`
-  option, then default.
+  option, then default. A headless session (`claude -p`, the Agent SDK; see
+  `session_headless` in `hooks/lib/mode.sh`) skips the `/config` options for
+  orchestrator and tiered mode, the review nudge and visual routing, so a tool
+  driving Claude never meets the gates; an explicit env var still applies.
 - `lib/design_system.py`: resolves `design_system`
   (`CLAUDE_1337_DESIGN_SYSTEM`, then the option, then `meridian`). Run as
   `python3 "${CLAUDE_PLUGIN_ROOT}/lib/design_system.py"`, it prints
@@ -76,7 +79,7 @@ work when the plugin is installed and used in any folder, not only this one.
   silently, never the hook), so the critique pass sees the user's own
   words even when the brief Claude writes drops a detail.
   Option `visual_routing` (env `CLAUDE_1337_VISUAL`, default true) disables the
-  hook. When `visual_critique` is off, adds `--no-critique` to the generate.py
+  hook; a headless session skips it too. When `visual_critique` is off, adds `--no-critique` to the generate.py
   command. Test: `tests/visual-route.test.sh` (stand-in Jev and catalogue).
 - `skills/visual/generate.py`: makes the file once a model is chosen:
   raster and vector through chat completions with the image modality
@@ -276,7 +279,8 @@ work when the plugin is installed and used in any folder, not only this one.
   `~/.docker/contexts` a plain directory or run those cases elsewhere.
 - `hooks/stop-review.sh`: Stop hook that once per session offers a
   `/1337:review` pass when the session diff adds 30+ lines. Option `review_nudge`
-  (env `CLAUDE_1337_REVIEW_NUDGE`, default true). Test: `tests/stop-review.test.sh`.
+  (env `CLAUDE_1337_REVIEW_NUDGE`, default true). Silent in a headless
+  session. Test: `tests/stop-review.test.sh`.
 - `hooks/dispatch-nudge.sh`: Stop hook, active in orchestrator or tiered mode,
   that once per session nudges to dispatch when the main session codes three
   times without dispatching 1337:builder (`CLAUDE_1337_DISPATCH_NUDGE=0` opts
@@ -427,12 +431,19 @@ work when the plugin is installed and used in any folder, not only this one.
   `..` (git turns that into `--no-index` itself), a `-c alias.*` config), naming
   which in `git_read_why`; both hooks call it. Test:
   `tests/git-subcommand.test.sh`.
-- `hooks/lib/mode.sh`: sourced helper with `mode_on orchestrator|tiered` (true
-  when any of that mode's three switches is set) and `opt_on ENV_VAR OPTION_VAR DEFAULT`
+- `hooks/lib/mode.sh`: sourced helper with `mode_on orchestrator|tiered`
+  (first match wins: `EVAL_CLAUDE_1337_*=1` on; `CLAUDE_1337_*` 1/on/true on,
+  0/off/false off; a headless session off; else the /config option),
+  `session_headless` (true when `CLAUDE_CODE_SESSION_ATTENDED=0`, else when
+  `CLAUDE_CODE_ENTRYPOINT` is `sdk-*`; both undocumented Claude Code vars,
+  neither set counts as attended; `CLAUDE_1337_HEADLESS=on` forces attended)
+  and `opt_on ENV_VAR OPTION_VAR DEFAULT`
   (resolves one boolean switch: env var wins, then /config option, then default).
-  Sourced by every hook that needs mode or option resolution.
-- `lib/options.py`: Python twin of `opt_on`, same precedence. Used by skills
-  that need boolean switch resolution.
+  Sourced by every hook that needs mode or option resolution. Tests that
+  exercise a mode unset the two Claude Code vars first, since they may run
+  from a headless session.
+- `lib/options.py`: Python twin of `opt_on` and `session_headless`, same
+  precedence. Used by skills that need boolean switch resolution.
 - `hooks/lib/read-route.sh`: sourced helper that outputs routing text when a
   read or Grep/Glob call is refused, telling the user to try `ripwire` for
   code discovery or dispatch `1337:scout` for other file types (config, prose,

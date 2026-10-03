@@ -68,6 +68,23 @@ Pick one:
 Start a new session after changing it. The rules and the edit guard load at
 session start.
 
+## Headless sessions
+
+The mode is meant for a person at the Claude Code terminal. A session started
+with `claude -p`, through the Agent SDK, or by another tool that drives
+Claude (a session manager, a CI job) ignores the `/config` option, so the
+guard, the read cap and the review gate never refuse its edits. The review
+nudge and visual routing stay quiet there too. Claude Code marks such a
+session with `CLAUDE_CODE_SESSION_ATTENDED=0` (or an `sdk-*`
+`CLAUDE_CODE_ENTRYPOINT`).
+
+- To use the mode in a headless session anyway, set `CLAUDE_1337_ORCHESTRATOR=1`
+  for that run, or `CLAUDE_1337_HEADLESS=on` to apply every `/config` option as
+  if someone were at the terminal.
+- To turn the mode off for an interactive session that a tool starts inside a
+  terminal, set `CLAUDE_1337_ORCHESTRATOR=0`. The env var beats the `/config`
+  option.
+
 ## Optional: cheaper built-in agents
 
 A plugin cannot set environment variables. To also run built-in agents such as

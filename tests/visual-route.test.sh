@@ -3,6 +3,9 @@
 # against one stand-in that plays both Jev (the decisions endpoint) and
 # OpenRouter's model lists. Needs python3 and jq; no key, no network.
 set -u
+# The session running these tests may be headless (claude -p sets
+# CLAUDE_CODE_SESSION_ATTENDED=0), which turns the gates off; start attended.
+unset CLAUDE_CODE_SESSION_ATTENDED CLAUDE_CODE_ENTRYPOINT CLAUDE_1337_HEADLESS
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)"
 SCRIPT="$ROOT/skills/visual/route.py"
@@ -223,6 +226,13 @@ rm -f "$work/flags"
 CLAUDE_1337_VISUAL=0 run "an svg of a cat"
 check_eq "CLAUDE_1337_VISUAL=0: silent" "$out" ""
 check_eq "CLAUDE_1337_VISUAL=0: no request" "$(requests)" "0"
+
+CLAUDE_CODE_SESSION_ATTENDED=0 run "an svg of a cat"
+check_eq "headless session: silent" "$out" ""
+check_eq "headless session: no request" "$(requests)" "0"
+
+CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_1337_HEADLESS=on run "an svg of a cat"
+check_eq "headless with CLAUDE_1337_HEADLESS=on: routes" "$(ctx | grep -c 'asks for a vector svg')" "1"
 
 CLAUDE_PLUGIN_OPTION_VISUAL_ROUTING=false run "an svg of a cat"
 check_code "visual_routing option false: exit 0" "$code" 0
