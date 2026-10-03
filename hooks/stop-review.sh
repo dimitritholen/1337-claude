@@ -13,12 +13,15 @@
 #
 # Off switch precedence: an explicit CLAUDE_1337_REVIEW_NUDGE=0 wins, else the
 # plugin option `review_nudge` (CLAUDE_PLUGIN_OPTION_REVIEW_NUDGE=false), else
-# on by default (hooks/lib/mode.sh's opt_on).
+# on by default (hooks/lib/mode.sh's opt_on). A headless session (`claude -p`,
+# the Agent SDK) never gets the nudge: nobody is there to answer the offer,
+# and the block would only cost the driving tool an extra turn.
 set -u
 
 NUDGE_LINES=30
 
 . "${0%/*}/lib/mode.sh"
+session_headless && exit 0
 opt_on CLAUDE_1337_REVIEW_NUDGE CLAUDE_PLUGIN_OPTION_REVIEW_NUDGE true || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 command -v git >/dev/null 2>&1 || exit 0

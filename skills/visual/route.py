@@ -34,7 +34,9 @@ each. Any failure exits 0 silently: a routing miss costs nothing, a
 blocked prompt would.
 
 CLAUDE_1337_VISUAL=0 disables the hook; with it unset, the plugin option
-visual_routing=false (CLAUDE_PLUGIN_OPTION_VISUAL_ROUTING) does too.
+visual_routing=false (CLAUDE_PLUGIN_OPTION_VISUAL_ROUTING) does too. A
+headless session (`claude -p`, the Agent SDK) is skipped as well: the
+suggestion asks for an AskUserQuestion nobody is there to answer.
 When visual_critique resolves off (CLAUDE_1337_CRITIQUE, else
 CLAUDE_PLUGIN_OPTION_VISUAL_CRITIQUE), every suggested raster/vector
 generate.py command carries --no-critique, since generate.py itself runs
@@ -57,7 +59,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, HERE)
 from lib import jev, keys  # noqa: E402
-from lib.options import opt_on  # noqa: E402
+from lib.options import opt_on, session_headless  # noqa: E402
 import catalogue  # noqa: E402
 import ranking  # noqa: E402
 
@@ -260,6 +262,8 @@ def route(prompt, started):
 
 
 def main():
+    if session_headless():
+        return 0
     if not opt_on("CLAUDE_1337_VISUAL", "CLAUDE_PLUGIN_OPTION_VISUAL_ROUTING"):
         return 0
     started = time.monotonic()

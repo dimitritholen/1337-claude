@@ -3,6 +3,9 @@
 # JSONL transcripts and asserts the exit code. Exit 2 = nudge (stderr message,
 # flag file written), exit 0 = silent.
 set -u
+# The session running these tests may be headless (claude -p sets
+# CLAUDE_CODE_SESSION_ATTENDED=0), which turns the gates off; start attended.
+unset CLAUDE_CODE_SESSION_ATTENDED CLAUDE_CODE_ENTRYPOINT CLAUDE_1337_HEADLESS
 
 HOOK="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)/hooks/dispatch-nudge.sh"
 fail=0
