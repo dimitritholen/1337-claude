@@ -1,6 +1,6 @@
 {
   "name": "1337",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "Skills invoked as /1337:<skill>, an eight-voice output style pack with reply budgets enforced by a Stop hook, an always-on rule to evaluate requests before building them, visual routing (image, SVG, video and speech prompts go to an OpenRouter model picked from a Jev-ranked priced list), and an opt-in tiered mode that lets Jev pick the model tier per builder step.",
   "userConfig": {
     "orchestrator": {
@@ -34,16 +34,6 @@
         "opus"
       ],
       "default": "off"
-    },
-    "design_system": {
-      "type": "string",
-      "title": "Design system",
-      "description": "Design system that document-producing skills (codebase-guide first) build on; builtin uses the skill's own template. CLAUDE_1337_DESIGN_SYSTEM overrides it for one shell.",
-      "options": [
-        "meridian",
-        "builtin"
-      ],
-      "default": "meridian"
     },
     "terse": {
       "type": "string",
