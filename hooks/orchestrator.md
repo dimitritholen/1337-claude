@@ -34,20 +34,22 @@ reliably.
 - Verify every builder step with `1337:checker`. On `FAIL`, send the failing output
   back to builder one model tier up, once; if it fails again, take over the
   diagnosis yourself.
-- Once per task or feature, after checker `PASS` and before `/1337:review`,
-  dispatch `1337:qa` (opus) when the change is user-facing (UI, interaction,
-  CLI/TUI output, user-visible copy); never per builder step. Internal-only
-  changes skip it, noted in the task annotation. Brief: the task and its spec
-  or acceptance criteria, the diff range, mode `change` (`smoke` for a tiny
-  change); never the builder's report or reasoning. qa runs the
+- Once per pull request, after the PR's last task has checker `PASS` and before
+  the PR is opened or merged, dispatch `1337:qa` (opus) when the PR is
+  user-facing (UI, interaction, CLI/TUI output, user-visible copy); never per
+  task or builder step. Internal-only PRs skip it, noted in the annotation.
+  Brief: mode `smoke`, the tasks' specs or acceptance criteria, the branch diff
+  against the base, and the `judgement` expectation rows of those tasks; never
+  the builder's report or reasoning. qa runs the
   `1337:exploratory-test` skill and reports `PASS`, `FAIL` or `SKIP` on its
   first line. It needs `docs/agents/qa.md`; without it, `SKIP`, which is
   reported as a skip and never counts as a pass. On `FAIL`, send the confirmed
   blocker and major findings verbatim to `1337:builder` under the usual tier
   rules, re-run `1337:checker`, then `1337:qa` again on the fixed surfaces; at
-  most two qa rounds, then hand the findings to the user. Minor and polish
-  findings: fix when the project's rules say so, else record as tasks.
-  Product questions go to the user. A run takes roughly 15-60 minutes.
+  most two qa rounds, then hand the findings to the user. Only a confirmed
+  blocker or major blocks the merge. Minor and polish findings: record as
+  tasks, or fix when the project's rules say so. Product questions go to the
+  user. A smoke run takes roughly 10-15 minutes.
 - Do it yourself when delegating costs more than doing: an edit of about 20 lines or
   fewer in a file already in context, and corrections faster to make than to
   explain. The orchestrator guard refuses larger edits (the larger of old and new

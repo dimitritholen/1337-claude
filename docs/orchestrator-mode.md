@@ -13,10 +13,14 @@ Off by default. When on, the main session only plans, dispatches and reviews:
 | `1337:qa` | Opus | Exploratory QA of the running app via `1337:exploratory-test`; reports `PASS`, `FAIL` or `SKIP` |
 
 A failed check goes back to the builder once, one model tier up. `1337:qa`
-runs once per user-facing task, after the checker passes and before review,
-and needs a `docs/agents/qa.md` contract (without one it returns `SKIP`, never
-a pass); on `FAIL` its blocker and major findings go to the builder, then
-checker and qa run again, at most two qa rounds. The main
+runs in `smoke` mode (about 10-15 minutes) once per user-facing pull request,
+after the PR's last task passes the checker and before the PR is opened or
+merged, with the spec's `judgement` rows in its brief. It needs a
+`docs/agents/qa.md` contract (without one it returns `SKIP`, never a pass). On
+`FAIL` (a confirmed blocker or major) its findings go to the builder, then
+checker and qa run again, at most two qa rounds; minor and polish findings
+become tasks. A nightly `full` run on main files its findings as tasks too:
+see [the nightly recipe](qa-nightly.md). The main
 session consumes maps, never payloads: ripwire output, subagent reports, git
 metadata and test results, never a repository file's contents, through any
 tool or route. Bash that dumps file contents (`cat`, `head`, `sed -n`, a

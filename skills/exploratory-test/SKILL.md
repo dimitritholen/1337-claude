@@ -53,7 +53,7 @@ Pick the mode from the request; when none is given, ask which, or default to `ch
 
 - `full`: the whole product, every step of this skill. Long (an hour or more on a large product); meant for a nightly or release pass.
 - `change`: only the surfaces a change touches, plus their direct neighbours on the context map. Derive them from the diff, the task description or the user. Reuse a saved product model and expectations from an earlier full run when one exists (keep them in a stable place in the project, not in the run folder) and update only the touched parts. Run the tours and the control census for those surfaces only. Meant as a merge gate; typically 10 to 20 minutes.
-- `smoke`: the main journeys once, with a screenshot judged per step, no persona pass, no subagents. A few minutes; meant for "does it still basically work".
+- `smoke`: the per-pull-request pass, about 10 to 15 minutes. Run the main journeys of the touched surfaces once, with a screenshot judged per step; check the `judgement` expectation rows the caller passes; spot-check the house rules on the touched surfaces (context menu, contrast, minimum size, Escape). No persona pass. Spawn the independent verification only for a candidate blocker or major; minor and polish findings are reported unverified. The coverage stop condition below does not apply; the time-box does, and whatever was not reached goes into the coverage map.
 
 ## Disk use
 

@@ -89,13 +89,15 @@ For work bigger than one step: `/1337:grill` to settle the decisions,
 `/1337:spec` to write them down with an approved Expectations block, `/1337:plan`
 to slice the spec into tasks that each name the expectation rows they satisfy,
 then `/1337:implement`, which runs `/1337:tdd` for each task, then
-`1337:qa` (`/1337:exploratory-test` in change mode, once per user-facing
-task, skipped for internal-only changes or when `docs/agents/qa.md` is
+`1337:qa` (`/1337:exploratory-test` in smoke mode, once per user-facing
+pull request, skipped for internal-only changes or when `docs/agents/qa.md` is
 missing) and `/1337:review` in spec mode. Stuck on a bug along the way:
 `/1337:diagnose`. Pausing: `/1337:handoff`.
 
-A task goes scout, builder, checker, qa, review. qa is the only step that
-runs the app; on `FAIL` its blocker and major findings go back to the
-builder, at most two qa rounds.
+A task goes scout, builder, checker, review; the pull request then gets one
+qa smoke run (about 10-15 minutes) before it is opened or merged. qa is the
+only step that runs the app; on `FAIL` its blocker and major findings go back
+to the builder, at most two qa rounds, while minor and polish findings become
+tasks. The full pass runs nightly on main: see [the nightly recipe](qa-nightly.md).
 
 [Back to README](../README.md)

@@ -34,7 +34,8 @@ guardrails and the routing to fix that, without changing how you prompt.
   built. See [skills](docs/skills.md).
 - **A pipeline from idea to commit.** `/1337:grill` → `/1337:spec` →
   `/1337:plan` → `/1337:implement`, which builds each task test-first, runs
-  `1337:qa` on user-facing changes, then reviews it against the spec. See
+  reviews it against the spec, and runs one `1337:qa` smoke pass per
+  user-facing pull request. See
   [the pipeline](docs/skills.md#pipeline).
 - **Visual work without leaving the chat.** Ask for a logo, an SVG, a clip or
   a voice-over and it picks a priced OpenRouter model for you, ranked by

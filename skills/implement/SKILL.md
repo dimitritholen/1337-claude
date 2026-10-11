@@ -44,13 +44,15 @@ For each task:
    style, contrast ratio), `visual` rows use the project's screenshot
    comparison if it has one, else become `metric` rows.
 3. Verify with `1337:checker`, which runs those tests.
-4. QA: once per task, after checker `PASS`, only when the change is
-   user-facing (UI, interaction, CLI/TUI output, user-visible copy). Dispatch
-   `1337:qa` (opus) with the task and its spec or acceptance criteria, the
-   diff range, and mode `change` (`smoke` for a tiny change). Never pass the
-   builder's report or reasoning; qa stays independent. Judgement rows of the task's
-   expectations go into qa's brief. Internal-only change:
-   skip it and say so in the task annotation.
+4. QA: not per task. Once per pull request, after the PR's last task has
+   checker `PASS` and before the PR is opened or merged, only when the PR
+   changes something user-facing (UI, interaction, CLI/TUI output, user-visible
+   copy). Dispatch `1337:qa` (opus) in mode `smoke` with the specs or
+   acceptance criteria of the PR's tasks and the branch's diff against the
+   base. Never pass the builder's report or reasoning; qa stays independent.
+   The `judgement` rows of those tasks' expectations go into qa's brief (every
+   other row is already a test). Internal-only PR: skip it and say so in the
+   annotation.
 5. `git diff`, then `/1337:review` in spec mode against the task's spec.
 6. Annotate what was delivered.
 7. Commit the task.
@@ -65,11 +67,14 @@ project contract `docs/agents/qa.md` (format in
 returns `SKIP`, which the task annotation records as a skip, never as a pass.
 On `FAIL`, send the confirmed blocker and major findings, verbatim from qa's
 report, to `1337:builder` under the usual tier rules, re-run `1337:checker`,
-then `1337:qa` again in change mode on the fixed surfaces. At most two qa
-rounds; still failing, stop and hand the findings to the user. Fix minor and
-polish findings too when the project's rules say so, else record them as
-tasks. Product questions go to the user, not the builder. A change-mode run
-takes roughly 15-60 minutes, hence once per task, never per builder step.
+then `1337:qa` again in smoke mode on the fixed surfaces. At most two qa
+rounds; still failing, stop and hand the findings to the user. Only a
+confirmed blocker or major blocks the merge. Minor and polish findings become
+tasks in the tracker (or are fixed when the project's rules say so). Product
+questions go to the user, not the builder. A smoke run takes roughly 10-15
+minutes, hence once per PR, never per task or builder step. The deeper `full`
+run is a nightly job, not part of this flow: see
+[docs/qa-nightly.md](../../docs/qa-nightly.md).
 
 A task is not done while one of its expectation rows has no passing test.
 
