@@ -111,6 +111,10 @@ task_notification_line() { # tool-use id, result body
   jq -c -n --arg id "$1" --arg body "$2" \
     '{type:"user",message:{role:"user",content:("<task-notification>\n<task-id>t1</task-id>\n<tool-use-id>" + $id + "</tool-use-id>\n<status>completed</status>\n<result>" + $body + "</result>\n</task-notification>")}}'
 }
+qa_line() { # tool-use id
+  jq -c -n --arg id "$1" \
+    '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",id:$id,name:"Agent",input:{subagent_type:"1337:qa"}}]}}'
+}
 scout_line() {
   jq -c -n '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"Agent",input:{subagent_type:"1337:scout",model:"haiku"}}]}}'
 }
@@ -541,5 +545,56 @@ t_tool "$(builder_success_result_line b3)" "$tr30e"
 t_tool "$(msg_builder_line m3 b4)" "$tr30e"
 check_grep 2 'unreviewed' "#781: later message's dispatch after a reviewed batch, unreviewed: refused" \
   "$MODE_ORCH" "$(dispatch_payload_id b4 "$tr30e")"
+
+# --- qa verdicts: 1337:qa runs after checker PASS; its FAIL sends findings
+# back to the builder before review (same first-line contract as checker) ---
+tr_qa1="$TMPDIR/trqa1.jsonl"
+t_tool "$(builder_line b1)" "$tr_qa1"
+t_tool "$(builder_result_line b1)" "$tr_qa1"
+t_tool "$(qa_line q1)" "$tr_qa1"
+t_tool "$(checker_result_line q1 "FAIL
+
+confirmed: login 500s on empty password")" "$tr_qa1"
+check 0 "dispatch gate: qa FAIL (sync result) after builder: retry dispatch allowed" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr_qa1")"
+
+tr_qa2="$TMPDIR/trqa2.jsonl"
+t_tool "$(builder_line b1)" "$tr_qa2"
+t_tool "$(builder_result_line b1)" "$tr_qa2"
+t_tool "$(qa_line q1)" "$tr_qa2"
+t_tool "$(checker_launch_stub_line q1)" "$tr_qa2"
+t_tool "$(task_notification_line q1 "FAIL
+
+confirmed finding")" "$tr_qa2"
+check 0 "dispatch gate: qa FAIL via task-notification: retry dispatch allowed" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr_qa2")"
+
+tr_qa3="$TMPDIR/trqa3.jsonl"
+t_tool "$(builder_line b1)" "$tr_qa3"
+t_tool "$(builder_result_line b1)" "$tr_qa3"
+t_tool "$(qa_line q1)" "$tr_qa3"
+t_tool "$(checker_result_line q1 "SKIP
+
+nothing to exercise")" "$tr_qa3"
+check_grep 2 'unreviewed' "dispatch gate: qa SKIP: no exemption, still refused" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr_qa3")"
+
+tr_qa4="$TMPDIR/trqa4.jsonl"
+t_tool "$(builder_line b1)" "$tr_qa4"
+t_tool "$(builder_result_line b1)" "$tr_qa4"
+t_tool "$(qa_line q1)" "$tr_qa4"
+t_tool "$(checker_result_line q1 "PASS")" "$tr_qa4"
+check_grep 2 'unreviewed' "dispatch gate: qa PASS: no exemption, still refused" \
+  "$MODE_ORCH" "$(dispatch_payload 1337:builder "$tr_qa4")"
+
+tr_qa5="$TMPDIR/trqa5.jsonl"
+t_tool "$(builder_line b1)" "$tr_qa5"
+t_tool "$(builder_result_line b1)" "$tr_qa5"
+t_tool "$(qa_line q1)" "$tr_qa5"
+t_tool "$(checker_result_line q1 "FAIL
+
+confirmed finding")" "$tr_qa5"
+check_grep 2 'run since' "commit gate: qa FAIL never sanctions a commit" \
+  "$MODE_ORCH" "$(commit_payload "$tr_qa5")"
 
 exit $fail

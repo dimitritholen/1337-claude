@@ -10,8 +10,13 @@ Off by default. When on, the main session only plans, dispatches and reviews:
 | `1337:scout` | Haiku | Read-only lookups, answered with `path:line` |
 | `1337:builder` | Chosen per step (Haiku, Sonnet or Opus) | Implements one step |
 | `1337:checker` | Haiku | Runs tests, build and lint; reports `PASS` or `FAIL` |
+| `1337:qa` | Opus | Exploratory QA of the running app via `1337:exploratory-test`; reports `PASS`, `FAIL` or `SKIP` |
 
-A failed check goes back to the builder once, one model tier up. The main
+A failed check goes back to the builder once, one model tier up. `1337:qa`
+runs once per user-facing task, after the checker passes and before review,
+and needs a `docs/agents/qa.md` contract (without one it returns `SKIP`, never
+a pass); on `FAIL` its blocker and major findings go to the builder, then
+checker and qa run again, at most two qa rounds. The main
 session consumes maps, never payloads: ripwire output, subagent reports, git
 metadata and test results, never a repository file's contents, through any
 tool or route. Bash that dumps file contents (`cat`, `head`, `sed -n`, a
