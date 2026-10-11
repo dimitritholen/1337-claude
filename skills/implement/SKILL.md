@@ -37,13 +37,19 @@ For each task:
      then dispatch `1337:builder` at the tier it printed.
    - Otherwise, pick the tier yourself per `hooks/orchestrator.md`'s ladder
      (haiku/sonnet/opus).
-   The builder brief asks for `/1337:tdd` red-green-refactor.
-3. Verify with `1337:checker`.
+   The builder brief asks for `/1337:tdd` red-green-refactor. When the task
+   comes from a spec with an Expectations block, the brief includes the task's
+   expectation rows verbatim. Each non-judgement row becomes a test, red
+   first, at the row's seam: `metric` rows assert measured values (computed
+   style, contrast ratio), `visual` rows use the project's screenshot
+   comparison if it has one, else become `metric` rows.
+3. Verify with `1337:checker`, which runs those tests.
 4. QA: once per task, after checker `PASS`, only when the change is
    user-facing (UI, interaction, CLI/TUI output, user-visible copy). Dispatch
    `1337:qa` (opus) with the task and its spec or acceptance criteria, the
    diff range, and mode `change` (`smoke` for a tiny change). Never pass the
-   builder's report or reasoning; qa stays independent. Internal-only change:
+   builder's report or reasoning; qa stays independent. Judgement rows of the task's
+   expectations go into qa's brief. Internal-only change:
    skip it and say so in the task annotation.
 5. `git diff`, then `/1337:review` in spec mode against the task's spec.
 6. Annotate what was delivered.
@@ -64,6 +70,8 @@ rounds; still failing, stop and hand the findings to the user. Fix minor and
 polish findings too when the project's rules say so, else record them as
 tasks. Product questions go to the user, not the builder. A change-mode run
 takes roughly 15-60 minutes, hence once per task, never per builder step.
+
+A task is not done while one of its expectation rows has no passing test.
 
 Never `tasqx_complete_task` without the user's acceptance.
 

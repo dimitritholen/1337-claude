@@ -40,7 +40,9 @@ The `/1337:` commands this plugin adds.
   are settled; records them as it goes.
 - `/1337:spec` — turns the current conversation into a spec without further
   questions, saved as a tasqx memory entry or `plans/<slug>-spec.md`. Writes
-  the spec only, never code. You call it yourself; Claude never starts it.
+  the spec only, never code. The spec carries an Expectations block (acceptance,
+  claims, context, edge cases, measurable styling), which you approve and which
+  becomes the tests. You call it yourself; Claude never starts it.
 - `/1337:implement` — builds a plan or spec one task at a time: picks the
   tier (routed in tiered mode), has the step built test-first with
   `/1337:tdd`, verifies it, then runs `/1337:review` in spec mode before the
@@ -84,7 +86,8 @@ The `/1337:` commands this plugin adds.
 ## Pipeline
 
 For work bigger than one step: `/1337:grill` to settle the decisions,
-`/1337:spec` to write them down, `/1337:plan` to slice the spec into tasks,
+`/1337:spec` to write them down with an approved Expectations block, `/1337:plan`
+to slice the spec into tasks that each name the expectation rows they satisfy,
 then `/1337:implement`, which runs `/1337:tdd` for each task, then
 `1337:qa` (`/1337:exploratory-test` in change mode, once per user-facing
 task, skipped for internal-only changes or when `docs/agents/qa.md` is
