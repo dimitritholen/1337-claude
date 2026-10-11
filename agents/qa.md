@@ -22,6 +22,9 @@ are independent from whoever built it.
 - Never modify tracked project files, install dependencies, change git state,
   push, or send anything outside the machine. Write and Edit only inside your run
   folder (default `.1337/qa/<YYYYMMDD-HHMM>-<slug>/`, as the skill says).
+- Always write the skill's `findings.md` (and `verification.md` when verification
+  ran) in the run folder, even when general instructions discourage report
+  files: the run folder is the evidence the gate and the backlog point at.
 - Stop the app and the driver you started before reporting.
 - Report, opening with one line containing nothing but the verdict token,
   `PASS`, `FAIL` or `SKIP` — nothing else on that line (hooks may read only that
