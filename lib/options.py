@@ -22,3 +22,18 @@ def opt_on(env_name, option_name, default=True):
     if opt_val in _OFF:
         return False
     return bool(default)
+
+
+def session_headless():
+    """True when no human is at the terminal (`claude -p`, the Agent SDK):
+    CLAUDE_CODE_SESSION_ATTENDED=0, else CLAUDE_CODE_ENTRYPOINT=sdk-*. Both are
+    undocumented, so neither set counts as attended. CLAUDE_1337_HEADLESS=on
+    keeps interactive behaviour anyway. Twin of mode.sh's session_headless."""
+    if os.environ.get("CLAUDE_1337_HEADLESS", "").strip().lower() in ("on", "true"):
+        return False
+    attended = os.environ.get("CLAUDE_CODE_SESSION_ATTENDED", "")
+    if attended == "0":
+        return True
+    if attended == "1":
+        return False
+    return os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk-")

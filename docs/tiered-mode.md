@@ -26,4 +26,9 @@ when enabling, the `tiered` row in `/config` or `"tiered": true` next to
 `"orchestrator"` in `~/.claude/settings.json`, or `CLAUDE_1337_TIERED=1` for
 one session. Start a new session after changing it.
 
+Like orchestrator mode, tiered mode stays off in a headless session
+(`claude -p`, the Agent SDK) unless `CLAUDE_1337_TIERED=1` or
+`CLAUDE_1337_HEADLESS=on` is set. `CLAUDE_1337_TIERED=0` turns it off for an
+interactive session. See [headless sessions](orchestrator-mode.md#headless-sessions).
+
 [Back to README](../README.md)

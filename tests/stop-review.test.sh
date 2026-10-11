@@ -2,6 +2,9 @@
 # Tests for hooks/stop-review.sh: feeds crafted Stop payloads against fixture
 # git repos and asserts the exit code. Exit 2 = nudge fired, exit 0 = quiet.
 set -u
+# The session running these tests may be headless (claude -p sets
+# CLAUDE_CODE_SESSION_ATTENDED=0), which turns the gates off; start attended.
+unset CLAUDE_CODE_SESSION_ATTENDED CLAUDE_CODE_ENTRYPOINT CLAUDE_1337_HEADLESS
 
 HOOK="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)/hooks/stop-review.sh"
 fail=0
@@ -89,6 +92,15 @@ seq 1 40 > "$repo/a.txt"
 CLAUDE_1337_REVIEW_NUDGE=1 CLAUDE_PLUGIN_OPTION_REVIEW_NUDGE=false \
   check 2 "CLAUDE_1337_REVIEW_NUDGE=1 beats review_nudge=false (option)" \
   "$(payload "$sid_envbeats" "$repo")"
+
+sid_headless="$sid-headless"
+seq 1 40 > "$repo/a.txt"
+CLAUDE_CODE_SESSION_ATTENDED=0 check 0 "headless session (attended=0): quiet" \
+  "$(payload "$sid_headless" "$repo")"
+CLAUDE_CODE_ENTRYPOINT=sdk-py check 0 "headless session (sdk entrypoint): quiet" \
+  "$(payload "$sid_headless-sdk" "$repo")"
+CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_1337_HEADLESS=on check 2 "headless with CLAUDE_1337_HEADLESS=on: nudge fires" \
+  "$(payload "$sid_headless-on" "$repo")"
 
 sid_optabsent="$sid-optabsent"
 seq 1 40 > "$repo/a.txt"

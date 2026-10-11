@@ -4,6 +4,9 @@
 # and stderr fragment it must produce. This is the corpus companion to
 # tests/orchestrator-guard.test.sh: same hook, same rules, data-driven replay.
 set -u
+# The session running these tests may be headless (claude -p sets
+# CLAUDE_CODE_SESSION_ATTENDED=0), which turns the gates off; start attended.
+unset CLAUDE_CODE_SESSION_ATTENDED CLAUDE_CODE_ENTRYPOINT CLAUDE_1337_HEADLESS
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)"
 HOOK="$ROOT/hooks/orchestrator-guard.sh"

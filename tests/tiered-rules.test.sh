@@ -2,6 +2,9 @@
 # Tests for hooks/tiered-rules.sh: exercises the on/off env vars and checks
 # the ${CLAUDE_PLUGIN_ROOT} placeholder gets substituted with the real root.
 set -u
+# The session running these tests may be headless (claude -p sets
+# CLAUDE_CODE_SESSION_ATTENDED=0), which turns the gates off; start attended.
+unset CLAUDE_CODE_SESSION_ATTENDED CLAUDE_CODE_ENTRYPOINT CLAUDE_1337_HEADLESS
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)"
 HOOK="$ROOT/hooks/tiered-rules.sh"
@@ -57,6 +60,12 @@ check nonempty "EVAL_CLAUDE_1337_TIERED=1 alone: rules printed" \
   CLAUDE_PLUGIN_OPTION_TIERED=false CLAUDE_1337_TIERED=0 EVAL_CLAUDE_1337_TIERED=1
 
 check empty "plugin option off: stdout empty" CLAUDE_PLUGIN_OPTION_TIERED=off CLAUDE_1337_TIERED=0
+
+check empty "CLAUDE_1337_TIERED=0 beats plugin option on" CLAUDE_PLUGIN_OPTION_TIERED=on CLAUDE_1337_TIERED=0
+check empty "headless session: plugin option on is ignored" CLAUDE_PLUGIN_OPTION_TIERED=on CLAUDE_CODE_SESSION_ATTENDED=0
+check nonempty "headless session: CLAUDE_1337_TIERED=1 still applies" CLAUDE_1337_TIERED=1 CLAUDE_CODE_SESSION_ATTENDED=0
+check nonempty "headless with CLAUDE_1337_HEADLESS=on: plugin option applies" \
+  CLAUDE_PLUGIN_OPTION_TIERED=on CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_1337_HEADLESS=on
 
 out=$(env CLAUDE_PLUGIN_OPTION_TIERED=on "$HOOK" 2>/dev/null)
 case "$out" in

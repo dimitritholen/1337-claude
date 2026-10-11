@@ -2,6 +2,9 @@
 # Tests for hooks/orchestrator-guard.sh: feeds crafted PreToolUse payloads and
 # asserts the exit code. Exit 2 = refused, exit 0 = allowed.
 set -u
+# The session running these tests may be headless (claude -p sets
+# CLAUDE_CODE_SESSION_ATTENDED=0), which turns the gates off; start attended.
+unset CLAUDE_CODE_SESSION_ATTENDED CLAUDE_CODE_ENTRYPOINT CLAUDE_1337_HEADLESS
 
 HOOK="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)/hooks/orchestrator-guard.sh"
 fail=0
@@ -218,6 +221,25 @@ CLAUDE_1337_ORCHESTRATOR=1 check 2 "env switch turns mode on" "$write"
 unset CLAUDE_PLUGIN_OPTION_ORCHESTRATOR CLAUDE_1337_ORCHESTRATOR
 EVAL_CLAUDE_1337_ORCHESTRATOR=1 check 2 "eval switch turns mode on" "$write"
 unset EVAL_CLAUDE_1337_ORCHESTRATOR
+
+# The env var wins over the plugin option in both directions, so a tool that
+# launches Claude can switch the mode off for its own sessions.
+CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=on CLAUDE_1337_ORCHESTRATOR=0 check 0 "env 0 beats option on" "$write"
+CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=on CLAUDE_1337_ORCHESTRATOR=off check 0 "env off beats option on" "$write"
+CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=off CLAUDE_1337_ORCHESTRATOR=on check 2 "env on beats option off" "$write"
+
+# Headless sessions (claude -p, the Agent SDK) get no orchestrator mode from
+# the plugin option; an explicit env var, the eval switch or
+# CLAUDE_1337_HEADLESS=on still turn it on.
+CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=on CLAUDE_CODE_SESSION_ATTENDED=0 check 0 "headless (attended=0): option on is ignored" "$write"
+CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=on CLAUDE_CODE_ENTRYPOINT=sdk-ts check 0 "headless (sdk entrypoint): option on is ignored" "$write"
+CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=on CLAUDE_CODE_SESSION_ATTENDED=1 CLAUDE_CODE_ENTRYPOINT=cli check 2 "attended TUI: option on applies" "$write"
+CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=on CLAUDE_CODE_SESSION_ATTENDED=1 CLAUDE_CODE_ENTRYPOINT=sdk-cli check 2 "attended=1 wins over an sdk entrypoint" "$write"
+CLAUDE_1337_ORCHESTRATOR=1 CLAUDE_CODE_SESSION_ATTENDED=0 check 2 "headless: explicit env on still applies" "$write"
+EVAL_CLAUDE_1337_ORCHESTRATOR=1 CLAUDE_CODE_SESSION_ATTENDED=0 check 2 "headless: eval switch still applies" "$write"
+CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=on CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_1337_HEADLESS=on check 2 "headless: CLAUDE_1337_HEADLESS=on keeps the option" "$write"
+[ -z "$(CLAUDE_PLUGIN_OPTION_ORCHESTRATOR=on CLAUDE_CODE_SESSION_ATTENDED=0 "$HOOK" --rules)" ] \
+  && echo "ok   headless: no rules printed" || { echo "FAIL headless: rules printed"; fail=1; }
 
 # Per-session edit cap, shared by small edits and ripwire symbol edits.
 # Isolate state in a scratch TMPDIR; every case uses its own session id.
