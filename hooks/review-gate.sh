@@ -20,19 +20,21 @@
 #     "<command-name>/1337:review</command-name>" tag the CLI emits for the
 #     typed slash command.
 #
-# THE RETRY EXEMPTION (dispatch gate only): if a 1337:checker dispatch
-# appears after the previous builder's dispatch and that checker's result
-# opens with the verdict token `FAIL` alone on its first line (the contract
-# agents/checker.md documents), the next 1337:builder dispatch is the
+# THE RETRY EXEMPTION (dispatch gate only): if a 1337:checker or 1337:qa
+# dispatch appears after the previous builder's dispatch and that agent's
+# result opens with the verdict token `FAIL` alone on its first line (the
+# contract agents/checker.md documents; 1337:qa uses the same, with SKIP and
+# PASS exempting nothing — a qa FAIL goes back to the builder before any
+# review), the next 1337:builder dispatch is the
 # sanctioned retry one tier up and passes even with neither diff nor review
 # seen — without this the gate deadlocks the exact path where work is
 # already going wrong. An Agent/Task dispatch now runs in the background:
-# the checker's synchronous tool_result is only the async launch stub, and
+# the agent's synchronous tool_result is only the async launch stub, and
 # the real verdict lands later as a separate transcript entry carrying a
 # `<task-notification>...<tool-use-id>...</tool-use-id>...<result>...
 # </result>...</task-notification>` block. The FAIL check below looks at
 # both — the synchronous result and any notification whose tool-use-id
-# matches a 1337:checker dispatch — either counts.
+# matches a 1337:checker or 1337:qa dispatch — either counts.
 #
 # SIZE CARVE-OUT: the hook measures the change itself instead of trusting
 # what got dispatched — `git diff --numstat HEAD` (covers staged and
@@ -198,7 +200,7 @@ scan=$(tail -n "+$((builder_ln + 1))" "$transcript" 2>/dev/null | jq -R 'fromjso
   | ($events | any(.kind == "usertext"
       and (.text | contains("<command-name>/1337:review</command-name>")))) as $slashreview
   | ([$events[] | select(.kind == "use" and (.name == "Agent" or .name == "Task")
-      and .subagent_type == "1337:checker") | .id]) as $checker_ids
+      and (.subagent_type == "1337:checker" or .subagent_type == "1337:qa")) | .id]) as $checker_ids
   | ($events | any((.kind == "result" or .kind == "notify")
       and (.tool_use_id as $t | ($checker_ids | index($t)) != null)
       and (verdict_line(.text) | test("^FAIL")))) as $checker_fail
@@ -235,7 +237,7 @@ if [ "$gate" = "commit" ]; then
   lead="a 1337:builder dispatch finished and $missing."
 else
   remedy='blocked (1337 review gate): run `git diff`, then `/1337:review`, before the next builder dispatch.'
-  lead="the previous 1337:builder dispatch is unreviewed — $missing, and no 1337:checker failure sanctions this as a retry."
+  lead="the previous 1337:builder dispatch is unreviewed — $missing, and no 1337:checker or 1337:qa failure sanctions this as a retry."
 fi
 printf '%s\n%s Approve or send the deltas back first. CLAUDE_1337_REVIEW_GATE=off disables.\n' "$remedy" "$lead" >&2
 exit 2

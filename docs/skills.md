@@ -40,12 +40,19 @@ The `/1337:` commands this plugin adds.
   are settled; records them as it goes.
 - `/1337:spec` — turns the current conversation into a spec without further
   questions, saved as a tasqx memory entry or `plans/<slug>-spec.md`. Writes
-  the spec only, never code. You call it yourself; Claude never starts it.
+  the spec only, never code. The spec carries an Expectations block (acceptance,
+  claims, context, edge cases, measurable styling), which you approve and which
+  becomes the tests. You call it yourself; Claude never starts it.
 - `/1337:implement` — builds a plan or spec one task at a time: picks the
   tier (routed in tiered mode), has the step built test-first with
   `/1337:tdd`, verifies it, then runs `/1337:review` in spec mode before the
   next task. `/1337:implement --one` builds one task and stops, so you can
   `/clear` between tasks. You call it yourself; Claude never starts it.
+- `/1337:exploratory-test` — exploratory QA of the running app: drives it like
+  a user, in `change` mode (the surfaces a diff touches), `smoke` mode (a quick
+  pass) or `full` (the whole app), and reports confirmed findings by severity. Needs a
+  per-project contract in `docs/agents/qa.md`. The `1337:qa` agent runs it
+  from the build flow.
 - `/1337:tdd` — red-green-refactor reference for building features or fixing
   bugs test-first: what a good test is, where it goes, the anti-patterns.
   Edits tests and code.
@@ -79,9 +86,18 @@ The `/1337:` commands this plugin adds.
 ## Pipeline
 
 For work bigger than one step: `/1337:grill` to settle the decisions,
-`/1337:spec` to write them down, `/1337:plan` to slice the spec into tasks,
-then `/1337:implement`, which runs `/1337:tdd` and `/1337:review` in spec
-mode for each task. Stuck on a bug along the way: `/1337:diagnose`. Pausing:
-`/1337:handoff`.
+`/1337:spec` to write them down with an approved Expectations block, `/1337:plan`
+to slice the spec into tasks that each name the expectation rows they satisfy,
+then `/1337:implement`, which runs `/1337:tdd` for each task, then
+`1337:qa` (`/1337:exploratory-test` in smoke mode, once per user-facing
+pull request, skipped for internal-only changes or when `docs/agents/qa.md` is
+missing) and `/1337:review` in spec mode. Stuck on a bug along the way:
+`/1337:diagnose`. Pausing: `/1337:handoff`.
+
+A task goes scout, builder, checker, review; the pull request then gets one
+qa smoke run (about 10-15 minutes) before it is opened or merged. qa is the
+only step that runs the app; on `FAIL` its blocker and major findings go back
+to the builder, at most two qa rounds, while minor and polish findings become
+tasks. The full pass runs nightly on main: see [the nightly recipe](qa-nightly.md).
 
 [Back to README](../README.md)

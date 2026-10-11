@@ -34,6 +34,22 @@ reliably.
 - Verify every builder step with `1337:checker`. On `FAIL`, send the failing output
   back to builder one model tier up, once; if it fails again, take over the
   diagnosis yourself.
+- Once per pull request, after the PR's last task has checker `PASS` and before
+  the PR is opened or merged, dispatch `1337:qa` (opus) when the PR is
+  user-facing (UI, interaction, CLI/TUI output, user-visible copy); never per
+  task or builder step. Internal-only PRs skip it, noted in the annotation.
+  Brief: mode `smoke`, the tasks' specs or acceptance criteria, the branch diff
+  against the base, and the `judgement` expectation rows of those tasks; never
+  the builder's report or reasoning. qa runs the
+  `1337:exploratory-test` skill and reports `PASS`, `FAIL` or `SKIP` on its
+  first line. It needs `docs/agents/qa.md`; without it, `SKIP`, which is
+  reported as a skip and never counts as a pass. On `FAIL`, send the confirmed
+  blocker and major findings verbatim to `1337:builder` under the usual tier
+  rules, re-run `1337:checker`, then `1337:qa` again on the fixed surfaces; at
+  most two qa rounds, then hand the findings to the user. Only a confirmed
+  blocker or major blocks the merge. Minor and polish findings: record as
+  tasks, or fix when the project's rules say so. Product questions go to the
+  user. A smoke run takes roughly 10-15 minutes.
 - Do it yourself when delegating costs more than doing: an edit of about 20 lines or
   fewer in a file already in context, and corrections faster to make than to
   explain. The orchestrator guard refuses larger edits (the larger of old and new
@@ -59,7 +75,7 @@ reliably.
   (`--replace-symbol-body`/`--insert-before-symbol`/`--insert-after-symbol`
   with `--edit-payload`) is the one Bash write that is allowed, since it
   needs no file in context; it spends one unit of that same budget.
-- Review the builder's report and the diff before moving on.
+- Review the builder's report, the qa verdict and the diff before moving on.
 - Independent steps go out in parallel in one message.
 - When the same standing instructions (roughly 300+ tokens) recur in three or more
   briefs, suggest turning them into a project agent in `.claude/agents/`.

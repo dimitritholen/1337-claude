@@ -32,6 +32,11 @@ it or the one that depends on it. The minimalism rule still applies: the
 smallest set of slices that reaches the spec's goal, ordered so each is
 buildable once what it depends on has landed.
 
+A spec with an `## Expectations` block adds a rule: every task names the
+expectation IDs it satisfies, and every non-judgement row is covered by
+exactly one task. `judgement` rows are listed in the plan for the qa step,
+not assigned to a task.
+
 # Where the plan lives
 
 Check once, in this order, and never record in both:
@@ -76,7 +81,7 @@ Check once, in this order, and never record in both:
   annotation, a plain paragraph: what the step is, why, what done looks
   like, naming files and symbols since only bodies are searched. Planning
   from a spec: that annotation also names the spec (the memory title or the
-  file path) so the task can be traced back to it.
+  file path) so the task can be traced back to it. It also lists the task's expectation IDs.
   `tasqx_add_check` per done criterion, `tasqx_add_dependency` per
   after-link.
 - The goal, the build in 1-3 lines and the cut list go in one
@@ -114,7 +119,7 @@ only when there are any:
     ## Log
     - <date> plan written
 
-Planning from a spec: name it under `## Build` (memory title or file path),
+Planning from a spec: name it under `## Build` (memory title or file path), add an `Expectations: <IDs>` line to each step and a `## For qa` section listing the `judgement` rows,
 and list the steps in dependency order — blockers first — replacing `After:`
 with `Depends on: <step titles>`, since a slice can depend on more than one
 earlier slice.

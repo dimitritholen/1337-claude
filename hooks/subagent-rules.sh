@@ -11,8 +11,9 @@
 # CLAUDE_1337_SUBAGENT_RULES=0 disables injection entirely.
 #
 # A read-only agent_type (CLAUDE_1337_SUBAGENT_READONLY, an unanchored,
-# case-insensitive regex, default "scout|checker|explore" so it covers
-# 1337:scout, 1337:checker, Explore and codebase-memory-scout) gets the
+# case-insensitive regex, default "scout|checker|explore|(^|:)qa$" so it covers
+# 1337:scout, 1337:checker, Explore, codebase-memory-scout and 1337:qa; qa is
+# anchored so names that merely contain it do not match) gets the
 # digest with its "# Work on the minimum" and "# Evaluate the task briefly"
 # sections cut by awk, since a read-only worker has nothing to build or
 # evaluate for scope. Setting it to an empty string gives nobody the short
@@ -42,7 +43,7 @@ if [ -n "$matcher" ] && [ -n "$agent_type" ]; then
   [ "$rc" -eq 1 ] && exit 0
 fi
 
-readonly_re="${CLAUDE_1337_SUBAGENT_READONLY-scout|checker|explore}"
+readonly_re="${CLAUDE_1337_SUBAGENT_READONLY-scout|checker|explore|(^|:)qa$}"
 if [ -n "$readonly_re" ] && [ -n "$agent_type" ]; then
   rc=0
   jq -ne --arg re "$readonly_re" --arg at "$agent_type" '$at | test($re; "i")' >/dev/null 2>&1 || rc=$?

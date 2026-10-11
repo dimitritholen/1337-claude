@@ -23,6 +23,8 @@ A **seam** is the public boundary you test at: the interface where you observe b
 
 Ask: "What's the public interface, and which seams should we test?"
 
+When a spec with an Expectations block exists, its rows for this task are the test list, still one row per red-green cycle, and the rows' seams are the agreed seams.
+
 When the shape of that interface is itself in question (how deep the module is, where the seam belongs, what the interface should expose), settle it with the user before writing a test against it.
 
 ## Anti-patterns

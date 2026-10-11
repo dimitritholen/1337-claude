@@ -14,7 +14,9 @@ This skill takes the current conversation context and codebase understanding and
 
 Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then record it (below).
+3. Derive the Expectations block from the user stories and the touched surfaces, following `references/expectations.md`. Show it to the user for approval: the approved block is the definition of done. This is the one exception to "do not interview", like confirming the seams: confirm the block, do not open a Q&A.
+
+4. Write the spec using the template below, then record it (below).
 
 <spec-template>
 
@@ -37,6 +39,10 @@ A LONG, numbered list of user stories. Each user story should be in the format o
 </user-story-example>
 
 This list of user stories should be extremely extensive and cover all aspects of the feature.
+
+## Expectations
+
+Mandatory. A table `ID | Expectation | Check | Seam`, built with `references/expectations.md`: Acceptance, Claims, Context map, Transitions, Parity, Conventions, Inputs and controls, Styling and Edge-case rows, plus the house rules the feature is subject to. Check is `e2e`, `unit`, `metric`, `visual` or `judgement`; `judgement` rows are the only ones left to `1337:qa`. Internal-only features (no UI, no user-visible output) need only Acceptance and Edge-case rows.
 
 ## Implementation Decisions
 

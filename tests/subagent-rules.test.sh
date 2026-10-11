@@ -89,6 +89,11 @@ unset CLAUDE_1337_SUBAGENT_READONLY
 headings_check "checker gets the short digest (default READONLY)" "checker" - 1
 headings_check "scout gets the short digest (default READONLY)" "1337:scout" - 1
 headings_check "Explore gets the short digest (default READONLY)" "Explore" - 1
+headings_check "1337:qa gets the short digest (default READONLY)" "1337:qa" - 1
+headings_check "bare qa gets the short digest (default READONLY)" "qa" - 1
+headings_check "squad-agent does not get the short digest" "squad-agent" - 0
+headings_check "pqa-helper does not match the anchored qa entry" "pqa-helper" - 0
+headings_check "qa-fixer does not match the anchored qa entry" "qa-fixer" - 0
 headings_check "builder gets all five sections" "builder" - 0
 headings_check "general-purpose gets all five sections" "general-purpose" - 0
 headings_check "missing agent_type gets all five sections" "" - 0

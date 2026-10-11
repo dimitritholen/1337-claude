@@ -394,7 +394,7 @@ work when the plugin is installed and used in any folder, not only this one.
   dispatch, it refuses to `git commit` or dispatch another builder until a
   `git diff` has run and `/1337:review` has been called, unless the change is
   at or under `CLAUDE_1337_REVIEW_MIN_LINES` (default 20). For dispatch only,
-  a `1337:checker` result starting with `FAIL` on its first line sanctions a
+  a `1337:checker` or `1337:qa` result starting with `FAIL` on its first line sanctions a
   retry even without review (a leading `[harness: ...]` line the harness
   sometimes prepends to a subagent result is skipped first); an async
   checker's verdict, when its synchronous result is only the launch stub, is
